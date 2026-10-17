@@ -1,0 +1,18 @@
+# macOS / Xcode / SwiftPM
+.build/
+dist/
+build/
+.local/
+DerivedData/
+*.xcuserstate
+*.xcuserdata/
+xcuserdata/
+.DS_Store
+
+# Editor dirs
+.idea/
+.vscode/
+
+# doccheck runtime deps (installed on demand)
+tools/doccheck/node_modules/
+tools/doccheck/package*.json
