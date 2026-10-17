@@ -3,8 +3,8 @@
 > Survey of system monitoring tools that present live system state
 > visually, across macOS, Windows, Linux and PC gaming, with what each one
 > teaches a Mac-native, graph-first replacement for Activity Monitor.
-> Sources accessed 2026-10-17. The product plan built on this research
-> follows in `docs/plan.md`.
+> Sources accessed 2026-10-17. The product plan built on this research is
+> in [`../plan.md`](../plan.md).
 
 ## Contents
 
@@ -30,7 +30,8 @@
 Eleven topic surveys plus an analysis of the owner's reference screenshots.
 Each survey was written by one model with web access and then fact-checked
 by a second model on a different provider, which corrected the file in place
-and logged every change in a "Verification log" at its end. About forty claims
+and logged every change in a "Verification log" at its end (the check of
+notes 10 timed out; its claims were covered by the pass described next). About forty claims
 the plan depends on were then re-checked against primary sources (source
 code, man pages, issue threads, vendor pages). That pass corrected several
 overstated or misattributed details, and it also reversed one of the
