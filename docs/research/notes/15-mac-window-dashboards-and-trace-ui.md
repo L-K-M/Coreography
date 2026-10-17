@@ -424,9 +424,10 @@ Two unrelated apps share this name; both are new in 2026.
 
 ## Comparison matrix vs Coreography differentiators
 
-Legend: Yes = ships it well; Partly = exists but thin/coarse; No = not
-documented in the reviewed public sources (not proven absent at runtime);
-? = could not verify from public sources.
+Legend: Yes = publicly documented capability; Partly = documented but
+thin/coarse; No = not documented in the reviewed sources (not proven
+absent at runtime); ? = unverified. Advertised = unshipped vendor claim.
+These ratings describe source evidence, not hands-on validation.
 
 | App | Graph-first window at AM depth | Shared time axis | Scrubbable long history | Attribution in time | Cluster-aware CPU + freq + watts | Honest availability | Live FPS/HUD for games | Power-user inspector |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -437,7 +438,7 @@ documented in the reviewed public sources (not proven absent at runtime);
 | System Dashboard Pro | Yes (tile grid, live graphs) | Partly (per-tile graphs, same refresh) | No (seconds) | No (live top-N only) | Partly (per-core bars, M5 super cores; wall watts on desktops) | Yes (plugin-gated sensors labelled) | No | No |
 | System Monitor Panel | No (HUD widget strip) | No | No | No | No | Yes (helper gating explicit) | Partly (always-on-top panel is HUD-adjacent; no FPS) | No |
 | Tempo | Partly (rings + charts, low metric count) | No | Partly (30 d @ 1/min, hover point values) | No | No | Yes (declines GPU/temp, shows thermal pressure) | No | No (top-10 list only) |
-| Orcylo (pre-launch; advertised) | Partly (13 tabs of cards/charts) | No | Partly (30 d @ 1/min) | Partly (claims "which app slowed things down") | Partly (P/E counts; system + per-app watts, Wh) | Yes (e.g. "read only" fan) | No | Partly (dev-server/ports views) |
+| Orcylo (pre-launch) | Advertised (13 tabs of cards/charts) | ? | Advertised (30 d @ 1/min) | Advertised ("which app slowed things down") | Advertised (P/E counts, system + per-app watts, Wh) | Unverified (simulated demo; "read only" is a label) | ? | Advertised (dev-server/ports views) |
 | MacStats (macstats.app) | Partly (menu bar + summary window) | No | Partly (24 h/7 d/30 d Pro) | Yes-ish (auto-recorded incidents name the process) | No | Yes (thermal-state-only stance, explains gaps) | No | Partly (AI explain; no files/ports) |
 | MacStats (luizcastro) | Yes (per-metric panes + process table) | No | Partly (min/hour/day charts) | No | ? | ? | No | Partly (filter/sort process table) |
 | XRG | Yes (graph-only strip window) | Partly (modules share scroll window) | No | No | No | No | No | No |
@@ -450,6 +451,10 @@ the worst skin, and System Dashboard Pro the best-tiled layout with no
 memory. None of the reviewed apps combines a shared time axis, zoomable
 history, and
 attribution-in-time; that triple is open.
+
+Orcylo's row describes advertising, not shipped behavior: the site labels
+its demo values as simulated. Its labels cannot validate availability or
+measurement accuracy.
 
 ## Interaction references: trace analyzers and observability UIs
 
@@ -656,11 +661,11 @@ attribution-in-time; that triple is open.
    absent in the reviewed Mac monitors; a two-range process-overlap table
    (which apps were over-represented in the bad window) is a concrete,
    buildable version.
-4. Match the emerging honesty bar: Tempo's refusal to guess GPU/temps,
-   Orcylo's advertised "read only" labels and plugin-gating disclosures
-   from Sascha Simon and ImageTasks are now normal expectations; TMOG's
-   measured/unavailable/restricted contract remains the target to beat.
-   Datadog's shaded "partial data" interval is a small, copyable cue.
+4. State availability explicitly: Tempo declines unsupported GPU/temps,
+   and Sascha Simon and ImageTasks disclose plugin requirements. TMOG's
+   measured/unavailable/restricted contract and Datadog's shaded partial
+   intervals are useful references. Orcylo's simulated "read only" labels
+   are a presentation idea, not evidence of a working measurement policy.
 5. Price and packaging: one-time in the $15-25 band fits between Tempo
    ($14.99) and Vitals ($39 regular); a free tier is crowded
    (System Monitor Panel, Stats, MacStats OSS) so the window itself

@@ -41,11 +41,11 @@ and are referenced, not repeated, here.
   burst or a real status tool before declaring the state active.
 - Sub-app attribution is sharply limited. Safari WebContent rows carry
   a registrable domain in their Launch Services display name and
-  Activity Monitor's tooltip lists hosted URLs; Chrome/Electron helpers
-  and FirefoxCP processes expose only a role flag in argv
-  (`--type=renderer`), never a tab or URL. The truth lives in each
-  browser's own task manager; an external tool can either prompt for
-  Automation consent (AppleScript) or defer to it.
+  Activity Monitor's tooltip lists hosted URLs. Chrome/Electron helpers
+  use role flags such as `--type=renderer`; Firefox content processes use
+  `-contentproc`. These do not provide a reliable PID-to-tab mapping.
+  Browser-owned task views and optional Automation access offer different
+  levels of detail; neither should be guessed from a generic helper name.
 - CPU% has three live conventions: Irix (sum of per-core percentages,
   can exceed 100%), Solaris (share of all cores, max 100%), and now
   Windows Task Manager's 2025 unified formula
@@ -90,8 +90,8 @@ search:
   for.
 - **Verified Signer** validates the image signature against a trusted
   root; verification touches CRL servers over the network. The process
-  properties dialog renders the result inline as "(Verified) <subject>",
-  "(Not verified) <name>", or "(Unable to verify)".
+  properties dialog renders the result inline as `(Verified) <subject>`,
+  `(Not verified) <name>`, or `(Unable to verify)`.
 - **VirusTotal** submits file hashes and shows a detection ratio column;
   unknown files can be uploaded for scanning (opt-in).
 - **Search Online** exists in the process menu too, for anything the
@@ -740,8 +740,10 @@ warning about spawned subprocesses applies.
 7. **VMs/containers get first-class rows with an honesty boundary.**
    Detect `com.apple.Virtualization.VirtualMachine`,
    `container-runtime-linux`, `prl_vm_app`, `qemu-system-*`,
-   `com.docker.backend`/`orbstack` and group them as a VM/container
-   category; name the guest where discoverable (container name,
+   `com.docker.backend` and group them as a VM/container category.
+   Confirm OrbStack's actual bundle/process identities before adding a
+   matcher; `orbstack` is not a verified process-name literal here.
+   Name the guest where discoverable (container name,
    `container stats`/`docker stats`/`orb top` guest-side stats as an
    optional integration); where the interior is unreachable, label the
    row "host-attributed total, guest breakdown unavailable" rather

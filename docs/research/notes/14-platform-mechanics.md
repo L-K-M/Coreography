@@ -69,8 +69,8 @@ this file is about the windowing, OS-event, and integration mechanics.
   --query-compute-apps`; `MTLDevice.currentAllocatedSize` is own-process
   only), the runtime level (Ollama `/api/ps` exposes `size_vram`,
   `context_length`, `expires_at`; `lms ps --json`; `llama-server
-  --metrics`/`--slots`), and the system level (`iogpu.wired_limit_mb` caps
-  GPU-resident memory at about 70-75% of RAM by default; ANE power/state via
+  --metrics`/`--slots`), and the system level (device-specific GPU memory
+  budgets and Metal working-set recommendations; ANE power/state via
   the IOReport/SMC fallbacks in notes 09). StatBar and tstats already sell
   the "LLM telemetry in a monitor" idea; Apple Intelligence runs as named
   daemons (`generativeexperiencesd`, `siriinferenced`,
@@ -222,7 +222,8 @@ which consumes it in production): root keys `PID` (number) and `Layers`
 (pixels)`; `Performance Stats` with `Time Active (sec)` and `Presented
 Frame Stats`; the latter carries `FPS` and `On-GPU Walltime Stats` with
 `Total (ms)`. PerformanceHUD derives app GPU busy % as
-`Total(ms)/(TimeActive*1000)` clamped to 0-100, and picks the largest-area
+`100 * Total(ms)/(TimeActive*1000)` for positive active time, clamped to
+0-100, and picks the largest-area
 layer as "the" game surface. Practical notes from its monitor: set
 `NSUnbufferedIO=YES` in the child's environment or output arrives in
 multi-second batches; treat samples stale after ~3 s; drain stderr so the
@@ -256,7 +257,7 @@ cost as a real thing to measure, not assume.
 
 | Source | Content | Privilege |
 | --- | --- | --- |
-| `pmset -g log` | Timeline of Sleep, Wake, DarkWake, Assertions, WakeDetails, UUID, charge level and power source per event; about 14 days of history | None (read side is unprivileged; only `-g` writes need root) |
+| `pmset -g log` | Timeline of Sleep, Wake, DarkWake, Assertions, WakeDetails, UUID, charge level and power source per event; observed retention varies | Read-only `-g` queries normally need no root; setting power policy is separate and privileged |
 | `pmset -g assertions` | Current power assertions by type and process | None |
 | `pmset -g assertionslog` | Create/release history of assertions | None |
 | `pmset -g stats` | Sleep/wake counts since boot | None |
@@ -306,9 +307,10 @@ mTinker 1.7.0):
 
 Two more details from the same source: `pmset -g assertions` renders
 non-ASCII assertion names as empty strings (name yours in ASCII; it shows
-up in other people's debugging); and `PreventUserIdleSystemSleep` alone
-still lets the display sleep, so "Keep Awake" semantics need both assertion
-types held separately so display sleep remains possible.
+up in other people's debugging). `PreventUserIdleSystemSleep` keeps the
+system awake while allowing display sleep; additionally preventing
+display sleep requires `PreventUserIdleDisplaySleep`. These are separate
+assertions with different effects, not interchangeable names.
 
 ### Dark wakes and notification delivery
 
@@ -379,14 +381,14 @@ available.
   buffers; freed buffers stay in the Metal pool and keep counting toward
   phys_footprint. MLX's own limit check uses `active + cache`. Report
   footprint, not the framework's counter (mlx issue #3896).
-- `iogpu.wired_limit_mb`: undocumented sysctl capping GPU-wired (resident)
-  memory, default roughly 70-75% of RAM (reports vary; measure it). `0` =
-  OS default; runtime-only, resets on reboot; the older key was
-  `debug.iogpu.wired_limit` and setting a nonexistent key silently
-  succeeds. Metal exposes it as `max_recommended_working_set_size` (=
-  limit x 1024^2), which llama.cpp, Ollama and MLX treat as the hard GPU
-  ceiling; MLX's `set_wired_limit` doc confirms the mechanism. Hugging
-  Face's decimal-GB model sizes vs GiB budgets is a real off-by-7% trap.
+- `iogpu.wired_limit_mb` is an undocumented GPU-wired-memory budget
+  setting; reported defaults vary by device, RAM and OS. Read the actual
+  value rather than deriving it from a fixed RAM percentage. Metal's
+  `recommendedMaxWorkingSetSize` (MLX's
+  `max_recommended_working_set_size`) is a working-set recommendation,
+  not a universal hard allocation ceiling. Do not assume it equals the
+  private wired-memory limit. Runtimes use these readings to choose their
+  budgets; preserve source and byte units when presenting them.
 - Pressure signals during model loads: `kern.memorystatus_vm_pressure_level`
   (what mactop/iStat show), `sysctl vm.swapusage`, wired growth from Metal
   allocations. A big model load is largely a wired/resident memory event:
@@ -397,8 +399,8 @@ available.
 
 - **Ollama**: `GET /api/ps` on localhost:11434 lists loaded models with
   `name`, `size`, `size_vram` (bytes resident in "VRAM", i.e., GPU memory),
-  `context_length`, `expires_at` (when the model unloads), quantization and
-  family.
+  `context_length`, `expires_at` (when the model unloads), plus nested
+  `details.family` and `details.quantization_level`.
 - **llama.cpp `llama-server`**: `--metrics` enables a Prometheus endpoint,
   `--slots` exposes per-slot context state; this is what StatBar polls on
   127.0.0.1:8080 for tokens/sec, prompt/generate speed, context usage, KV
@@ -538,8 +540,7 @@ CPU/process history.
   key (Little Snitch's pattern) deters casual inspection and backup
   snooping but is not proof against an active admin: whether an admin can
   recover the key depends on the keychain item's access controls and
-  unlock state; POSIX perms `0600`/`0700` on the
-  store directory as the floor.
+  unlock state. Use `0700` for the store directory and `0600` for its files.
 - Retention controls to copy: a hard cap (count or bytes) plus a time cap,
   redaction-at-ingest rules for sensitive series (process names, window
   titles if ever collected, network endpoints), and exports that either
@@ -558,16 +559,16 @@ CPU/process history.
   keeps a Dock presence would host the HUD from an accessory helper
   rather than change the whole app's policy. Design it as a density level of the same engine (P16/P17),
   with `constrainFrameRect` overridden for true edge placement.
-- **Set expectations on fullscreen explicitly.** Windowed/borderless:
-  guaranteed. Native fullscreen: works, scaling can change. CrossOver/GPTK
-  fullscreen: only at desktop-matching or 2x resolutions. Publish that
-  matrix in-app, offer the 0.5-2x size override, and never call it
-  "always on top in games" without qualifiers; the honest table is a
-  differentiator, not a weakness.
+- **Set expectations on fullscreen explicitly.** The reference app
+  reports windowed/borderless support and conditional fullscreen support,
+  including scaling and resolution caveats. Those are vendor observations,
+  not guarantees for Coreography; publish the configurations validated by
+  its own S6 matrix and offer a size override.
 - **`metalperftrace listen --json --pid` is the focused-app FPS source on
   27**: NDJSON at 1 s, fields as parsed above; set `NSUnbufferedIO=YES`,
-  drain stderr, mark stale after ~3 s, derive GPU busy from
-  `On-GPU Walltime Stats.Total / Time Active`. It is an interval-summary
+  drain stderr, mark stale after ~3 s, derive GPU busy percent as
+  `100 * gpuWalltimeMilliseconds / (activeSeconds * 1000)` for positive
+  active time. It is an interval-summary
   stream: for frame-time graphs and 1% lows, plan a separate path through
   `collect`/`overview --json-include-timeline` or `per-frame-metrics`
   signposts. Use `setup --enable hud --pid` to offer "Apple's HUD" as a
@@ -583,8 +584,10 @@ CPU/process history.
 - **The sleep story is a first-class feature at low privilege cost.**
   Build a "night timeline" from `pmset -g log` joined to the app's own
   battery samples: Sleep/DarkWake/Wake segments with reasons, charge deltas
-  per segment, and the assertions that held the machine up, attributed via
-  `AssertionOnBehalfOfPID` so "coreaudiod" becomes "Music". Ship
+  per segment, and assertion records where logs or prior collection
+  retained them. `AssertionOnBehalfOfPID` helps attribute live assertions,
+  but current PID ownership must not be projected across sleep or PID
+  reuse. Ship
   `IOPMCopyAssertionsByProcess` as a live "what's keeping your Mac awake"
   card. This is the cheapest "why did my battery die overnight" answer on
   the platform (per-app attribution inferential, not certain), and it
@@ -595,8 +598,9 @@ CPU/process history.
   breakdown is available, labelled as such (the footprint total alone is
   not GPU-only, and shared unified memory is not additive across
   processes); device total from
-  `PerformanceStatistics`; the wired limit as a visible budget line (read
-  the sysctl + `max_recommended_working_set_size`, mark it estimated).
+  `PerformanceStatistics`. Show the wired-memory setting and Metal's
+  recommended working set as separately sourced budgets where available,
+  without assuming equality or treating either as measured free VRAM.
   Poll Ollama `/api/ps`, `lms ps --json`, llama-server `--metrics` for
   named-model attribution. A monitor that can say "ollama: gemma4, 5.3 GB
   in GPU memory, unloads at 16:47" beats every competitor's "Memory:
@@ -655,7 +659,7 @@ CPU/process history.
 - [llmconfigurator - raising the Metal VRAM ceiling](https://llmconfigurator.com/en/guides/troubleshooting/increase-metal-vram-limit-apple-silicon) - `debug.iogpu.wired_limit` legacy key, silent-failure trap
 - [Liquid pipette-mgmt - peak memory on macOS](https://github.com/Liquid4All/pipette-mgmt/blob/main/docs/methodology/peak-memory-macos.md) - no external per-process Metal query; currentAllocatedSize shim
 - [jundot/omlx proc_memory.py](https://github.com/jundot/omlx/blob/a86a5587/omlx/utils/proc_memory.py) - phys_footprint includes IOAccelerator, jetsam ledger
-- [docs.jacobpevans.com - local-llm memory ceilings](https://docs.jacobpevans.com/local-llm/memory-ceilings) - wired_limit_mb x 1024^2 = max_recommended_working_set_size, decimal-GB trap
+- [docs.jacobpevans.com - local-llm memory ceilings](https://docs.jacobpevans.com/local-llm/memory-ceilings) - third-party budget and unit observations, not an API guarantee equating the two limits
 - [MetalHUDmenu](https://github.com/Jfishin/MetalHUDmenu) - menu bar Metal HUD configurator on macOS 26
 - [ml-explore/mlx issue 3896](https://github.com/ml-explore/mlx/issues/3896) - get_peak_memory vs phys_footprint, allocator pool retention
 - [Ollama docs - /api/ps](https://docs.ollama.com/api/ps), [openapi.yaml](https://github.com/ollama/ollama/blob/main/docs/openapi.yaml) - size_vram, context_length, expires_at
@@ -727,7 +731,8 @@ Confirmed against primary sources:
   --interval 1`, `NSUnbufferedIO=YES`, stderr drained, samples stale
   after 3 s; parser reads `PID`, `Layers[].Configuration`, `Performance
   Stats`/`Presented Frame Stats` (`FPS`, `On-GPU Walltime Stats.Total
-  (ms)`), `Time Active (sec)`; GPU busy = Total/(TimeActive*1000)
+  (ms)`), `Time Active (sec)`; GPU busy percent is
+  `100 * Total / (TimeActive * 1000)`
   clamped 0-100; largest-area layer wins.
 - `GameModeMonitor.swift` verified: `com.apple.system
   .game_mode_status_changed` Darwin notification, 0/1/2 = off/on/paused,
@@ -766,6 +771,9 @@ Corrections applied in this pass:
   System-keychain key deters casual inspection but is not proof against
   an active admin (root can recover the key).
 - Removed the unverified "53-commit" repo characterization.
+- Review follow-up: corrected the missing percent conversion against
+  `MetalPerfTraceMonitor.swift` (`milliseconds / (seconds * 1000) * 100`)
+  and clarified the separate system/display sleep assertions.
 
 Remaining gaps (not re-verified or unverifiable from sources):
 
@@ -773,8 +781,9 @@ Remaining gaps (not re-verified or unverifiable from sources):
   layer entries under "Unverified leads" above still stand.
 - `pmset -g log` "about 14 days" retention is empirical, not a
   documented guarantee.
-- The iogpu.wired_limit_mb default (~70-75% of RAM) is report-sourced;
-  the sysctl is undocumented.
+- GPU-wired-memory defaults are report-sourced and the sysctl is
+  undocumented. Its relationship to Metal's recommended working set
+  requires per-device/OS validation, not a fixed percentage formula.
 - Apple Intelligence daemon mapping rests on one third-party teardown
   (caiovicentino/apple-silicon-internals), not Apple documentation.
 - WWDC26 session 388 and dev-forum thread content were taken as cited;

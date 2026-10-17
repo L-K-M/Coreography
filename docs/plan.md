@@ -146,8 +146,9 @@ survey found least well served by existing Mac monitors.
 - **Detail pane** (bottom, collapsed to a one-line summary by default):
   tabs for Processes, Connections, Startup, Sensors and Recordings. It
   slides up to half or three quarters of the window. The collapsed line
-  still answers "is anything running away" and reports coverage (the
-  unattributed share and any restricted columns).
+  still answers "is anything running away" and reports coverage intervals
+  and restricted columns, plus an unattributed share where accounting is
+  compatible and additive.
 - **Inspector** (right, hidden by default): opens when something is
   selected. One inspector, content follows the selection.
 
@@ -455,7 +456,7 @@ slider, P16):
 ```text
 Level 1  [ 118 fps ]
 
-Level 2  [ 118 fps (1 s avg) | CPU 41% | GPU 87% | 18.2 W est | 62 C ]
+Level 2  [ 118 fps (Metal, 1 s agg) | CPU 41% | GPU 87% | 18.2 W est | 62 C ]
 
 Level 3  +--------------------------+     Level 4: Level 3 plus per-cluster
          | 118 fps (Metal, 1 s agg) |     load and frequency, memory
@@ -497,10 +498,11 @@ not proven verdicts.
 ### Sessions and comparisons
 
 Command-R records a named session (P19) at full resolution, including
-per-process detail. On stop, a report shows average FPS and per-metric
-minimum, maximum and average, plus 1% and 0.1% lows and frame-time
-percentiles only where raw frame intervals were captured through a
-bounded `metalperftrace collect` + `overview` recording, gated on spike
+per-process detail. On stop, a report shows average FPS, top observed
+contributors, and per-metric minimum, maximum and average. Per-metric
+95th percentiles require retained raw samples or a validated distribution;
+1% and 0.1% lows and frame-time percentiles require raw frame intervals
+from a bounded `metalperftrace collect` + `overview` recording, gated on spike
 S4 validating that data, and never derived from the 1-second `listen`
 summaries. Two sessions compare side by side with overlaid graphs,
 CapFrameX style. Sessions export to CSV and JSON.
@@ -514,9 +516,9 @@ through the menu bar extra). Defaults:
 
 | Tier | Resolution | Kept | Contents |
 | --- | --- | --- | --- |
-| Live | 1 s | 1 h in memory | All series, top contributors per subsystem |
-| Recent | 1 s | 6 h on disk | All series, top 10 contributors per subsystem |
-| Day | 10 s | 7 days | System and per-cluster series (not per core), top contributors |
+| Live | 1 s | 1 h in memory | System series, observed-app ledger and top-N snapshots |
+| Recent | 1 s | 6 h on disk | System series, observed-app ledger and top-10 snapshots per subsystem |
+| Day | 10 s | 7 days | System and per-cluster series, observed-app ledger and top-N snapshots |
 | Month | 1 min | 30 days | System series, per-app daily totals for energy, disk writes and network |
 
 - Downsampled tiers keep minimum, maximum and mean, so spikes survive
@@ -538,16 +540,19 @@ through the menu bar extra). Defaults:
   reconstruction. Historical tables show only retained contributors;
   pinned processes and recorded sessions keep full per-process detail for
   bounded windows.
-- Sleep and wake history is imported after wake by a bounded provider
-  running fixed-argument `pmset -g log`, `pmset -g assertions` and `log
-  show` calls, merged with live assertion reads while awake. Sampling
-  stops during sleep rather than through it. Show battery change over
+- Sleep and wake history is imported after wake by a bounded background
+  provider. `log show` uses an explicit `--start`/`--end` window and a
+  fixed power-management event predicate; it never scans the whole store
+  without a window. Both log tools and `pmset -g log` have runtime and
+  output-size caps; reaching a cap reports partial coverage and stops the
+  child. Live assertions come from the public API or `pmset -g assertions`
+  while awake, not a reconstruction of past assertions. Sampling stops
+  during sleep rather than through it. Show battery change over
   sleep separately from observed awake app activity; assertions do not
   apportion battery drain. Logged wake reasons are evidence, not proven
   culprits. Retention and detail depend on available logs and permissions.
-  Sampled
-  process starts and ends are never extrapolated across a sleep gap or a
-  reboot.
+  Sampled process starts and ends are never extrapolated across a sleep
+  gap or a reboot.
 - Retention presets with their disk cost shown, a hard storage cap and a
   hard time cap, and one-click deletion. History stays on this Mac, in a
   per-user 0700 directory with 0600 files holding the minimum identifiers
@@ -579,9 +584,12 @@ hysteresis ("CPU above 90% for 10 s, clear below 70% for 30 s").
 
 - **Inspector depth**: arguments, parent chain, launchd job, signing,
   open files and ports, assertions, threads, wakeups, QoS split.
-- **Sample, spindump and system diagnostics** use allowlisted system
-  tools and validated arguments. Reports open in-app and are exportable;
-  protected targets can remain inaccessible.
+- **Sample and spindump** use allowlisted system tools and validated
+  arguments. Reports open in-app and are exportable; protected targets
+  can remain inaccessible. System diagnostics are separate, explicit
+  background jobs: they can take minutes and create large archives, so
+  show progress, cancellation and disk-use information rather than
+  blocking the window or running them during routine collection.
 - **Signals, suspend and resume, renice**, with identity re-check.
 - **Reverse lookup** of files and ports, system-wide with the helper.
 - **Startup inventory** joined to resource use.
@@ -685,6 +693,12 @@ on macOS 27:
 5. none                                restricted, with the reason shown
 ```
 
+A confirmed frozen source is unusable, not an estimated zero. Try a
+validated fallback; otherwise leave a gap and report the restriction
+or stale-source error. A known entitlement gate is restricted; an
+unexplained source failure is unavailable. An unchanged idle counter
+alone is not proof of freezing.
+
 A Data Sources pane in Settings lists every metric, its active rung,
 provenance and last error, and `coreo doctor` exports the same report for
 bug reports.
@@ -697,8 +711,12 @@ bug reports.
 - A deliberately tiny XPC interface: enrich processes (usage for other
   users' processes), list files and ports of a process, send a signal,
   spindump. The protocol rejects arbitrary commands and executable paths.
-  Only its fixed diagnostics may launch system tools; reports return to
-  the app rather than being written to caller-selected paths as root.
+  Diagnostics launch only allowlisted absolute system paths with fixed
+  argument templates and a scrubbed environment, without a shell or PATH
+  search. Templates accept only validated process identities and bounded
+  typed options, never arbitrary caller-supplied argv or output paths.
+  Bound execution time and output; reports return to the app rather than
+  being written to caller-selected paths as root.
 - Every connection is validated against the app's code signature through
   its audit token before the request is read. iStat Menus' two helper
   vulnerabilities are the checklist of what not to do.
@@ -813,7 +831,7 @@ hardware numbers are measured per release and published with it.
 2. The unprivileged engine, in slices: CPU, memory, disk, network
    interfaces and own-user per-app attribution first; Apple Silicon
    cluster, frequency, power, thermal, sensor and battery providers join
-   as their spikes (S1, S2) clear the honesty gates.
+   after S1 validates their source mappings and units per chip profile.
 3. One hour of in-memory history and six hours on disk.
 4. Honest states and the self-cost readout.
 5. Keyboard navigation, pause, CSV and JSON export of a range.
@@ -826,9 +844,9 @@ Acceptance gates the first slice must pass before widening:
 - Every permission path renders its restricted or unavailable state:
   helper declined, the same-uid wall, a missing sensor or a broken
   channel.
-- Sleep appears as imported history with the gap marked, and the store
-  honours its privacy rules (permissions, redacted exports, real
-  deletion).
+- Sleep and counter resets leave visible gaps in live series. Imported
+  sleep history and persistent-store privacy checks belong to M4 after
+  S7/S8; they do not gate the first live window.
 - Charts stay legible at both ends of the glass-opacity slider, in light
   and dark, with Increase Contrast, and read correctly through VoiceOver.
 
@@ -870,7 +888,7 @@ unverified.
 
 | Spike | Question | Decides |
 | --- | --- | --- |
-| S1 Power | Which power source is within 10% of `powermetrics` on each chip? | Ladder order and "estimated" labels |
+| S1 Silicon telemetry | Validate power against `powermetrics`, plus cluster/frequency mappings, sensor units and availability per chip; measure errors and counter health | Provider profiles, fallback order and estimate labels |
 | S2 Rendering | Do seven live lanes at 1 s plus a 500-row table stay under 1% CPU on an M1? | Renderer split |
 | S3 Network | Is the private network statistics framework usable without prompts on macOS 27? | Per-app network in MVP or interfaces only |
 | S4 Frame rate | What does `listen --json` emit and cost, and do bounded `collect` plus `overview --json-include-timeline` captures expose usable raw intervals? Test permissions, multiple layers, CrossOver and presented versus generated frames | Aggregate HUD and raw-frame report scope |
@@ -887,7 +905,7 @@ unverified.
 | M1 Engine | Metric model, scheduler, CPU, memory, process, disk and network providers, in-memory store | `coreo` streams honest metrics at 1 s within the tick budget |
 | M2 Silicon | IOReport, SMC and HID drivers, chip profiles, power, frequency, thermal and GPU providers, Data Sources report | Full sensor set on the test chips; virtual machine run shows correct "unavailable" states |
 | M3 Window | Lanes, cursor, process pane, inspector, states, self-cost, accessibility | The owner uses it instead of Activity Monitor for a week; every chart has an AX descriptor and a keyboard/table alternative; self-cost measured end to end (app, helper, subprocess, render) |
-| M4 History | Disk store, scrubbing, attribution in time, range reports, markers, export | 24-hour soak clean; "who was on top at 14:02" works; MVP beta ships |
+| M4 History | Disk store, scrubbing, attribution in time, range reports, sleep import, markers, export | 24-hour soak clean; retained attribution works; S8-supported sleep import preserves gaps; permissions, retention/deletion and redacted export checks pass; MVP beta ships |
 | M5 Power tools | Helper, other users' processes, files and ports, reverse lookup, sample and spindump, Startup and Connections tabs, filter grammar | Helper passes the security checklist; declining it loses only restricted cells |
 | M6 Ambient and performance | Menu bar extra, HUD, frame rate, recordings and comparison, alerts, explanations | HUD over a game in every configuration the S6 matrix cleared; the HUD presents only labelled aggregate FPS from `listen`, never frame pacing, and raw-interval statistics appear only from validated session recordings; session report matches a reference capture |
 | M7 1.0 | Accessibility, localisation, Settings, Sparkle, notarized release, published performance report | Release checklist complete; 1.0 tagged |
@@ -917,8 +935,11 @@ These need an answer before or during M0. Each has a recommendation.
    gated at runtime on Intel and macOS 27 features (frame rate) gated on
    OS version. Alternatives: Apple Silicon only, which drops Intel Macs
    still on macOS 26, or macOS 27 only, a smaller audience at launch.
-   Whatever is chosen, "universal" is never applied to an arm64-only
-   build.
+   Release verification must exercise runtime gates on Intel/macOS 26
+   and Apple Silicon/macOS 26 and 27, using CI where suitable and physical
+   Macs for hardware-dependent checks. Cross-compiling both slices is
+   not runtime validation. Record missing combinations as unverified;
+   "universal" is never applied to an arm64-only build.
 2. **Licence and price.** The repository is public domain (Unlicense), so
    the default is a free, open-source app. Confirm, or decide on a paid
    or donation model before any code lands.
