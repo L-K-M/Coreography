@@ -648,7 +648,12 @@ time range and a diagnostic snapshot; each reading still reports its
 actual sampling interval. Follow-up calls cannot silently mix a past
 selection with live values. Process references include PID and start
 time. Server-side limits bound ranges, row counts, output size and query
-work, even if a client requests more.
+work, even if a client requests more. Paged results explicitly report
+remaining data and return a continuation cursor bound to the query,
+snapshot and approved scope. Invalid or expired cursors fail explicitly.
+Requests exceeding range or work budgets return an actionable error;
+partial results are labelled with their coverage, never silently treated
+as complete.
 
 The diagnostic service computes facts and structured signals, such as
 sustained memory pressure with swap activity. The model explains them
@@ -660,9 +665,18 @@ process nor simultaneous spikes alone proves why the Mac feels slow.
 ### MCP access
 
 Start with opt-in local stdio through `coreo mcp --stdio`, connected to
-the running app's diagnostic service. Multiple clients share its sampler
-and store. Settings shows whether access is enabled and which sessions
-are connected; disabling it closes sessions and rejects further queries.
+the running app's diagnostic service over peer-authenticated local IPC.
+Validate the actual peer's user and process identity. A CLI bridge is not
+proof of which external assistant launched it: each client pairing needs
+one-time approval in the app and a scoped, revocable app-issued grant.
+Client-provided names are display metadata, never authentication, and
+cannot reuse another client's approval.
+
+Multiple clients share the sampler and store, with per-session and
+global query-rate, concurrency and work budgets. Settings shows approved
+clients, their scopes and connected sessions, with individual revocation.
+Check grants at request dispatch and result delivery; disabling access
+closes sessions, cancels pending queries and rejects further requests.
 
 The first tool set is read-only. It exposes neither arbitrary SQL, shell
 commands nor process-control actions, and enabling MCP cannot install
@@ -705,10 +719,12 @@ with a known growing app, and a slowdown with competing or insufficient
 signals. Require matching evidence references and correct missing-data
 handling. Exercise MCP initialization, tool discovery, pagination,
 invalid or oversized requests, client disconnect and disable/revocation.
-Check redaction, forged tool arguments, hostile process strings, key
-handling, provider failures and cancellation. Measure query and inference
-overhead separately from idle monitoring; neither may block collection
-or the window.
+Reject unapproved clients, forged client names and revoked grants,
+including revocation during a query. Exercise expired cursors and request
+floods against session and global budgets. Check redaction, forged tool
+arguments, hostile process strings, key handling, provider failures and
+cancellation. Measure query and inference overhead separately from idle
+monitoring; neither may block collection or the window.
 
 ## Architecture
 
@@ -1017,6 +1033,7 @@ unverified.
 | History store reveals activity (app names, endpoints) | Local only, 0700/0600 permissions, minimal identifiers, excluded from backups (which is not admin or snapshot protection and is not sold as such), retention controls, one-click purge, redacted exports |
 | Frozen counters read as idle zero | Capability probes distinguish a legitimate zero from a stuck counter; the distinction is tested per chip profile |
 | Model explanations invent causes or expose sensitive context | Structured diagnostic evidence, scoped read-only tools, redaction, Keychain credentials and explicit provider selection; missing evidence stays unknown |
+| Enabled MCP exposes activity or exhausts resources through unapproved clients | Off by default, peer-authenticated IPC, scoped client grants, individual revocation, session and global budgets, visible sessions and one-switch disable |
 | Scope creep into control features | Principle 7; rejected at proposal time |
 
 ## Decisions for the owner
