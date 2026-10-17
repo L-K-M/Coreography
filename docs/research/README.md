@@ -18,6 +18,8 @@
 - [TMOG: right ideas, wrong skin](#tmog-right-ideas-wrong-skin)
 - [Linux and terminal monitors](#linux-and-terminal-monitors)
 - [Specialised tools worth absorbing](#specialised-tools-worth-absorbing)
+- [The jobs users actually bring](#the-jobs-users-actually-bring)
+- [Process explanation is now a category](#process-explanation-is-now-a-category)
 - [Visualisation and Mac design principles](#visualisation-and-mac-design-principles)
 - [What macOS lets a monitor measure](#what-macos-lets-a-monitor-measure)
 - [Pattern catalogue](#pattern-catalogue)
@@ -27,32 +29,45 @@
 
 ## How this was researched
 
-Eleven topic surveys plus an analysis of the owner's reference screenshots.
-Each survey was written by one model with web access and then fact-checked
-by a second model on a different provider, which corrected the file in place
-and logged every change in a "Verification log" at its end (the check of
-notes 10 timed out; its claims were covered by the pass described next). About forty claims
-the plan depends on were then re-checked against primary sources (source
-code, man pages, issue threads, vendor pages). That pass corrected several
-overstated or misattributed details, and it also reversed one of the
-coordinator's own corrections: Apple's WWDC session shows only two
-`metalperftrace` subcommands, but the macOS 27 man page documents the live
-`listen` mode too. Anything still marked "(unverified)" in the notes should
-be treated as a lead, not a fact.
+Fifteen topic surveys ([notes index](#notes-index)) plus an analysis of
+the owner's reference screenshots. Each survey was written by one model
+with web access, drawing on public documentation, vendor pages and source
+code, then checked file by file in a scoped per-file verification pass.
+Initial verification passes had failures (the first check of notes 10
+timed out), and their follow-ups ran under the same provider as the
+drafting model, so not every file was checked by a different model or
+provider. About forty load-bearing claims the plan depends on were then
+re-checked against primary sources (source code, man pages, issue
+threads, vendor pages). That pass corrected several overstated or
+misattributed details, and it also reversed one of the coordinator's own
+corrections: Apple's WWDC session shows only two `metalperftrace`
+subcommands, but the macOS 27 man page documents the live `listen` mode
+too.
+
+Verification was scoped: decision-driving claims were checked against
+vendor pages, documentation and source code; it was never a full
+re-verification of every link, and nothing was run on hardware. Findings
+here describe surveyed and vendor-claimed behaviour, not tested products.
+Blocked checks and single-source anecdotes are disclosed where they
+occur; anything still marked "(unverified)" in the notes should be
+treated as a lead, not a fact.
 
 The full, sourced notes are in [`notes/`](notes/). This document is the
 synthesis: read it first, then go to a notes file for detail and links.
 
 ## Key findings
 
-1. **No Mac monitor combines a graph-first window with history and
-   attribution.** Most of the market is menu bar apps (iStat Menus, Stats,
-   a 2025-2026 wave of indie entrants) whose detail views are popovers the
-   width of a menu. Window dashboards exist (Vitals, Sensei, iStatistica
-   Pro, System Dashboard Pro, Tempo, TMOG, Activity Monitor itself), but
-   they are card grids of current values, list-first, or visually poor.
-   None aligns all subsystems on one scrubbable time axis that says who
-   caused a past spike. That is the open space.
+1. **No surveyed Mac monitor combines a graph-first window with
+   scrubbable history and per-instant attribution.** Most of the market is
+   menu bar apps (iStat Menus, Stats, a 2025-2026 wave of indie entrants)
+   whose detail views are popovers the width of a menu. Window dashboards
+   exist (Vitals, Sensei, iStatistica Pro, System Dashboard Pro, Tempo,
+   TMOG, Activity Monitor itself), but they are card grids of current
+   values, list-first, or visually poor. Vitals comes closest on depth
+   (a year of history with apps ranked per hour), and Tempo reads values
+   at a hovered point, but no tool in the survey aligns all subsystems on
+   one scrubbable time axis that says who caused a past spike. That is
+   the open space.
 2. **Every good tool puts the cause next to the symptom.** iStat Menus
    lists the top five processes under each graph; Process Explorer names the
    top process when you hover a point on its CPU graph; Game Bar's Resources
@@ -61,17 +76,21 @@ synthesis: read it first, then go to a notes file for detail and links.
    a time.
 3. **History is the most common gap.** Almost every tool keeps about 60
    seconds. The ones that keep more (Little Snitch: a year of traffic;
-   iStat Menus: 28 days; atop and below: record and replay; TMOG Pro: Flight
-   Recorder; macOS 27 `metalperftrace`: look-back game traces) are loved for
-   it. Scrubbing back to "what happened at 14:02" with attribution is
-   offered by almost no one.
+   Vitals: a year with per-hour app ranks; iStat Menus: 28 days; Tempo:
+   30 days at minute resolution; atop and below: record and replay; TMOG
+   Pro: Flight Recorder; macOS 27 `metalperftrace`: look-back game
+   traces) are loved for it. Scrubbing back to "what happened at 14:02"
+   with attribution is offered by almost no one in the survey.
 4. **The gaming world solved compact, legible overlays.** Corner-anchored
    panels of big numbers with small labels, one frame-time graph, density
    levels on one control (Steam Deck's 0-4 slider), opacity, text outline,
    click-through, pin to keep visible. Apple's own Game Overlay (macOS 26)
    shows no performance data at all, which leaves a gap on the Mac, and
    macOS 27's `metalperftrace listen` now streams live per-process Metal
-   frame statistics that a third-party HUD can show without injection.
+   frame statistics that a third-party HUD can show without injection:
+   zzoko/PerformanceHUD already ships one, and MetalHUDEnabler toggles
+   Apple's own. The remaining gap is a HUD integrated into a full
+   monitor, not the HUD alone.
 5. **Frame time, percentiles and sessions beat averages.** Enthusiast tools
    moved from FPS to frame-time graphs, 1% and 0.1% lows, named capture
    sessions and post-capture analysis (CapFrameX, PresentMon). The same
@@ -92,9 +111,10 @@ synthesis: read it first, then go to a notes file for detail and links.
    processes; macmon restored readings without root in its 0.9.0 release
    (2026-10-07) by reading other counters. Sensor and power telemetry is a
    per-chip, per-OS maintenance commitment.
-9. **A full-featured monitor does not fit the Mac App Store.** The App
-   Sandbox denies listing processes, reading most data about other
-   processes and opening the SMC sensor interface. iStat Menus sells a Mac
+9. **Direct distribution fits the planned feature set.** App Sandbox
+   restrictions on process introspection and SMC access make this feature
+   set difficult to deliver entirely inside the sandbox; process
+   enumeration is not universally forbidden. iStat Menus sells a Mac
    App Store edition that needs a separately downloaded helper for sensors
    and cannot control fans; Stats and TMOG ship directly. Developer ID with
    notarization plus an optional privileged helper is the proven path.
@@ -171,7 +191,10 @@ Activity Monitor's strip.
 | iStat Menus 7.5 | macOS | Menu bar | Card dropdowns, rings, mirrored bars, E/P core colours | Metric with top processes, typography, rules, 28-day history | Fixed popover, rings for everything |
 | Stats | macOS | Menu bar, open source | 13 menu bar widget types | Micro-chart vocabulary, honest cost FAQ | About 10 minutes of history |
 | 2025-2026 indie entrants | macOS | Menu bar, notch, window | App folding, per-app watts, 30-day history | Folding processes into apps | Unproven longevity |
-| Vitals, Sensei, iStatistica Pro, System Dashboard Pro | macOS | Window dashboards | Card grids of current values | App-level rows, one-window overview | No shared time axis or attribution in time |
+| Vitals | macOS | Window dashboard | Tabbed cards, "Over Time" history | A year of history, apps ranked per hour, helper gating stated | No shared cursor or scrubber demonstrated on its site |
+| Tempo | macOS | Window | Calm cards, hover point values | Declines to guess GPU or temperatures | Short metric list, 30-day ceiling |
+| Sensei, iStatistica Pro, System Dashboard Pro | macOS | Window dashboards | Card grids of current values | App-level rows, one-window overview | No shared time axis or scrubbable history |
+| XRG | macOS | Window | Free-form strip graphs | A graph-first Mac window since 2005 | Dormant and dated |
 | Instruments | macOS | Developer | Multi-track timeline | Shared time axis, range selection | Developer complexity |
 | Windows Task Manager | Windows | Built-in | Sparkline rail plus large graph, heat-shaded cells | Rail as picker, heat cells, per-core grid, compact view | List-first, 60-second memory |
 | Resource Monitor | Windows | Built-in | Collapsible tables, graph rail | Per-file disk, connections and ports | Density |
@@ -185,6 +208,8 @@ Activity Monitor's strip.
 | PresentMon, CapFrameX, FrameView | Windows | Frame-time analysis | Frame-time graphs, percentile curves | Tail statistics, bottleneck verdicts | Expert-only |
 | MangoHud | Linux | Overlay | Coloured cells, frame-time line | Colour as metric identity, layout presets | Text configuration |
 | Metal Performance HUD | macOS | Overlay, developer | Corner panel, frame-interval histogram | Histogram bucketed by refresh, hide zero metrics | Opt-in at launch, Metal only |
+| PerformanceHUD, MetalHUDEnabler | macOS | Overlay | `metalperftrace`-fed HUD, Apple's HUD toggler | The standalone HUD half already ships | Single-purpose |
+| WhySlow, SystemWatch, TaskExplorer, MacStats | macOS | Explainers and inspection | Curated or AI process descriptions | Plain-language answers, safe-to-quit verdicts | Catalogue depth; pieces already ship inside monitors |
 | TMOG | macOS, Windows, Linux | Window | Neon segmented meters, phosphor themes | Availability states, gaps, flight recorder, PID identity | The whole skin |
 | btop++ | Cross-platform TUI | Terminal | Braille graphs, two-band CPU graph | Two metrics in one graph, presets | Terminal limits |
 | atop, below | Linux | Recorders | Record and replay | Time travel through history | Terminal only |
@@ -223,13 +248,19 @@ rings, folding hundreds of processes into a few dozen apps, per-app watts,
 30 days of local history, published resource budgets. Their details rest
 on single sources; treat them as signals, not references.
 
-**Window dashboards** exist but stop short of the brief. Vitals
-(window plus menu bar, about 60 app rows instead of 1,000 processes, 1.7.3
-on 2026-10-16), Sensei's dashboard, iStatistica Pro, System Dashboard Pro
-and System Monitor Panel, and Tempo's card window show current values and
-short histories; none found in this survey aligns subsystems on a shared,
-scrubbable time axis with attribution. A head-to-head comparison is being
-added as notes 15.
+**Window dashboards** exist but stop short of the brief; the head-to-head
+teardown is [notes 15](notes/15-mac-window-dashboards-and-trace-ui.md).
+Vitals is the strongest incumbent: window plus menu bar, about 60 app rows
+instead of 1,000 processes, and since v1.6 (2026-10-11) a year of history
+with apps ranked per hour, the closest any surveyed Mac monitor gets to
+attribution in time. Its site demonstrates no shared cursor or scrubber
+(current version 1.7.5); that absence comes from site material, not
+hands-on verification, so the features are not confirmed absent. Tempo ships calm cards with hover-read point values and
+declines to show GPU or temperature rather than guess. Sensei's dashboard,
+iStatistica Pro, System Dashboard Pro and System Monitor Panel show
+current values and short histories. XRG proves a free-form graph window
+has existed on the Mac since 2005, and shows what one looks like when it
+stops being maintained.
 
 **The graveyard** (GeekTool, Monity, eul, iGlance, MenuMeters) shows that
 free solo projects and Notification Center-only tools fade, while
@@ -346,9 +377,9 @@ chart, memory, thermal state, and a frame-interval histogram whose buckets
 match the display refresh interval, an elegant way to show pacing. It hides
 zero-valued metrics. macOS 27 records frame timing for all Metal layers continuously and adds
 `metalperftrace` to read it: `collect` saves hours of look-back traces,
-`overview` summarises them per process, `listen --pid` streams live
-per-process statistics at 1-second or slower intervals, and `setup --enable
-hud --pid` switches the HUD on inside a running game. Apple's WWDC session
+`overview` summarises them per process, `listen --pid <pid>` streams live
+per-process statistics at 1-second or slower intervals, and `setup
+--enable hud --pid <pid>` switches the HUD on inside a running game. Apple's WWDC session
 demonstrates only the first two; the man page documents all four.
 Apple's consumer Game Overlay (macOS 26, Cmd-Esc) shows achievements,
 friends and energy mode but no performance numbers.
@@ -465,6 +496,55 @@ control, charge limits and file deletion make tools heavyweight and Apple
 keeps absorbing them. Coreography should observe these systems, not
 control them.
 
+## The jobs users actually bring
+
+Details: [notes 12](notes/12-user-jobs-to-be-done.md).
+
+Support threads and forums are consistent about intent: people open
+Activity Monitor with a question ("why is my Mac slow, hot, draining or
+full?") or a name ("what is `mediaanalysisd`, and is it safe?"), and they
+want a culprit and a verdict, not a graph. A small recurring cast answers
+most threads (`kernel_task` (usually thermal pressure, though driver and
+I/O loops exist), photo and Apple Intelligence analysis daemons,
+Spotlight's `mds` family, `WindowServer`, iCloud sync, `backupd`, and
+browser helper swarms), and the same questions spike with each new OS
+bug. The failures users name in Activity Monitor map directly onto this
+plan: no thermals or throttle state, no history that reaches "overnight",
+helpers unattributed to their app, no live per-app network rate, a
+"Preventing Sleep" column that shows only the instant, and no explanation
+of what anything is. The process directory and maintenance states are
+core features, not garnish. These questions guide the visual design; they
+do not replace graphs and evidence with verdicts.
+
+**Attribution has hard boundaries worth stating in the product.** An
+unprivileged monitor sees helper processes' role flags
+(`--type=renderer`) but not browser tabs; that truth lives in each
+browser's own task manager, or behind an Automation consent prompt.
+VMs and containers appear as ordinary host processes: host-side cost is
+attributable, the guest interior needs the vendor's API. Local AI load is
+observable at three layers (per-process GPU time and unified-memory
+footprint at the OS level, loaded-model lists from opt-in runtime APIs
+such as Ollama's `/api/ps` and `lms ps`, and ANE power plus daemon
+presence), but process presence cannot identify a model or prove
+inference, and unified memory is not a separate VRAM pool to sum.
+
+## Process explanation is now a category
+
+Details: [notes 13](notes/13-process-explanation-and-attribution.md).
+
+Four shipping products already sell what the plan calls explanations:
+TaskExplorer 3's AI assistant queries live process data on-device,
+MacStats sells a metered AI explainer as its Pro add-on, and WhySlow (85
+guides) and SystemWatch (110 entries) ship curated offline catalogues
+with safe-to-quit verdicts. The verified, lowest-risk version is the
+curated catalogue matched on code signature and path, plus facts read
+from the process itself: it describes the process's role and never claims
+its current job, an ETA, or that quitting it right now is safe.
+Maintenance states are honest only where a real status source exists:
+`tmutil status` reports actual progress; `mdutil -s` reports only whether
+indexing is enabled, and daemon presence alone does not prove active
+work.
+
 ## Visualisation and Mac design principles
 
 Details: [notes 08](notes/08-dataviz-and-mac-design-principles.md).
@@ -509,6 +589,16 @@ restrained motion, one selection model driving every view (Little Snitch,
 Instruments), and features that disappear into convention rather than
 announcing themselves.
 
+Trace-analyzer and observability UIs solved the interactions a
+history-first monitor needs ([notes 15](notes/15-mac-window-dashboards-and-trace-ui.md)):
+one shared axis where drag-selecting a range re-aggregates every table
+(WPA, DevTools, Perfetto), a minimap or overview strip as the zoom
+affordance so a user navigating 24 hours of history keeps their place
+(DevTools Timeline, Datadog's full-screen minimap), pinned tracks for
+dense views, annotations as first-class marks on the axis, and compare
+views that diff two ranges (WPA's comparative analysis; Datadog's
+offset-window Compare; Perfetto still lacks trace diffing, an opening).
+
 ## What macOS lets a monitor measure
 
 Details: [notes 09](notes/09-macos-data-sources-cpu-gpu-power-thermal.md),
@@ -533,7 +623,7 @@ Details: [notes 09](notes/09-macos-data-sources-cpu-gpu-power-thermal.md),
 | Interface network and disk totals | `NET_RT_IFLIST2`, `IOBlockStorageDriver` | Yes | Stable |
 | Battery health, cycles, adapter | IOPowerSources, `AppleSmartBattery` | Yes | Stable |
 | Sleep assertions | `IOPMCopyAssertionsByProcess` | Yes | Public |
-| FPS of another Metal app | `metalperftrace listen --pid` (macOS 27, 1 s resolution); display swap counters for the whole display | Yes | New in macOS 27 |
+| FPS of another Metal app | `metalperftrace listen --pid <pid>` (macOS 27, 1 s resolution); display swap counters for the whole display | Yes | New in macOS 27 |
 
 Consequences for the product:
 
@@ -586,22 +676,30 @@ refers to these by number.
 
 ## Where Coreography can win
 
-1. **The window nobody built**: a Mac-native, graph-first, single window at
-   Activity Monitor scale (P1, P4, P5).
+1. **The window the surveyed market left open**: a Mac-native,
+   graph-first, single window at Activity Monitor scale (P1, P4, P5).
 2. **Attribution in time**: point at any moment in the last hours and see
-   which processes were responsible (P3, P6, P7). No tool on any platform
-   combines graph-hover attribution with long scrubbable history.
+   which processes were responsible (P3, P6, P7). Vitals' per-hour app
+   ranks are the closest surveyed precedent; no tool found offers
+   graph-hover attribution on a scrubbable axis.
 3. **Honest Apple Silicon telemetry**: clusters with frequency and watts,
    thermal pressure, explicit availability and estimate labels (P10, P18).
 4. **Energy as a first-class story**: watts, battery hours at current
    draw, per-app energy over the day.
-5. **A Mac performance HUD**: Apple's Game Overlay shows no numbers; a
-   native always-on-top panel with density levels fills that gap (P16,
-   P17).
+5. **A Mac performance HUD with depth**: Apple's Game Overlay shows no
+   numbers; single-purpose HUDs already exist (PerformanceHUD on
+   `metalperftrace`, MetalHUDEnabler on Apple's own HUD), so the
+   opportunity is a density-levelled panel integrated with the window's
+   history and attribution, not the HUD alone (P16, P17).
 6. **Joins power users want**: process to files, sockets, launch item,
    signing and energy in one inspector (P23).
 7. **Craft**: system typography and colour, Liquid Glass only on chrome,
    audio graphs, locale-correct numbers, a published self-cost budget.
+8. **Plain-language answers where users already ask them**: a curated
+   offline process directory answers the most-asked question genre where
+   an entry exists; four products sell pieces of it, including inside
+   monitors, so the gap is explanation joined to live attribution, not
+   explanation alone.
 
 ## Open questions to settle on hardware
 
@@ -641,3 +739,7 @@ These need a macOS 27 Mac to answer and should be early prototype spikes:
 | [09](notes/09-macos-data-sources-cpu-gpu-power-thermal.md) | macOS data sources: CPU, GPU, power, thermals, frame rate |
 | [10](notes/10-macos-data-sources-processes-memory-io-privileges.md) | macOS data sources: processes, memory, disk, network, privileges |
 | [11](notes/11-specialized-subsystem-and-power-tools.md) | Disk, network, battery, thermal, startup and inspection tools |
+| [12](notes/12-user-jobs-to-be-done.md) | The questions users actually ask a monitor: jobs to be done |
+| [13](notes/13-process-explanation-and-attribution.md) | Process explainers, maintenance states, browser and VM attribution boundaries, CPU% conventions |
+| [14](notes/14-platform-mechanics.md) | Platform mechanics: HUD windows, sleep and wake history, local AI load, automation, history-store privacy |
+| [15](notes/15-mac-window-dashboards-and-trace-ui.md) | Mac window dashboards head-to-head; trace-analyzer UI grammar |
