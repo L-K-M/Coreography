@@ -6,8 +6,20 @@ import CoreographyKit
 /// JSON keeps every reading with its availability, provenance and reason.
 /// CSV flattens one row per host sample; a missing reading is an empty
 /// cell, never zero.
+/// Whether an export names the user's apps (plan: exports redact
+/// identifiers for sharing). Interfaces, storage drivers and sensor keys
+/// describe the Mac, not the person, and stay.
+public enum ExportNaming: String, Codable, CaseIterable, Identifiable, Sendable {
+    /// Apps become "App 1", "App 2", … in CPU order: safe to share.
+    case redacted
+    case named
+
+    public var id: Self { self }
+}
+
 public enum RangeExport {
-    public static let schemaVersion = 1
+    /// Version 2 added `appNames`, saying whether names were redacted.
+    public static let schemaVersion = 2
 
     public struct Document: Codable, Sendable {
         public let schemaVersion: Int
@@ -19,6 +31,7 @@ public enum RangeExport {
         public let gpu: [CapturedGPU]
         public let power: [CapturedPower]
         public let sensors: [CapturedSensors]
+        public let appNames: ExportNaming
         public let apps: [AppRangeTotal]
     }
 
@@ -30,8 +43,9 @@ public enum RangeExport {
     /// A companion sample counts for a host row only within this distance.
     private static let pairingTolerance: TimeInterval = 1.5
 
+    /// - Parameter apps: in CPU order, so redacted labels follow the ranking.
     static func document(
-        range: ClosedRange<Date>, model frames: DashboardFrames, apps: [AppRangeTotal]
+        range: ClosedRange<Date>, model frames: DashboardFrames, apps: [AppRangeTotal], naming: ExportNaming
     ) -> Document {
         func inRange<Frame>(_ frames: [Frame], _ time: (Frame) -> Date) -> [Frame] {
             frames.filter { range.contains(time($0)) }
@@ -44,7 +58,13 @@ public enum RangeExport {
             gpu: inRange(frames.gpu) { $0.stamp.wallTime },
             power: inRange(frames.power) { $0.stamp.wallTime },
             sensors: inRange(frames.sensors) { $0.stamp.wallTime },
-            apps: apps
+            appNames: naming,
+            apps: naming == .named ? apps : apps.enumerated().map { index, app in
+                AppRangeTotal(
+                    name: "App \(index + 1)", cpuSeconds: app.cpuSeconds, diskBytes: app.diskBytes,
+                    isLowerBound: app.isLowerBound
+                )
+            }
         )
     }
 
