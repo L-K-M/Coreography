@@ -50,6 +50,27 @@ final class ProcessGroupsTests: XCTestCase {
         XCTAssertEqual(rows.first?.groupingMethod, .standalone)
     }
 
+    func testBundlelessResponsibleProcessCannotCombineUnrelatedApps() throws {
+        let launchd = try process(pid: 1, name: "launchd", cpu: 0, start: 1, path: "/sbin/launchd")
+        let browser = try process(
+            pid: 100, name: "Safari", cpu: 10, path: "/Applications/Safari.app/Contents/MacOS/Safari", responsible: 1
+        )
+        let editor = try process(
+            pid: 150, name: "Editor", cpu: 3, path: "/Applications/Editor.app/Contents/MacOS/Editor", responsible: 1
+        )
+        let rows = try ProcessGroups.rows(
+            in: snapshot([launchd, browser, editor, webContent(responsible: 1)]),
+            matching: "", sortedBy: .name, grouping: .app
+        )
+
+        XCTAssertEqual(Set(rows.map(\.name)), ["launchd", "Safari", "Editor", "com.apple.WebKit.WebContent"])
+        XCTAssertTrue(rows.allSatisfy { $0.children == nil && $0.memberCount == 1 })
+        XCTAssertEqual(rows.first { $0.process?.id.pid == 100 }?.groupingMethod, .appBundle)
+        XCTAssertEqual(rows.first { $0.process?.id.pid == 150 }?.groupingMethod, .appBundle)
+        XCTAssertEqual(rows.first { $0.process?.id.pid == 200 }?.groupingMethod, .standalone)
+        XCTAssertEqual(rows.reduce(0) { $0 + ($1.cpuPercentOfMachine.numericValue ?? 0) }, 33)
+    }
+
     func testUnreadableMembersMakeAnExplicitLowerBound() throws {
         let restricted = try process(pid: 200, name: "com.apple.WebKit.WebContent", cpu: nil, start: 20, responsible: 100)
         let rows = try ProcessGroups.rows(in: snapshot([safari, restricted]), matching: "", sortedBy: .cpu, grouping: .app)
