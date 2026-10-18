@@ -10,7 +10,9 @@ let package = Package(
         .executable(name: "coreo", targets: ["coreo"])
     ],
     targets: [
-        .target(name: "CoreographySystem"),
+        .target(name: "CoreographySystem", linkerSettings: [
+            .linkedFramework("IOKit", .when(platforms: [.macOS]))
+        ]),
         .target(name: "CoreographyDrivers", dependencies: [
             .target(name: "CoreographySystem", condition: .when(platforms: [.macOS]))
         ]),

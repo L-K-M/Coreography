@@ -75,6 +75,13 @@ jobs:
             -o "$RUNNER_TEMP/test_thermal_bridge"
           "$RUNNER_TEMP/test_thermal_bridge"
 
+      - name: Verify unsupported-platform SMC contracts
+        run: |
+          cc -std=c11 -Wall -Wextra -Werror -I Sources/CoreographySystem/include \
+            tools/tests/test_smc_bridge.c Sources/CoreographySystem/smc.c \
+            -o "$RUNNER_TEMP/test_smc_bridge"
+          "$RUNNER_TEMP/test_smc_bridge"
+
       - name: Verify unsupported-platform network contracts
         run: |
           cc -std=c11 -Wall -Wextra -Werror -I Sources/CoreographySystem/include \
@@ -118,6 +125,13 @@ jobs:
             tools/tests/test_thermal_bridge.c Sources/CoreographySystem/thermal.c \
             -o "$RUNNER_TEMP/test_thermal_bridge"
           "$RUNNER_TEMP/test_thermal_bridge"
+
+      - name: Verify AppleSMC bridge contracts
+        run: |
+          cc -std=c11 -Wall -Wextra -Werror -I Sources/CoreographySystem/include \
+            tools/tests/test_smc_bridge.c Sources/CoreographySystem/smc.c \
+            -framework IOKit -o "$RUNNER_TEMP/test_smc_bridge"
+          "$RUNNER_TEMP/test_smc_bridge"
 
       - name: Verify native interface counters and full-width mapping
         run: |
@@ -231,6 +245,29 @@ jobs:
           system = power["systemPowerWatts"]
           assert system["availability"] != "estimated" or system["numericValue"] > 0
           print(json.dumps({key: power[key]["availability"] for key in ("systemPowerWatts", "batteryChargePercent", "adapterRatingWatts")}))
+          PY
+
+      - name: Smoke-test native SMC sensors
+        run: |
+          set -euo pipefail
+          dist/Coreography.app/Contents/Helpers/coreo sensors --once --json > "$RUNNER_TEMP/sensors.json"
+          python3 - "$RUNNER_TEMP/sensors.json" <<'PY'
+          import json, math, sys
+          with open(sys.argv[1]) as source:
+              sensors = json.load(source)
+          states = ("measured", "estimated", "unavailable", "unsupported", "restricted")
+          assert sensors["source"]["availability"] in states
+          power = sensors["systemPowerWatts"]
+          if power["availability"] == "estimated":
+              assert math.isfinite(power["numericValue"]) and power["numericValue"] > 0
+          else:
+              assert "numericValue" not in power and power.get("reason")
+          hottest = sensors.get("hottest")
+          if hottest:
+              assert 10 <= hottest["celsius"]["numericValue"] <= 130
+          print(json.dumps({"source": sensors["source"]["availability"], "power": power["availability"],
+                            "hottest": hottest and hottest["key"], "fans": len(sensors["fans"]),
+                            "plausible": sensors["plausibleTemperatureCount"]}))
           PY
 
       - name: Smoke-test native network counters

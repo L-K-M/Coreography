@@ -7,6 +7,8 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
 ## [Unreleased]
 
 ### Added
+- AppleSMC sensors: hottest temperature line over thermal-pressure bands,
+  fan speeds, SMC system power for the power lane, and `coreo sensors`.
 - A shared hover cursor across all lanes with values at the cursor, and
   per-lane top app contributors recorded from each process sample.
 - Power lane: battery charge, external-power band, gas-gauge watts, time

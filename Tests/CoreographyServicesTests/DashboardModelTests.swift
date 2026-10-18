@@ -122,6 +122,30 @@ final class DashboardModelTests: XCTestCase {
         XCTAssertEqual(model.displayedFrame?.id, model.frames.last?.id)
     }
 
+    func testHottestSensorChangeSplitsTheLineAndSMCPowerIsPreferred() async throws {
+        let model = DashboardModel(
+            monitor: try SystemMonitor(driver: IncreasingHostDriver()), interval: .milliseconds(10),
+            powerMonitor: try PowerMonitor(driver: AlternatingPowerDriver()),
+            sensorMonitor: try SensorMonitor(driver: SwitchingSensorDriver())
+        )
+        model.start()
+        defer { model.stop() }
+        try await eventually { model.sensorFrames.count >= 6 && model.powerFrames.count >= 1 }
+        model.toggleDisplayHold()
+
+        let points = model.hottestTemperaturePoints()
+        XCTAssertEqual(points.count, model.sensorFrames.count)
+        // Keys switch every third read; each run of one key is its own segment.
+        for (point, frame) in zip(points, model.sensorFrames) {
+            let sameKey = points.filter { $0.segment == point.segment }
+            XCTAssertTrue(sameKey.allSatisfy { candidate in
+                model.sensorFrames.first { $0.id == candidate.id }?.hottest?.key == frame.hottest?.key
+            })
+        }
+        XCTAssertGreaterThan(Set(points.map(\.segment)).count, 1)
+        XCTAssertEqual(model.displayedSystemPower?.source?.channel, "PSTR")
+    }
+
     func testMemorySeriesDoesNotBridgeSamplingGaps() async throws {
         let driver = IncreasingHostDriver()
         let monitor = try SystemMonitor(driver: driver)
@@ -390,6 +414,25 @@ private actor IncreasingProcessDriver: ProcessSampleReading {
                     physicalFootprintBytes: readCount, diskReadBytes: readCount, diskWriteBytes: 0
                 ))
             )]))
+        )
+    }
+}
+
+private actor SwitchingSensorDriver: SensorSampleReading {
+    private let clock = UUID()
+    private var readCount: UInt64 = 0
+
+    func read() async -> RawSensorSnapshot {
+        readCount += 1
+        let key = (readCount / 3).isMultiple(of: 2) ? "Tp01" : "Tg05"
+        return RawSensorSnapshot(
+            clockID: clock, monotonicNanoseconds: readCount * 1_000_000_000,
+            wallTime: Date(timeIntervalSince1970: 1_700_000_000 + Double(readCount)),
+            sensors: .success(RawSensors(
+                power: [RawSensorValue(key: "PSTR", value: 9)],
+                temperatures: [RawSensorValue(key: key, value: 60 + Double(readCount % 3))],
+                fans: [], discoveryTruncated: false
+            ))
         )
     }
 }

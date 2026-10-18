@@ -3,7 +3,7 @@
 Track actual delivery against the [product plan](plan.md). A stage is
 complete only after its relevant checks and review pass and its PR merges.
 
-## Current slice: shared cursor and top contributors
+## Current slice: SMC sensors
 
 The native foundation merged in [PR #5](https://github.com/L-K-M/Coreography/pull/5)
 at `aee9494` after two GLM rounds and passing CI. Process monitoring merged
@@ -17,8 +17,9 @@ Scoped storage-driver rates and a fourth lane follow in
 swap and pressure in [PR #9](https://github.com/L-K-M/Coreography/pull/9);
 app grouping in [PR #10](https://github.com/L-K-M/Coreography/pull/10);
 GPU and thermal-pressure lanes in [PR #11](https://github.com/L-K-M/Coreography/pull/11);
-the power lane in [PR #12](https://github.com/L-K-M/Coreography/pull/12).
-This slice adds the shared time cursor and per-lane top contributors.
+the power lane in [PR #12](https://github.com/L-K-M/Coreography/pull/12);
+the shared cursor in [PR #13](https://github.com/L-K-M/Coreography/pull/13).
+This slice adds AppleSMC temperatures, fans and system power rails.
 
 Implemented:
 
@@ -78,6 +79,12 @@ Implemented:
   for CPU, memory footprint and disk I/O (own-user processes grouped by
   app). CPU, memory and disk headers show them live or, under the cursor,
   from the process sample within 2.5 s ("Top at …"), never a distant one.
+- AppleSMC sensors through a read-only C bridge: temperature keys are
+  discovered once, then read each second. The thermal lane draws the
+  hottest plausible sensor (10-130 °C) over pressure bands, names its key
+  and community region, and splits the line when the hottest key changes.
+  Fans show actual rpm. The power hero prefers an SMC system rail (`PSTR`,
+  then desktop `PDTR`) over battery discharge; `coreo sensors --once --json`.
 - A thermal lane showing system thermal pressure as a band, from the public
   `com.apple.system.thermalpressurelevel` notify state. Temperatures, fans
   and the hottest-sensor line wait for the sensor provider.
@@ -85,8 +92,8 @@ Implemented:
 This is not the seven-lane product yet. The live buffer currently holds
 60 host, network, disk and GPU frames. Process history/attribution,
 per-volume disk accounting and per-process network attribution remain outstanding.
-There is no disk store, SMC power or sensor provider, per-app GPU time,
-helper, MCP or model integration in this slice.
+There is no disk store, IOReport power or frequency provider, per-app GPU
+time, helper, MCP or model integration in this slice.
 
 ## Verification
 
@@ -101,6 +108,7 @@ helper, MCP or model integration in this slice.
 | Native process collection, cancellation and CPU units | Passed [native review-fix CI](https://github.com/L-K-M/Coreography/actions/runs/39105964147) at `7df03ec`, including cancellation, saturation and `getrusage` cross-checks |
 | Native network MIB, wide-counter mapping and three-lane UI | Passed at `e62fac1`, including native C fixtures, live CLI and both executable architectures; integrated candidate pending |
 | Native IOKit storage counters and four-lane renderer | Passed [native CI](https://github.com/L-K-M/Coreography/actions/runs/39110306993) at `6434722`: 75 tests, 16 drivers, 32 measured rate fields, no inventory issues; owner checks pending |
+| AppleSMC bridge, sensor decoding and thermal line | Sensor slice: 107 Swift tests and the Linux SMC contract pass; the Apple branch compiles against stub headers locally; native CI pending. A VM without AppleSMC shows unsupported sensors; real readings are an owner check |
 | Shared cursor, hover tracking and contributor lines | Cursor slice: 101 Swift tests pass on Linux; native compile pending. Hover behavior is an owner check |
 | Native IOKit power sources and seven-lane UI | Power slice: 99 Swift tests pass on Linux; native CI pending. A virtual runner has no battery, so its smoke checks explicit unsupported states; battery accuracy is an owner check |
 | Native GPU statistics, thermal notify state and six-lane UI | GPU slice: 93 Swift tests, 34 tooling tests and the Linux thermal C contract pass; native CI pending. The C bridge asserts the level constants against the SDK at compile time |
@@ -192,6 +200,21 @@ The [libproc wrapper](https://github.com/apple-oss-distributions/xnu/blob/f6217f
 calls `__proc_info` directly, and
 [proc_get_rusage](https://github.com/apple-oss-distributions/xnu/blob/f6217f891ac0bb64f3d375211650a4c1ff8ca1ea/bsd/kern/kern_resource.c)
 copies the gathered record without a hidden nanosecond conversion.
+
+## Sensor sources
+
+AppleSMC is private (owner-approved). The C bridge uses its user client's
+struct method 2 with the community-documented 80-byte key-data layout,
+which `_Static_assert` pins: key info first (size, type), then the bytes;
+enumeration reads the key at an index. No write command exists in the
+bridge. `spXY`/`fpXY` are signed/unsigned big-endian fixed point with Y
+hex fraction bits, and `flt ` is a little-endian float on Apple Silicon.
+
+Temperature keys start with `T` and use `flt ` or `sp78`. Values outside
+10-130 °C are counted as implausible, not shown. The hottest key labels
+`Tp`, `Te`, `Tg` and `TB` with community region names only. `PSTR` and
+`PDTR` are community-verified on specific chips, so system power is an
+estimate until S1 validates each chip; non-positive rails are faults.
 
 ## Power sources
 

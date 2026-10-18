@@ -8,6 +8,7 @@ public typealias CapturedThermalPressure = ThermalPressureLevel
 public typealias CapturedGPU = GPUSnapshot
 public typealias CapturedGPUDevice = GPUDeviceReading
 public typealias CapturedPower = PowerSnapshot
+public typealias CapturedSensors = SensorSnapshot
 
 public enum NativeSamplingSupport: String, Codable, Sendable {
     case supported
@@ -30,6 +31,7 @@ public actor DiagnosticService {
     private let diskMonitor: DiskMonitor
     private let gpuMonitor: GPUMonitor
     private let powerMonitor: PowerMonitor
+    private let sensorMonitor: SensorMonitor
 
     public init() throws {
         monitor = try SystemMonitor()
@@ -38,6 +40,7 @@ public actor DiagnosticService {
         diskMonitor = try DiskMonitor()
         gpuMonitor = try GPUMonitor()
         powerMonitor = try PowerMonitor()
+        sensorMonitor = try SensorMonitor()
     }
 
     public func report() async throws -> DiagnosticReport {
@@ -83,6 +86,11 @@ public actor DiagnosticService {
     /// Battery and adapter values are gauges; one read needs no baseline.
     public func capturePowerOnce() async throws -> CapturedPower {
         try await powerMonitor.sample()
+    }
+
+    /// SMC temperatures, fans and power rails are gauges; one read suffices.
+    public func captureSensorsOnce() async throws -> CapturedSensors {
+        try await sensorMonitor.sample()
     }
 
     public static var nativeSamplingSupport: NativeSamplingSupport {

@@ -74,4 +74,23 @@ enum {
    off macOS; level is written only on success and is not range-checked. */
 int32_t coreo_thermal_pressure(uint64_t *level);
 
+/* One AppleSMC key value: big-endian bytes as the SMC stores them, except
+   "flt " values, which Apple Silicon stores in host byte order. */
+typedef struct {
+    char key[5];
+    char type[5];
+    uint32_t size;
+    uint8_t bytes[32];
+} coreo_smc_value;
+
+/* AppleSMC is private (owner-approved); every call reports errno-style codes:
+   EINVAL for bad arguments, ENOTSUP off macOS, ENOENT for a missing service
+   or key, EPERM when the user client is refused, EIO for other failures. */
+int32_t coreo_smc_open(uint32_t *connection);
+void coreo_smc_close(uint32_t connection);
+/* key is exactly four characters. */
+int32_t coreo_smc_read(uint32_t connection, const char *key, coreo_smc_value *value);
+/* Key name at an enumeration index; key receives four characters plus NUL. */
+int32_t coreo_smc_key_at(uint32_t connection, uint32_t index, char *key);
+
 #endif
