@@ -40,9 +40,10 @@ public struct HistoryReport: Codable, Sendable {
 public struct StoredAppsReport: Codable, Sendable {
     public let windowStart: Date
     public let windowEnd: Date
-    /// The stored intervals the totals cover; absent when none were recorded.
+    /// The span of stored intervals counted (midpoint inside the window); absent when none were.
     public let coveredFrom: Date?
     public let coveredTo: Date?
+    /// Stored intervals ending inside the window, counted or not.
     public let intervals: Int
     public let apps: [AppRangeTotal]
 }
