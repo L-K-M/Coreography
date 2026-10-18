@@ -124,7 +124,7 @@ enum ProcessInspections {
             process: process, appName: ProcessGroups.appNames(snapshot)[process.id] ?? process.name,
             parentChain: chain, launchdLabel: label, explanation: ProcessExplanations.note(for: process),
             detail: detail?.process == process.id ? detail : nil, sockets: sockets,
-            maintenance: MaintenanceWork.of(process).flatMap { work in maintenance.map { MaintenanceNotes.note(work, $0) } }
+            maintenance: maintenance.flatMap { status in MaintenanceWork.of(process).map { MaintenanceNotes.note($0, status) } }
         )
     }
 }
