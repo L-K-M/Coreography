@@ -233,6 +233,14 @@ Implemented:
   app's overlay extends into stored history. Export still covers live
   data only and says so; cursor readouts and contributors over the
   stored part, exporting it, and the 24 h range (the Day tier) remain.
+- Sensors tab: every plausible SMC temperature, each fan and the system
+  power rail with current, minimum, maximum and mean since a reset,
+  grouped by region (plan P15). Statistics accumulate on live samples
+  while the tab is hidden and redraw only while it shows; a sensor
+  missing from the newest sample keeps its statistics without a current
+  value, and unreadable values never count as zero. Only the newest
+  sample's full temperature list is kept, not an hour of it. Voltages
+  and currents are not read yet.
 - Connections, first part: a Processes | Connections switch under the
   lanes. The Connections tab lists each app's TCP and UDP sockets
   (listening first, then connected by peer) with state and endpoints,
@@ -275,6 +283,7 @@ time, helper, MCP or model integration in this slice.
 | Native network MIB, wide-counter mapping and three-lane UI | Passed at `e62fac1`, including native C fixtures, live CLI and both executable architectures; integrated candidate pending |
 | Native IOKit storage counters and four-lane renderer | Passed [native CI](https://github.com/L-K-M/Coreography/actions/runs/39110306993) at `6434722`: 75 tests, 16 drivers, 32 measured rate fields, no inventory issues; owner checks pending |
 | On-disk history store and recorder | History slice: 148 Swift tests pass on Linux against the real system SQLite (round trip with gaps, duplicates, retention, reopen, permissions, WAL, batching); native CI checks the CLI and file permissions |
+| Sensors tab | Sensors slice: 178 Swift tests pass on Linux (full temperature list with faults excluded, statistics since reset, absent sensors, unreadable values); native readings and the UI compile are pending |
 | Connections and `#listening` | Connections slice: 175 Swift tests and the Linux C contract pass (identity-checked reads, restricted, exited, failed and truncated processes counted, UDP and TCP listening, `inet_ntop` text, on-demand reads, the filter token); the native contract opens TCP and UDP sockets and checks ports, state, a wrong start time and truncation, and native CI finds a real listener through `coreo connections`; UI compile pending |
 | Reports and scope over stored history | Stored-range slice: 170 Swift tests pass on Linux (stored and live ledger totals without double counting, true means from raw readings, keyless stored peaks, scoped overlay and report through the model, export clamped to live data); native compile pending |
 | App ledger on disk | Ledger slice: 168 Swift tests pass on Linux against the system SQLite (round trip with idle intervals, whole-interval replacement, retention with name sweep, deletion, rebuilt totals equal live ones; size-cap, ledger-only cap and post-deletion regressions observed failing first; the batch race has no deterministic test); native CI smoke reads `coreo apps` |

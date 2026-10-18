@@ -10,7 +10,7 @@ public typealias CapturedEndpoint = ConnectionEndpoint
 /// Which detail pane sits under the lanes (plan: Processes, Connections,
 /// Startup, Sensors and Recordings tabs; the rest follow).
 public enum DetailPane: String, CaseIterable, Identifiable, Sendable {
-    case processes, connections
+    case processes, connections, sensors
 
     public var id: Self { self }
 }

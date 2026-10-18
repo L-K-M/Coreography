@@ -11,6 +11,8 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
   after the store first exceeds it.
 
 ### Added
+- A Sensors tab with current, minimum, maximum and average for every
+  temperature, fan and the system power rail, with a reset.
 - A Connections tab listing each app's TCP and UDP sockets, the
   `#listening` filter token and `coreo connections`.
 - On the 6 h range, range reports and the scoped app's overlay include
