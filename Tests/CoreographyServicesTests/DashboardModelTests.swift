@@ -143,6 +143,29 @@ final class DashboardModelTests: XCTestCase {
         XCTAssertTrue(model.points(for: .cpu).allSatisfy { $0.time >= now }, "leaving the range drops the stored part")
     }
 
+    func testDeletingHistoryDropsTheStoredPartAtOnceEvenWhileHeld() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("coreo-replay-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = try HistoryStore(directory: directory)
+        let now = Date()
+        try await store.append(
+            [HistorySample(metric: .cpu, time: now.addingTimeInterval(-7200), value: 50, availability: .measured)], now: now
+        )
+        let model = DashboardModel(
+            monitor: try SystemMonitor(driver: IncreasingHostDriver(origin: now)), interval: .milliseconds(10),
+            historyRecorder: HistoryRecorder(store: store)
+        )
+        model.start()
+        defer { model.stop() }
+        model.timeRange = .sixHours
+        try await eventually { model.points(for: .cpu).contains { $0.time < now } }
+
+        model.toggleDisplayHold()
+        let problem = await model.deleteHistory()
+        XCTAssertNil(problem)
+        XCTAssertFalse(model.points(for: .cpu).contains { $0.time < now }, "deleted history leaves the screen")
+    }
+
     func testSixHourRangeWithoutRecordingNamesTheMissingHistory() async throws {
         let model = DashboardModel(monitor: try SystemMonitor(driver: IncreasingHostDriver()), interval: .milliseconds(10))
         model.timeRange = .sixHours

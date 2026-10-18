@@ -143,6 +143,7 @@ public final class DashboardModel {
     private var storedHistory: StoredHistory?
     @ObservationIgnored private var storedLoad: Task<Void, Never>?
     @ObservationIgnored private var storedLoadedAt: Date?
+    @ObservationIgnored private var recordedSources = RecordedSources()
     @ObservationIgnored private var sleepState: SleepHistoryState = .notImported
     @ObservationIgnored private var sleepImport: Task<Void, Never>?
     @ObservationIgnored private var alertEngine = AlertEngine(rules: AlertRules.shipped)
@@ -363,7 +364,8 @@ public final class DashboardModel {
         guard let historyRecorder else { return }
         let samples = HistorySamples.latest(
             host: liveFrames.last, network: liveNetworkFrames.last, disks: liveDiskFrames.last,
-            gpu: liveGPUFrames.last, power: livePowerFrames.last, sensors: liveSensorFrames.last
+            gpu: liveGPUFrames.last, power: livePowerFrames.last, sensors: liveSensorFrames.last,
+            sources: &recordedSources
         )
         let now = Date()
         Task { [weak self] in
@@ -429,6 +431,12 @@ public final class DashboardModel {
         guard let historyRecorder else { return "History is not being recorded." }
         do {
             try await historyRecorder.deleteAll()
+            // Deleted history leaves the screen now, even while the display is held.
+            storedLoad?.cancel()
+            storedLoad = nil
+            storedLoadedAt = nil
+            storedHistory = nil
+            if timeRange.reachesStoredHistory { refreshStoredHistory() }
             return nil
         } catch HistoryStoreError.storage(let reason) {
             return reason
@@ -888,7 +896,7 @@ public final class DashboardModel {
         return result
     }
 
-    /// Stored readings carry no sensor key, so their part cannot mark a change of sensor.
+    /// The recorder stores a gap where the hottest sensor changed, so both parts break there.
     public func hottestTemperaturePoints() -> [DashboardPoint] {
         prefixed(liveHottestPoints(), stored: storedHistory?.lines[.hottestCelsius], liveStart: sensorFrames.first?.stamp.wallTime)
     }
@@ -954,7 +962,7 @@ public final class DashboardModel {
         return result
     }
 
-    /// Stored utilization is the first GPU's, so it extends a lone series only.
+    /// Only a lone GPU is recorded, so stored utilization extends a lone series only.
     public func gpuSeries() -> [GPUSeries] {
         let live = liveGPUSeries()
         guard live.count == 1, let only = live.first else { return live }
