@@ -15,6 +15,8 @@ struct DashboardView: View {
                     HStack {
                         Text("\(inventory.logicalCPUCount) logical CPUs")
                         Spacer()
+                        SelfCostLine(model: model)
+                        Spacer()
                         Text(inventory.operatingSystem)
                     }
                     .font(.caption)
@@ -1410,6 +1412,32 @@ private struct ContributorLine: View {
 /// Keep the visible window's points, decimated to bucket extremes for drawing.
 private func visiblePoints(_ points: [DashboardPoint], _ start: Date, _ end: Date) -> [DashboardPoint] {
     Decimation.points(points.filter { $0.time >= start && $0.time <= end }, start: start, end: end)
+}
+
+/// The monitor measures itself against the published budget (plan P21).
+private struct SelfCostLine: View {
+    let model: DashboardModel
+
+    var body: some View {
+        if let cost = model.selfCost {
+            Text(label(cost))
+                .monospacedDigit()
+                .foregroundStyle(cost.cpuOverBudget || cost.footprintOverBudget ? Color.orange : Color.secondary)
+                .help("Coreography's own process, from the latest process sample. Wakeups are not measured yet.")
+        } else {
+            Text("Self-cost: collecting…")
+        }
+    }
+
+    private func label(_ cost: SelfCost) -> String {
+        let cpu = cost.cpuPercentOfOneCore.numericValue.map {
+            $0.formatted(.number.precision(.fractionLength(1))) + "% of a core"
+        } ?? String(localized: "CPU unavailable")
+        let memory = MetricText.bytes(cost.footprintBytes.numericValue)
+        let budget = String(localized: "budget \(SelfCost.cpuBudgetPercentOfOneCore.formatted())% · \(MetricText.bytes(SelfCost.footprintBudgetBytes))")
+        let over = cost.cpuOverBudget || cost.footprintOverBudget ? " · " + String(localized: "over budget") : ""
+        return String(localized: "Coreography: \(cpu) · \(memory) (\(budget))") + over
+    }
 }
 
 private enum TimeRangeText {

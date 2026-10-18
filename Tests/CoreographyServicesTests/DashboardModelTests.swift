@@ -153,6 +153,26 @@ final class DashboardModelTests: XCTestCase {
         XCTAssertEqual(model.displayedSystemPower?.source?.channel, "PSTR")
     }
 
+    func testSelfCostUsesTheCollectorRowOnTheOneCoreScale() async throws {
+        let model = DashboardModel(
+            monitor: try SystemMonitor(driver: IncreasingHostDriver()), interval: .milliseconds(10),
+            processMonitor: try ProcessMonitor(driver: IncreasingProcessDriver()), processInterval: .milliseconds(10)
+        )
+        model.start()
+        defer { model.stop() }
+        try await eventually { model.selfCost?.cpuPercentOfOneCore.numericValue != nil }
+        model.toggleDisplayHold()
+
+        let own = try XCTUnwrap(model.processSnapshot?.processes.first { $0.id.pid == 42 })
+        let cost = try XCTUnwrap(model.selfCost)
+        let share = try XCTUnwrap(own.cpuPercentOfMachine.numericValue)
+        XCTAssertEqual(cost.cpuPercentOfOneCore.numericValue ?? -1, share * 4, accuracy: 1e-9)
+        XCTAssertEqual(cost.footprintBytes.numericValue, own.memoryFootprintBytes.numericValue)
+        XCTAssertFalse(cost.footprintOverBudget)
+
+        XCTAssertNil(SelfCost.measure(in: nil, logicalCPUCount: 4))
+    }
+
     func testMemorySeriesDoesNotBridgeSamplingGaps() async throws {
         let driver = IncreasingHostDriver()
         let monitor = try SystemMonitor(driver: driver)

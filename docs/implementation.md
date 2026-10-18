@@ -3,7 +3,7 @@
 Track actual delivery against the [product plan](plan.md). A stage is
 complete only after its relevant checks and review pass and its PR merges.
 
-## Current slice: time ranges and one hour of history
+## Current slice: self-cost readout
 
 The native foundation merged in [PR #5](https://github.com/L-K-M/Coreography/pull/5)
 at `aee9494` after two GLM rounds and passing CI. Process monitoring merged
@@ -19,8 +19,9 @@ app grouping in [PR #10](https://github.com/L-K-M/Coreography/pull/10);
 GPU and thermal-pressure lanes in [PR #11](https://github.com/L-K-M/Coreography/pull/11);
 the power lane in [PR #12](https://github.com/L-K-M/Coreography/pull/12);
 the shared cursor in [PR #13](https://github.com/L-K-M/Coreography/pull/13);
-SMC sensors in [PR #14](https://github.com/L-K-M/Coreography/pull/14).
-This slice keeps an hour of history and adds 1 min, 10 min and 1 h ranges.
+SMC sensors in [PR #14](https://github.com/L-K-M/Coreography/pull/14);
+time ranges in [PR #15](https://github.com/L-K-M/Coreography/pull/15).
+This slice shows Coreography's own cost beside the plan's budget.
 
 Implemented:
 
@@ -91,6 +92,10 @@ Implemented:
   Charts draw each bucket's minimum and maximum (360 buckets), so spikes
   survive and nothing is averaged; stacked memory layers decimate together
   on the stack total, and contiguous pressure or power spans merge.
+- Self-cost: the window header shows Coreography's own CPU, converted
+  from whole-machine share to percent of one core, and its footprint,
+  beside the plan's 1% and 150 MB budgets. Over-budget readings say so.
+  Wakeups are not measured yet; S2 still owns the published numbers.
 - A thermal lane showing system thermal pressure as a band, from the public
   `com.apple.system.thermalpressurelevel` notify state. Temperatures, fans
   and the hottest-sensor line wait for the sensor provider.
@@ -120,7 +125,7 @@ time, helper, MCP or model integration in this slice.
 | Native GPU statistics, thermal notify state and six-lane UI | GPU slice: 93 Swift tests, 34 tooling tests and the Linux thermal C contract pass; native CI pending. The C bridge asserts the level constants against the SDK at compile time |
 | Native executable paths, responsibility lookup and grouped table | App-grouping slice: 87 Swift tests and the Linux C contract pass; native CI records how many processes resolved a responsible PID |
 | Native swap/pressure sysctls, memory composition and stacked lane | Passed [native CI](https://github.com/L-K-M/Coreography/actions/runs/39112973077) at `1274ff0`: 83 tests including real sysctl reads, and the snapshot gate's composition sum |
-| CPU, memory and wakeup budgets | Unmeasured; S2 pending |
+| CPU, memory and wakeup budgets | In-app readout of own CPU and footprint against budget (111 Swift tests pass on Linux); wakeups and S2 measurements pending |
 | Developer ID, notarization and signed update delivery | Pending credentials and M7 |
 
 Portable tests use declared fixtures. They do not validate private APIs,
