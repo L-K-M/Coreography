@@ -16,9 +16,13 @@ final class DashboardModelTests: XCTestCase {
 
         model.toggleDisplayHold()
         let held = model.frames.last?.id
+        let heldTime = model.latest?.stamp.wallTime
+        let heldPoints = model.points(for: .memory).map(\.time)
         let before = await driver.readCount
-        try await eventually { await driver.readCount >= before + 3 }
+        try await eventually { await driver.readCount >= before + 65 }
         XCTAssertEqual(model.frames.last?.id, held)
+        XCTAssertEqual(model.latest?.stamp.wallTime, heldTime)
+        XCTAssertEqual(model.points(for: .memory).map(\.time), heldPoints)
 
         model.toggleDisplayHold()
         XCTAssertNotEqual(model.frames.last?.id, held)

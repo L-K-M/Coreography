@@ -14,6 +14,7 @@ Run:  python3 tools/tests/test_buildscripts.py
 """
 
 import os
+import json
 import shutil
 import subprocess
 import sys
@@ -119,14 +120,22 @@ class ScriptTestCase(unittest.TestCase):
         args = [l[4:] for l in lines if l.startswith("ARG:")]
         env = {}
         for l in lines:
-            if "=" in l and not l.startswith("ARG") and "BEGIN" not in l \
-                    and "END" not in l:
+            if "=" in l and not l.startswith("ARG:"):
                 k, _, v = l.partition("=")
                 env[k] = v
         return args, env
 
 
 class TestBuildSh(ScriptTestCase):
+    def test_recorded_environment_preserves_marker_words(self):
+        self.record.write_text(
+            "ARGV_BEGIN\nARG:--option=value\nARGV_END\n"
+            "BUILD_SCHEME=BUILD_END_TO_END\nARG_SETTINGS=kept\n"
+        )
+        args, env = self.recorded()
+        self.assertEqual(args, ["--option=value"])
+        self.assertEqual(env, {"BUILD_SCHEME": "BUILD_END_TO_END", "ARG_SETTINGS": "kept"})
+
     def test_missing_engine_fails_clearly(self):
         r = self.run_script(BUILD)
         self.assertNotEqual(r.returncode, 0)
@@ -162,7 +171,7 @@ class TestBuildSh(ScriptTestCase):
         r = self.run_script(BUILD, "--check", "--zip")
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertTrue(stale.exists(), "--check must not mutate anything")
-        self.assertFalse((self.dist / "Coreography-v0.0.0-macos-x86_64.zip").exists())
+        self.assertFalse((self.dist / f"Coreography-v0.0.0-macos-{host_arch()}.zip").exists())
 
     def test_args_forwarded_verbatim(self):
         self.install_mock("lkm-build")
@@ -323,11 +332,13 @@ class TestScriptFileProperties(unittest.TestCase):
             output.parent.mkdir()
             output.write_bytes(b"existing developer output")
             result = subprocess.run(
-                [sys.executable, str(copied_tests), "TestBuildSh.test_check_forwarded"],
+                [sys.executable, str(copied_tests), "-k", "TestBuildSh"],
                 capture_output=True, text=True,
             )
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertTrue(output.exists(), "Tests must not remove developer build outputs")
+            self.assertIn("test_zip_renamed_to_fleet_convention_universal", result.stderr)
+            self.assertIn("test_newer_stale_archive_is_not_relabelled", result.stderr)
 
     def test_scripts_are_executable(self):
         for s in (BUILD, RELEASE, ASSEMBLE):
@@ -337,6 +348,56 @@ class TestScriptFileProperties(unittest.TestCase):
         for s in (BUILD, RELEASE, ASSEMBLE):
             r = subprocess.run(["bash", "-n", str(s)], capture_output=True)
             self.assertEqual(r.returncode, 0, f"{s}: {r.stderr.decode()}")
+
+
+class TestReleaseSmoke(unittest.TestCase):
+    def run_smoke(self, snapshot):
+        workflow = (REPO / ".github/workflows/release.yml").read_text()
+        step = workflow.split("      - name: Smoke-test embedded CLI\n", 1)[1]
+        step = step.split("\n      - name:", 1)[0]
+        script = "\n".join(line[10:] for line in step.splitlines() if line.startswith("          "))
+        with tempfile.TemporaryDirectory(prefix="coreo-release-gate-") as temporary:
+            fixture = Path(temporary)
+            cli = fixture / "dist/Coreography.app/Contents/Helpers/coreo"
+            cli.parent.mkdir(parents=True)
+            cli.write_text(
+                "#!/usr/bin/env python3\nimport os\nprint(os.environ['COREO_FIXTURE'])\n"
+            )
+            cli.chmod(0o755)
+            validator = REPO / "tools/check_snapshot.py"
+            if validator.exists():
+                (fixture / "tools").mkdir()
+                shutil.copy2(validator, fixture / "tools/check_snapshot.py")
+            return subprocess.run(
+                ["bash", "-c", script], cwd=fixture, capture_output=True, text=True,
+                env={"PATH": "/usr/bin:/bin", "RUNNER_TEMP": temporary,
+                     "COREO_FIXTURE": json.dumps(snapshot)}, timeout=10,
+            )
+
+    @staticmethod
+    def snapshot():
+        return {
+            "cpuPercentOfMachine": {"availability": "measured", "numericValue": 25},
+            "memoryUsedBytes": {"availability": "estimated", "numericValue": 4096},
+            "inventory": {"physicalMemoryBytes": 8192},
+        }
+
+    def test_release_gate_accepts_valid_native_measurements(self):
+        result = self.run_smoke(self.snapshot())
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_release_gate_rejects_unavailable_cpu(self):
+        snapshot = self.snapshot()
+        snapshot["cpuPercentOfMachine"] = {"availability": "unavailable", "reason": "Fixture"}
+        self.assertNotEqual(self.run_smoke(snapshot).returncode, 0)
+
+    def test_release_gate_rejects_invalid_values(self):
+        for key, value in (("cpuPercentOfMachine", 101), ("memoryUsedBytes", 8193),
+                           ("cpuPercentOfMachine", True), ("memoryUsedBytes", float("nan"))):
+            with self.subTest(key=key, value=value):
+                snapshot = self.snapshot()
+                snapshot[key]["numericValue"] = value
+                self.assertNotEqual(self.run_smoke(snapshot).returncode, 0)
 
 
 if __name__ == "__main__":

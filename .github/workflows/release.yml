@@ -69,7 +69,8 @@ jobs:
           set -euo pipefail
           CLI="dist/Coreography.app/Contents/Helpers/coreo"
           "$CLI" doctor
-          "$CLI" snapshot --once --json | python3 -m json.tool >/dev/null
+          "$CLI" snapshot --once --json > "$RUNNER_TEMP/snapshot.json"
+          python3 tools/check_snapshot.py "$RUNNER_TEMP/snapshot.json"
 
       - name: Validate version and package
         run: |
@@ -80,7 +81,7 @@ jobs:
             echo "::error::Tag and built app version differ"
             exit 1
           }
-          archive="dist/Coreography-v${version}-macos-universal.zip"
+          archive="dist/Coreography-v${tag_version}-macos-universal.zip"
           ditto -c -k --keepParent dist/Coreography.app "$archive"
           unzip -t "$archive"
 
@@ -96,5 +97,5 @@ jobs:
           generate_release_notes: true
           body: |
             Universal macOS build (arm64 + x86_64), ad-hoc signed — **not
-            notarized**: Gatekeeper will warn on first open
-            (right-click → Open, or `xattr -d com.apple.quarantine`).
+            notarized**. For a trusted development build blocked on first open,
+            use System Settings → Privacy & Security → Open Anyway.

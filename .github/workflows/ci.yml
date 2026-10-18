@@ -113,16 +113,7 @@ jobs:
           CLI="dist/Coreography.app/Contents/Helpers/coreo"
           "$CLI" doctor
           "$CLI" snapshot --once --json > "$RUNNER_TEMP/snapshot.json"
-          python3 - "$RUNNER_TEMP/snapshot.json" <<'PY'
-          import json, sys
-          with open(sys.argv[1]) as source:
-              snapshot = json.load(source)
-          cpu = snapshot["cpuPercentOfMachine"]
-          memory = snapshot["memoryUsedBytes"]
-          assert cpu["availability"] == "measured" and 0 <= cpu["numericValue"] <= 100
-          assert memory["availability"] == "estimated"
-          assert 0 <= memory["numericValue"] <= snapshot["inventory"]["physicalMemoryBytes"]
-          PY
+          python3 tools/check_snapshot.py "$RUNNER_TEMP/snapshot.json"
 
       - name: Package tested app
         run: |

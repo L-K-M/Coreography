@@ -26,10 +26,10 @@ provider, helper, MCP or model integration in this slice.
 | --- | --- |
 | Portable Swift tests | 33 passed locally on Linux |
 | `coreo doctor` on Linux | Reports unsupported native sampling with no numeric Mac readings |
-| Build-script regression tests | 26 passed locally; includes fixture isolation and exact archive selection |
-| Xcode/macOS compilation and live CPU/memory smoke | Pending macOS CI |
-| Universal app and CLI slices, code signature and archive | Pending macOS CI |
-| Native chart rendering, VoiceOver and display-hold behavior | Pending Mac build and owner checks |
+| Build-script regression tests | 30 local tests; includes actual release-step rejection, fixture isolation and exact archive selection |
+| Xcode/macOS compilation and live CPU/memory smoke | Passed [native CI](https://github.com/L-K-M/Coreography/actions/runs/39093205075) at `18120ff`; review-fix checks tracked on PR #5 |
+| Universal app and CLI slices, code signature and archive | Passed the same native CI; ad-hoc signing only |
+| Native chart rendering, VoiceOver and display-hold behavior | [Candidate build](https://github.com/L-K-M/Coreography/actions/runs/39093205075/artifacts/12123973089) delivered; owner checks pending |
 | CPU, memory and wakeup budgets | Unmeasured; S2 pending |
 | Developer ID, notarization and signed update delivery | Pending credentials and M7 |
 
@@ -51,8 +51,10 @@ sensor calibration, fullscreen behavior or Mac energy overhead.
 
 ## Owner Mac checks
 
-The owner will test downloadable builds. Once the first native CI artifact
-exists, provide its exact link and check list:
+The owner will test downloadable builds. The first native CI candidate is
+linked above. For a trusted ad-hoc build blocked on first launch, use
+System Settings > Privacy & Security > Open Anyway. This is not a notarized
+production release. Check:
 
 1. Open the app and compare CPU and memory trends with Activity Monitor.
    Memory is an estimate and is not memory pressure.
@@ -68,6 +70,22 @@ Do not mark a physical-Mac gate passed from a cross-compile or fixture.
 
 ## Review decisions carried forward
 
+- Foundation review round 1: strengthen the release smoke test to reject
+  unavailable, non-finite or out-of-range values using the same validator
+  as CI. Exercise archive-mutating tests in the output-isolation guard.
+- Refuted compile claims: `Duration.nanoseconds` accepts generic integer
+  values, and native Xcode 26.6 CI compiled both architectures. Display
+  hold freezes `frames`, `latest` and its timestamp; the expanded hold test
+  feeds more than a full buffer while checking that displayed points stay.
+- Transient Mach failures are already nonnumeric readings returned by the
+  engine, not thrown loop errors. Reading factories and decoding reject
+  numeric unavailable states. Counter decreases become gaps, not unsigned
+  underflow. Keep these invariants rather than adding reviewer workarounds.
+- Preserve exact CLI flag validation: both permutations of its two flags
+  work; set comparison would also accept unintended duplicate flags.
+- No entitlements are configured in this unprivileged, unsandboxed target.
+  Production entitlements and signing remain an explicit M7 gate. Space
+  with focused controls still needs the owner's native accessibility check.
 - Numeric evidence is separate from explanatory hypotheses. Memory/GPU
   quantities and modeled app energy are not universally additive.
 - A zero/unset wired-memory setting is not zero effective GPU capacity;
