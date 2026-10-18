@@ -95,7 +95,8 @@ public actor ProcessMonitor {
                     id: identity, parentPID: process.parentPID, uid: process.uid,
                     name: process.name, stamp: processStamp,
                     cpuPercentOfMachine: readings.cpu, memoryFootprintBytes: readings.memory,
-                    diskReadBytesPerSecond: readings.read, diskWriteBytesPerSecond: readings.write
+                    diskReadBytesPerSecond: readings.read, diskWriteBytesPerSecond: readings.write,
+                    executablePath: process.executablePath, responsiblePID: process.responsiblePID
                 ))
             }
             // Retain every observed process, but never reuse a missing process's baseline.

@@ -10,6 +10,9 @@
  *   users, ESRCH once reaped) and reports CPU times in Mach timebase
  *   ticks, not nanoseconds (rm_time_mach); convert via
  *   mach_timebase_info().
+ * - proc_pidpath is public; responsibility_get_pid_responsible_for_pid is
+ *   private libsystem SPI (Activity Monitor-style app grouping), resolved
+ *   at runtime so its absence degrades to path grouping, never a crash.
  */
 
 #include "CoreographySystem.h"
@@ -19,8 +22,10 @@
 
 #if defined(__APPLE__)
 
+#include <dlfcn.h>
 #include <libproc.h>
 #include <mach/kern_return.h>
+#include <pthread.h>
 #include <mach/mach_time.h>
 #include <sys/proc_info.h>
 #include <sys/resource.h>
@@ -51,6 +56,50 @@ coreo_copy_name(char *dst, size_t dst_size, const char *src, size_t src_size)
     }
     memcpy(dst, src, len);
     dst[len] = '\0';
+}
+
+typedef pid_t (*coreo_responsible_fn)(pid_t);
+static coreo_responsible_fn coreo_responsible_lookup;
+static pthread_once_t coreo_responsible_once = PTHREAD_ONCE_INIT;
+
+static void
+coreo_resolve_responsible(void)
+{
+    coreo_responsible_lookup = (coreo_responsible_fn)dlsym(
+        RTLD_DEFAULT, "responsibility_get_pid_responsible_for_pid");
+}
+
+static int32_t
+coreo_read_responsible(int32_t pid, int32_t *responsible)
+{
+    pid_t value;
+
+    pthread_once(&coreo_responsible_once, coreo_resolve_responsible);
+    if (coreo_responsible_lookup == NULL) {
+        return ENOTSUP;
+    }
+    errno = 0;
+    value = coreo_responsible_lookup((pid_t)pid);
+    if (value < 0) {
+        return errno ? errno : ESRCH;
+    }
+    *responsible = (int32_t)value;
+    return 0;
+}
+
+static int32_t
+coreo_read_path(int32_t pid, char *path, size_t capacity)
+{
+    int length;
+
+    errno = 0;
+    length = proc_pidpath(pid, path, (uint32_t)capacity);
+    if (length <= 0 || (size_t)length >= capacity) {
+        path[0] = '\0';
+        return errno ? errno : EIO;
+    }
+    path[length] = '\0';
+    return 0;
 }
 
 static int32_t
@@ -121,6 +170,8 @@ coreo_process_read(int32_t pid, coreo_process_sample *sample)
     if (proc_pid_rusage(pid, RUSAGE_INFO_V2, (rusage_info_t *)&usage) != 0) {
         sample->usage_error = errno ? errno : EIO;
     }
+    sample->path_error = coreo_read_path(pid, sample->path, sizeof(sample->path));
+    sample->responsible_error = coreo_read_responsible(pid, &sample->responsible_pid);
 
     err = coreo_read_identity(pid, &after);
     if (err != 0 || before.pbi_pid != after.pbi_pid ||
@@ -199,6 +250,8 @@ coreo_process_read(int32_t pid, coreo_process_sample *sample)
     }
     memset(sample, 0, sizeof(*sample));
     sample->usage_error = ENOTSUP;
+    sample->path_error = ENOTSUP;
+    sample->responsible_error = ENOTSUP;
     return ENOTSUP;
 }
 

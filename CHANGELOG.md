@@ -7,6 +7,9 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
 ## [Unreleased]
 
 ### Added
+- App grouping in the process pane: helpers fold under their responsible
+  app or enclosing app bundle, with honest group totals and a flat view.
+  Estimated values show "est." with their method on hover.
 - Memory composition (app, wired, compressed, cached), swap use, swap and
   page-in rates, compression ratio and kernel pressure, with a stacked
   memory lane, pressure band and numeric table.

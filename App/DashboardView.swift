@@ -626,6 +626,12 @@ private struct ProcessPane: View {
                     TextField("Filter by process name, PID or UID", text: $model.processFilter)
                         .textFieldStyle(.roundedBorder)
                         .focused(filterFocused)
+                    Picker("Group", selection: $model.processGrouping) {
+                        Text("By app").tag(ProcessGrouping.app)
+                        Text("Flat").tag(ProcessGrouping.flat)
+                    }
+                    .frame(width: 150)
+                    .help("By app folds helpers under their responsible app or app bundle")
                     Picker("Sort", selection: $model.processSort) {
                         Text("CPU").tag(ProcessSort.cpu)
                         Text("Memory").tag(ProcessSort.memory)
@@ -650,11 +656,14 @@ private struct ProcessPane: View {
                     }
                 }
 
-                Table(model.visibleProcesses) {
-                    TableColumn("Process", value: \.name)
-                    TableColumn("PID") { Text($0.id.pid.formatted(.number.grouping(.never))) }
+                Table(model.visibleProcessRows, children: \.children) {
+                    TableColumn("Process") { row in
+                        Text(row.children == nil ? row.name : "\(row.name) (\(row.memberCount))")
+                            .help(ProcessText.grouping(row.groupingMethod))
+                    }
+                    TableColumn("PID") { Text($0.process?.id.pid.formatted(.number.grouping(.never)) ?? "") }
                         .width(60)
-                    TableColumn("UID") { Text($0.uid.formatted(.number.grouping(.never))) }
+                    TableColumn("UID") { Text($0.process?.uid.formatted(.number.grouping(.never)) ?? "") }
                         .width(65)
                     TableColumn("CPU, machine") {
                         ProcessMetricCell(reading: $0.cpuPercentOfMachine, format: .percent)
@@ -672,11 +681,22 @@ private struct ProcessPane: View {
                 .frame(height: 260)
                 .textSelection(.enabled)
 
-                Text("CPU uses the whole-machine scale. Footprints are not an additive memory total. Process sampling: 2 s; short-lived processes can be missed.")
+                Text("CPU uses the whole-machine scale. App totals sum their members; footprint sums can count shared memory twice. Process sampling: 2 s; short-lived processes can be missed.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
             .padding(.top, 8)
+        }
+    }
+}
+
+private enum ProcessText {
+    static func grouping(_ method: ProcessGroupingMethod?) -> String {
+        switch method {
+        case .responsibleProcess: return String(localized: "Grouped under the process macOS holds responsible")
+        case .appBundle: return String(localized: "Grouped by its app bundle")
+        case .standalone: return String(localized: "No owning app found")
+        case nil: return ""
         }
     }
 }
@@ -689,7 +709,7 @@ private struct ProcessMetricCell: View {
     var body: some View {
         Text(label)
             .monospacedDigit()
-            .help(reading.reason ?? [reading.source?.provider, reading.source?.driver, reading.source?.channel]
+            .help(reading.reason ?? reading.method ?? [reading.source?.provider, reading.source?.driver, reading.source?.channel]
                 .compactMap { $0 }.joined(separator: " · "))
     }
 
@@ -702,10 +722,12 @@ private struct ProcessMetricCell: View {
             default: return String(localized: "Unavailable")
             }
         }
+        // Plan state grammar: estimates carry "est." and name their method on hover.
+        let suffix = reading.availability == .estimated ? " " + String(localized: "est.") : ""
         switch format {
-        case .percent: return MetricText.percent(value)
-        case .bytes: return MetricText.bytes(value)
-        case .rate: return MetricText.bytes(value) + "/s"
+        case .percent: return MetricText.percent(value) + suffix
+        case .bytes: return MetricText.bytes(value) + suffix
+        case .rate: return MetricText.bytes(value) + "/s" + suffix
         }
     }
 }

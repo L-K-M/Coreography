@@ -4,6 +4,9 @@
 #include <stdint.h>
 #include <net/if.h>
 
+/* PROC_PIDPATHINFO_MAXSIZE: the largest path proc_pidpath can return. */
+#define COREO_PROCESS_PATH_CAPACITY 4096
+
 typedef struct {
     int32_t pid;
     uint32_t parent_pid;
@@ -17,6 +20,10 @@ typedef struct {
     uint64_t physical_footprint_bytes;
     uint64_t disk_read_bytes;
     uint64_t disk_write_bytes;
+    int32_t path_error;
+    char path[COREO_PROCESS_PATH_CAPACITY];
+    int32_t responsible_error;
+    int32_t responsible_pid;
 } coreo_process_sample;
 
 /* Return errno on failure, zero on success. Capacity and count are PID
@@ -30,7 +37,10 @@ int32_t coreo_process_list(int32_t *pids, int32_t capacity,
    returns EAGAIN. On success, usage_error is 0 and the usage fields hold
    cumulative CPU nanoseconds and byte counters; a nonzero usage_error
    (e.g. EPERM, ESRCH, EOVERFLOW) leaves those fields zero. name is always
-   bounded and NUL-terminated. Returns ENOTSUP on unsupported platforms. */
+   bounded and NUL-terminated. path and responsible_pid are read inside the
+   same identity bracket; a nonzero path_error or responsible_error leaves
+   its field empty. responsible_error is ENOTSUP when the OS lacks the
+   responsibility symbol. Returns ENOTSUP on unsupported platforms. */
 int32_t coreo_process_read(int32_t pid, coreo_process_sample *sample);
 
 typedef struct {
