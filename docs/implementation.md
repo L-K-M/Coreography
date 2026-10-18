@@ -3,7 +3,7 @@
 Track actual delivery against the [product plan](plan.md). A stage is
 complete only after its relevant checks and review pass and its PR merges.
 
-## Current slice: menu bar extra
+## Current slice: diagnostic contract
 
 The native foundation merged in [PR #5](https://github.com/L-K-M/Coreography/pull/5)
 at `aee9494` after two GLM rounds and passing CI. Process monitoring merged
@@ -26,8 +26,9 @@ range selection in [PR #17](https://github.com/L-K-M/Coreography/pull/17);
 range export in [PR #18](https://github.com/L-K-M/Coreography/pull/18);
 shared continuity in [PR #19](https://github.com/L-K-M/Coreography/pull/19);
 process actions in [PR #20](https://github.com/L-K-M/Coreography/pull/20);
-app scope in [PR #21](https://github.com/L-K-M/Coreography/pull/21).
-This slice adds the menu bar extra.
+app scope in [PR #21](https://github.com/L-K-M/Coreography/pull/21);
+the menu bar extra in [PR #22](https://github.com/L-K-M/Coreography/pull/22).
+This slice adds the shared diagnostic contract and `coreo diagnose`.
 
 Implemented:
 
@@ -135,6 +136,17 @@ Implemented:
   sampler serves both. Sampling now starts at launch and continues while
   the window is closed; the 10-second record-only cadence for when nothing
   is visible remains with the full scheduler.
+- The shared diagnostic contract (plan: one service for the window, CLI,
+  MCP and Ask): a question freezes one `DiagnosticSnapshot`; tools return
+  a system summary with units, evidence references and fact-only signals
+  (CPU saturation, sustained memory pressure, swapping, heavy thermal
+  pressure, sampling gaps), paged top apps by CPU-seconds or disk bytes
+  with cursors bound to the snapshot, metric and range, bounded metric
+  history with gaps as segments, process details without paths, and data
+  sources. Ranges over an hour, oversized pages and foreign cursors fail
+  explicitly; sleep history is unavailable until S8.
+  `coreo diagnose --json [--seconds N]` samples 3-60 s and prints a report
+  an assistant can use. MCP transport and the app bridge remain M5.
 - A thermal lane showing system thermal pressure as a band, from the public
   `com.apple.system.thermalpressurelevel` notify state. Temperatures, fans
   and the hottest-sensor line wait for the sensor provider.
@@ -157,6 +169,7 @@ time, helper, MCP or model integration in this slice.
 | Native process collection, cancellation and CPU units | Passed [native review-fix CI](https://github.com/L-K-M/Coreography/actions/runs/39105964147) at `7df03ec`, including cancellation, saturation and `getrusage` cross-checks |
 | Native network MIB, wide-counter mapping and three-lane UI | Passed at `e62fac1`, including native C fixtures, live CLI and both executable architectures; integrated candidate pending |
 | Native IOKit storage counters and four-lane renderer | Passed [native CI](https://github.com/L-K-M/Coreography/actions/runs/39110306993) at `6434722`: 75 tests, 16 drivers, 32 measured rate fields, no inventory issues; owner checks pending |
+| Diagnostic contract and `coreo diagnose` | Contract slice: 125 Swift tests pass on Linux (signals, cursor binding, bounds, gaps, no paths, unavailable sleep history); native CI smoke checks units, evidence and that no path leaks |
 | Menu bar extra and launch-time sampling | Menu slice: Swift tests unchanged (121); the menu view and project registration compile only in native CI; owner check for the title, mini lanes and Open Coreography |
 | App scope overlays and filtering | Scope slice: 121 Swift tests pass on Linux, including idle-as-zero and gap segments in the scoped series; UI compile pending |
 | Process actions and markers | Actions slice: 120 Swift tests and the Linux C contract pass; the native contract forks a child, refuses a wrong start time and terminates it with the right one; UI compile pending |

@@ -12,6 +12,7 @@ private struct Coreo {
            coreo gpu --once --json
            coreo power --once --json
            coreo sensors --once --json
+           coreo diagnose --json [--seconds N]
            coreo --version
 
     doctor reports source availability. snapshot waits for a CPU baseline.
@@ -21,6 +22,8 @@ private struct Coreo {
     gpu reports each GPU's driver-published utilization and memory in use.
     power reports battery, adapter and (on battery) system draw.
     sensors reports SMC system power, the hottest temperature and fans.
+    diagnose samples for N seconds (3-60, default 5) and reports a summary with
+    fact-only signals, top apps by CPU and disk, and data-source availability.
     Native host sampling requires macOS 26 or later.
     """
 
@@ -77,6 +80,12 @@ private struct Coreo {
                 }
                 let service = try DiagnosticService()
                 try emit(await service.captureSensorsOnce())
+            case let arguments where arguments.first == "diagnose":
+                guard DiagnosticService.nativeSamplingSupport == .supported else {
+                    throw CommandError.unsupportedPlatform
+                }
+                let service = try DiagnosticService()
+                try emit(await service.diagnose(seconds: try diagnosisSeconds(Array(arguments.dropFirst()))))
             default:
                 throw CommandError.invalidArguments
             }
@@ -84,6 +93,19 @@ private struct Coreo {
             let message = "coreo: \(error)\n"
             FileHandle.standardError.write(Data(message.utf8))
             exit(EXIT_FAILURE)
+        }
+    }
+
+    /// Accepts "--json" with an optional "--seconds N" in either order.
+    private static func diagnosisSeconds(_ arguments: [String]) throws -> Int {
+        let defaultSeconds = 5
+        switch arguments {
+        case ["--json"]: return defaultSeconds
+        case let options where options.count == 3 && options.contains("--json"):
+            guard let flag = options.firstIndex(of: "--seconds"), flag + 1 < options.count,
+                  let seconds = Int(options[flag + 1]) else { throw CommandError.invalidArguments }
+            return seconds
+        default: throw CommandError.invalidArguments
         }
     }
 

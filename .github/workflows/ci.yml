@@ -270,6 +270,28 @@ jobs:
                             "plausible": sensors["plausibleTemperatureCount"]}))
           PY
 
+      - name: Smoke-test the diagnostic contract
+        run: |
+          set -euo pipefail
+          dist/Coreography.app/Contents/Helpers/coreo diagnose --json --seconds 3 > "$RUNNER_TEMP/diagnose.json"
+          python3 - "$RUNNER_TEMP/diagnose.json" <<'PY'
+          import json, sys
+          with open(sys.argv[1]) as source:
+              report = json.load(source)
+          summary = report["summary"]
+          assert summary["cpuPercentOfMachine"]["unit"] == "%"
+          assert summary["cpuPercentOfMachine"]["reading"]["availability"] == "measured"
+          assert summary["windowStart"] <= summary["windowEnd"]
+          for signal in summary["signals"]:
+              assert signal["evidence"] and signal["detail"]
+          for page in (report["topCPUApps"], report["topDiskApps"]):
+              assert len(page["rows"]) <= 10 and page["coverageNote"]
+          assert any(source["metric"] == "cpu" for source in report["dataSources"])
+          assert "/Users/" not in json.dumps(report), "diagnostics must not expose paths"
+          print(json.dumps({"signals": [s["kind"] for s in summary["signals"]],
+                            "topCPU": [r["app"] for r in report["topCPUApps"]["rows"][:3]]}))
+          PY
+
       - name: Smoke-test native network counters
         run: |
           set -euo pipefail

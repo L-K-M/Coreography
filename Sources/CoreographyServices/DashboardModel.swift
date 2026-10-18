@@ -300,6 +300,14 @@ public final class DashboardModel {
         return RangeExport.document(range: selection, model: frames, apps: apps)
     }
 
+    /// Freeze the displayed data for one diagnostic question.
+    public func diagnosticSnapshot() -> DiagnosticSnapshot {
+        DiagnosticSnapshot(
+            takenAt: displayedEndTime ?? Date(), host: frames, network: networkFrames, gpu: gpuFrames,
+            power: powerFrames, sensors: sensorFrames, processes: processSnapshot, ledger: ledger
+        )
+    }
+
     /// What quitting this process would do, for confirmation before sending.
     public func actionRequest(for process: ObservedProcess, mode: QuitMode) -> ProcessActionRequest {
         ProcessActions.request(for: process, mode: mode, in: processSnapshot)
