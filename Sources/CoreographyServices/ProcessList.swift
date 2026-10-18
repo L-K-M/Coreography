@@ -12,10 +12,11 @@ public enum ProcessSort: String, CaseIterable, Identifiable, Sendable {
 
 enum ProcessList {
     static func rows(
-        in snapshot: CapturedProcesses?, matching filter: String, sortedBy sort: ProcessSort
+        in snapshot: CapturedProcesses?, matching filter: String, sortedBy sort: ProcessSort,
+        isNew: (ProcessIdentity) -> Bool = { _ in false }
     ) -> [ObservedProcess] {
-        let query = filter.trimmingCharacters(in: .whitespacesAndNewlines)
-        let rows = (snapshot?.processes ?? []).filter { matches($0, query: query) }
+        let parsed = ProcessFilter.parse(filter)
+        let rows = (snapshot?.processes ?? []).filter { parsed.matches($0, isNew: isNew($0.id)) }
         return rows.sorted { lhs, rhs in
             if sort == .name {
                 let order = lhs.name.localizedStandardCompare(rhs.name)
@@ -30,12 +31,6 @@ enum ProcessList {
             }
             return lhs.id.pid < rhs.id.pid
         }
-    }
-
-    /// Match a trimmed query against name, PID or UID; empty matches all.
-    static func matches(_ process: ObservedProcess, query: String) -> Bool {
-        query.isEmpty || process.name.localizedCaseInsensitiveContains(query)
-            || String(process.id.pid).contains(query) || String(process.uid).contains(query)
     }
 
     private static func value(_ row: ObservedProcess, sort: ProcessSort) -> Double? {

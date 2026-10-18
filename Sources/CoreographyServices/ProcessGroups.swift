@@ -50,14 +50,15 @@ enum ProcessGroups {
 
     static func rows(
         in snapshot: CapturedProcesses?, matching filter: String,
-        sortedBy sort: ProcessSort, grouping: ProcessGrouping
+        sortedBy sort: ProcessSort, grouping: ProcessGrouping,
+        isNew: (ProcessIdentity) -> Bool = { _ in false }
     ) -> [ProcessRow] {
         if grouping == .flat {
-            return ProcessList.rows(in: snapshot, matching: filter, sortedBy: sort)
+            return ProcessList.rows(in: snapshot, matching: filter, sortedBy: sort, isNew: isNew)
                 .map { leaf($0, method: nil, appName: $0.name) }
         }
 
-        let query = filter.trimmingCharacters(in: .whitespacesAndNewlines)
+        let parsed = ProcessFilter.parse(filter)
         let processes = snapshot?.processes ?? []
         let byPID = Dictionary(processes.map { ($0.id.pid, $0) }) { first, _ in first }
 
@@ -80,8 +81,9 @@ enum ProcessGroups {
         for key in keys {
             let group = members[key] ?? []
             let name = names[key] ?? key
-            let nameMatches = query.isEmpty || name.localizedCaseInsensitiveContains(query)
-            let visible = group.filter { nameMatches || ProcessList.matches($0.0, query: query) }
+            // Free text naming the app shows all its members; predicates test each member.
+            let nameMatches = parsed.isEmpty || (parsed.isTextOnly && parsed.matchesName(name))
+            let visible = group.filter { nameMatches || parsed.matches($0.0, isNew: isNew($0.0.id)) }
             guard !visible.isEmpty else { continue }
 
             if group.count == 1, let (process, method) = group.first {
