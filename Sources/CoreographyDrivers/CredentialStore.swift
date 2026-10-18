@@ -40,13 +40,18 @@ public struct KeychainCredentialStore: CredentialStoring {
         #endif
     }
 
+    /// Replaces the key in place, so a failed write never leaves the old one deleted.
     public func save(_ secret: String) throws {
         #if os(macOS)
-        try delete()
-        var attributes = baseQuery()
-        attributes[kSecValueData as String] = Data(secret.utf8)
         // Readable only while this Mac is unlocked, and never synced to other devices.
-        attributes[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+        let values: [String: Any] = [
+            kSecValueData as String: Data(secret.utf8),
+            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+        ]
+        let updated = SecItemUpdate(baseQuery() as CFDictionary, values as CFDictionary)
+        if updated == errSecSuccess { return }
+        guard updated == errSecItemNotFound else { throw CredentialStoreError.keychain(status: updated) }
+        let attributes = baseQuery().merging(values) { _, new in new }
         let status = SecItemAdd(attributes as CFDictionary, nil)
         guard status == errSecSuccess else { throw CredentialStoreError.keychain(status: status) }
         #else
