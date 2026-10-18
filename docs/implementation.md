@@ -3,7 +3,7 @@
 Track actual delivery against the [product plan](plan.md). A stage is
 complete only after its relevant checks and review pass and its PR merges.
 
-## Current slice: app scope
+## Current slice: menu bar extra
 
 The native foundation merged in [PR #5](https://github.com/L-K-M/Coreography/pull/5)
 at `aee9494` after two GLM rounds and passing CI. Process monitoring merged
@@ -25,8 +25,9 @@ the self-cost readout in [PR #16](https://github.com/L-K-M/Coreography/pull/16);
 range selection in [PR #17](https://github.com/L-K-M/Coreography/pull/17);
 range export in [PR #18](https://github.com/L-K-M/Coreography/pull/18);
 shared continuity in [PR #19](https://github.com/L-K-M/Coreography/pull/19);
-process actions in [PR #20](https://github.com/L-K-M/Coreography/pull/20).
-This slice scopes the window to one app.
+process actions in [PR #20](https://github.com/L-K-M/Coreography/pull/20);
+app scope in [PR #21](https://github.com/L-K-M/Coreography/pull/21).
+This slice adds the menu bar extra.
 
 Implemented:
 
@@ -128,6 +129,12 @@ Implemented:
   process pane filters to it, and a toolbar pill clears it. Idle intervals
   are zero; missing intervals stay gaps. Memory and GPU shares need
   per-app footprint and GPU-time series, which the ledger does not keep yet.
+- Menu bar extra: the title shows whole-machine CPU; its window has mini
+  CPU, memory and download lanes for the last minute, the top CPU app, a
+  hold toggle and Open Coreography. It reads the window's model, so one
+  sampler serves both. Sampling now starts at launch and continues while
+  the window is closed; the 10-second record-only cadence for when nothing
+  is visible remains with the full scheduler.
 - A thermal lane showing system thermal pressure as a band, from the public
   `com.apple.system.thermalpressurelevel` notify state. Temperatures, fans
   and the hottest-sensor line wait for the sensor provider.
@@ -150,6 +157,7 @@ time, helper, MCP or model integration in this slice.
 | Native process collection, cancellation and CPU units | Passed [native review-fix CI](https://github.com/L-K-M/Coreography/actions/runs/39105964147) at `7df03ec`, including cancellation, saturation and `getrusage` cross-checks |
 | Native network MIB, wide-counter mapping and three-lane UI | Passed at `e62fac1`, including native C fixtures, live CLI and both executable architectures; integrated candidate pending |
 | Native IOKit storage counters and four-lane renderer | Passed [native CI](https://github.com/L-K-M/Coreography/actions/runs/39110306993) at `6434722`: 75 tests, 16 drivers, 32 measured rate fields, no inventory issues; owner checks pending |
+| Menu bar extra and launch-time sampling | Menu slice: Swift tests unchanged (121); the menu view and project registration compile only in native CI; owner check for the title, mini lanes and Open Coreography |
 | App scope overlays and filtering | Scope slice: 121 Swift tests pass on Linux, including idle-as-zero and gap segments in the scoped series; UI compile pending |
 | Process actions and markers | Actions slice: 120 Swift tests and the Linux C contract pass; the native contract forks a child, refuses a wrong start time and terminates it with the right one; UI compile pending |
 | Range export (JSON, CSV) | Export slice: 117 Swift tests pass on Linux, including range filtering, JSON round trip and empty cells for missing readings; save panel compile pending |

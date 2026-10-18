@@ -28,6 +28,9 @@ temperatures and fans come with the sensor provider.
 A toolbar picker shows the last minute, ten minutes or hour; an hour of
 samples stays in memory, and charts keep every spike when zoomed out.
 
+A menu bar extra shows CPU in the menu bar and opens mini lanes; it shares
+the window's sampler and keeps sampling while the window is closed.
+
 Dragging across any lane selects a range; a panel totals CPU-seconds and
 disk bytes per app over it, tail apps included.
 
