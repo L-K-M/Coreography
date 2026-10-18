@@ -38,7 +38,7 @@ GPU/power/thermal provider, helper, MCP or model integration in this slice.
 
 | Check | Status |
 | --- | --- |
-| Swift tests | 47 passed on Linux and macOS, including PID 0 and process display hold |
+| Swift tests | 49 passed on Linux; earlier 47-test native run passed; latest process review fixes await native CI |
 | `coreo doctor` on Linux | Reports unsupported native sampling with no numeric Mac readings |
 | Build-script regression tests | 30 passed locally and in CI; includes actual release-step rejection, fixture isolation and exact archive selection |
 | Xcode/macOS compilation and live CPU/memory smoke | Passed [native CI](https://github.com/L-K-M/Coreography/actions/runs/39098130832) at `f47fe45`; latest integration checks tracked on PR #6 |
@@ -108,6 +108,26 @@ and [recount metrics](https://github.com/apple-oss-distributions/xnu/blob/f6217f
 
 ## Review decisions carried forward
 
+- Process review round 1: reproduce saturated CPU rounding at
+  1,500,000,015 ns across four logical CPUs. Allow a few floating-point
+  ULPs at capacity and bound the displayed reading at 100%; genuinely
+  excessive deltas remain gaps. The regression failed before the fix.
+- Native process reads now use an owned serial actor executor rather
+  than a cooperative-pool thread. Running actor jobs on that executor
+  preserves `Task.isCancelled`; a cancelled-read test guards this without
+  a separate unchecked cancellation flag.
+- Refute the reported V2 build blocker: Apple's
+  [rusage_info_v2](https://github.com/apple-oss-distributions/xnu/blob/f6217f891ac0bb64f3d375211650a4c1ff8ca1ea/bsd/sys/resource.h)
+  already contains both disk-byte fields. Native CI built the code and
+  exercised disk readings, kernel_task and the Apple Silicon timebase.
+- Keep unexpected sampler errors visible. Native failures already become
+  nonnumeric readings; current validated process samples throw only for
+  cancellation. Silently swallowing errors would hide stale process data.
+- Hold release synchronously republishes the latest process snapshot, so
+  the immediate assertion is intentional. Keep identity errors internal
+  until a consumer needs typed recovery. Capacity copy is conservative;
+  cancelled raw scans are rejected before dashboard publication. C tests
+  now reject `NDEBUG` and pin invalid-argument output preservation.
 - Foundation review round 2: no actionable or important findings. Defer
   clearer test-extraction failure messages. Production signing remains
   M7; adding placeholder credentials would break the current build.

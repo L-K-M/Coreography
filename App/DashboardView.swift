@@ -182,7 +182,7 @@ private struct ProcessPane: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     if snapshot.enumerationTruncated {
-                        Text("Process limit reached; this enumeration is partial.")
+                        Text("Enumeration reached capacity; additional processes may exist.")
                             .font(.caption)
                             .foregroundStyle(.orange)
                     }

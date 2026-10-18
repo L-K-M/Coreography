@@ -4,6 +4,8 @@ import CoreographyDrivers
 public actor ProcessMonitor {
     private static let nanosecondsPerSecond = 1_000_000_000.0
     private static let percentScale = 100.0
+    // Counter/rate/percentage conversions can overshoot capacity by a few ULPs.
+    private static let cpuCapacityRoundingTolerance = percentScale.ulp * 8
     private static let enumerationSource = MetricSource(
         provider: "processes", driver: "libproc", channel: "PROC_ALL_PIDS / PROC_PIDTBSDINFO"
     )
@@ -179,8 +181,8 @@ public actor ProcessMonitor {
                 let rate = cpu.record(total.partialValue, at: stamp)
                 if let value = rate.numericValue {
                     let percent = value / nanosecondsPerSecond * percentScale / Double(logicalCPUCount)
-                    cpuReading = percent <= percentScale
-                        ? try .measured(percent, source: usageSource)
+                    cpuReading = percent <= percentScale + cpuCapacityRoundingTolerance
+                        ? try .measured(min(percent, percentScale), source: usageSource)
                         : .gap(reason: "Process CPU delta exceeds machine capacity", source: usageSource)
                 } else {
                     cpuReading = rate

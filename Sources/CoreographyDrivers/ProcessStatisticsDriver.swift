@@ -114,11 +114,16 @@ public protocol ProcessSampleReading: Sendable {
 /// Enumerate a bounded process set without invoking ps or acquiring task ports.
 public actor ProcessStatisticsDriver: ProcessSampleReading {
     private static let processCapacity = 16_384
+    private let samplingExecutor = ProcessSamplingExecutor()
     private let clockID = UUID()
     private let logicalCPUCount = ProcessInfo.processInfo.processorCount
     private let collectorPID = ProcessInfo.processInfo.processIdentifier
 
     public init() {}
+
+    public nonisolated var unownedExecutor: UnownedSerialExecutor {
+        samplingExecutor.asUnownedSerialExecutor()
+    }
 
     public func read() async -> RawProcessSnapshot {
         let enumeration = readProcesses()
@@ -195,4 +200,17 @@ public actor ProcessStatisticsDriver: ProcessSampleReading {
         }
     }
     #endif
+}
+
+/// Run native lookups off the cooperative pool without losing the actor task's cancellation context.
+private final class ProcessSamplingExecutor: SerialExecutor {
+    private let queue = DispatchQueue(label: "CoreographyDrivers.process-sampling")
+
+    func enqueue(_ job: consuming ExecutorJob) {
+        let job = UnownedJob(job)
+        queue.async { [self] in
+            dispatchPrecondition(condition: .onQueue(queue))
+            job.runSynchronously(on: asUnownedSerialExecutor())
+        }
+    }
 }

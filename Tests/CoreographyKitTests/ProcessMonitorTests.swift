@@ -4,6 +4,36 @@ import CoreographyDrivers
 @testable import CoreographyKit
 
 final class ProcessMonitorTests: XCTestCase {
+    func testSaturatedCPURoundingStaysMeasuredButExcessUsageIsAGap() async throws {
+        let elapsed: UInt64 = 1_500_000_015
+        func sample(at time: UInt64, cpu: UInt64) -> RawProcessSnapshot {
+            RawProcessSnapshot(
+                clockID: Self.clock, monotonicNanoseconds: time,
+                wallTime: Self.epoch.addingTimeInterval(Double(time) / 1_000_000_000),
+                logicalCPUCount: 4, collectorPID: 42,
+                enumeration: .success(ProcessEnumeration(processes: [RawProcessInfo(
+                    pid: 42, parentPID: 1, uid: 501, startSeconds: 100,
+                    startMicroseconds: 0, name: "Saturated fixture", monotonicNanoseconds: time,
+                    counters: .success(ProcessCounters(
+                        userNanoseconds: cpu, systemNanoseconds: 0,
+                        physicalFootprintBytes: 4096, diskReadBytes: 0, diskWriteBytes: 0
+                    ))
+                )]))
+            )
+        }
+        let monitor = try makeMonitor([
+            sample(at: 0, cpu: 0), sample(at: elapsed, cpu: elapsed * 4),
+            sample(at: elapsed * 2, cpu: elapsed * 12)
+        ])
+        _ = try await monitor.sample()
+        let saturated = try await monitor.sample()
+        XCTAssertEqual(saturated.processes.first?.cpuPercentOfMachine.availability, .measured)
+        XCTAssertEqual(saturated.processes.first?.cpuPercentOfMachine.numericValue, 100)
+        let impossible = try await monitor.sample()
+        XCTAssertEqual(impossible.processes.first?.cpuPercentOfMachine.availability, .gap)
+        XCTAssertNil(impossible.processes.first?.cpuPercentOfMachine.numericValue)
+    }
+
     func testRatesUseEachProcessElapsedTimeAndWholeMachineCPU() async throws {
         let monitor = try makeMonitor([
             fixture(time: 1, rows: [row(time: 1, cpu: 1_000_000_000, read: 100)]),
@@ -169,6 +199,26 @@ final class ProcessMonitorTests: XCTestCase {
         switch raw.enumeration {
         case .failure(.unsupportedPlatform): break
         default: XCTFail("Linux must not fabricate macOS process data")
+        }
+        #endif
+    }
+
+    func testNativeDriverKeepsCancellationContextOnSamplingExecutor() async throws {
+        let driver = ProcessStatisticsDriver()
+        let task = Task {
+            while !Task.isCancelled { await Task.yield() }
+            return await driver.read()
+        }
+        task.cancel()
+        let raw = await task.value
+        #if os(macOS)
+        let enumeration = try raw.enumeration.get()
+        XCTAssertTrue(enumeration.processes.isEmpty)
+        XCTAssertTrue(enumeration.isTruncated)
+        #else
+        switch raw.enumeration {
+        case .failure(.unsupportedPlatform): break
+        default: XCTFail("Cancelled Linux reads must remain explicitly unsupported")
         }
         #endif
     }
