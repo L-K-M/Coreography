@@ -72,17 +72,39 @@ struct SettingsView: View {
     var body: some View {
         Form {
             Section("History") {
+                Picker("Keep", selection: $model.historyRetention) {
+                    ForEach(HistoryRetention.allCases) { preset in
+                        Text(RetentionText.label(preset)).tag(preset)
+                    }
+                }
+                .disabled(!model.recordsHistory)
+                Text(RetentionText.size(model.historyBytes))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 Text(model.recordsHistory
-                     ? "Coreography keeps 6 hours of system history on this Mac, excluded from backups. Local snapshots and administrators can still read it."
+                     ? "History stays on this Mac, excluded from backups. Local snapshots and administrators can still read it."
                      : "History is not being recorded" + (model.historyProblem.map { ": \($0)" } ?? "."))
                     .font(.caption)
                 if let problem = model.historyProblem, model.recordsHistory {
                     Text("Last write failed: \(problem)").font(.caption).foregroundStyle(.red)
                 }
                 Button("Delete history", role: .destructive) {
-                    Task { message = await model.deleteHistory() ?? String(localized: "History deleted.") }
+                    Task {
+                        message = await model.deleteHistory() ?? String(localized: "History deleted.")
+                        await model.refreshHistorySize()
+                    }
                 }
                 .disabled(!model.recordsHistory)
+            }
+            Section("Data sources") {
+                ForEach(model.dataSources, id: \.metric) { source in
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("\(source.metric): \(source.availability.rawValue)")
+                        if let detail = source.reason ?? source.source.map({ [$0.provider, $0.driver, $0.channel].compactMap { $0 }.joined(separator: " · ") }) {
+                            Text(detail).font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                }
             }
             Section("Ask Coreography") {
                 SecureField("Anthropic API key", text: $key)
@@ -107,6 +129,23 @@ struct SettingsView: View {
         }
         .formStyle(.grouped)
         .frame(width: 460)
-        .task { await model.refreshProviderKey() }
+        .task {
+            await model.refreshProviderKey()
+            await model.refreshHistorySize()
+        }
+    }
+}
+
+private enum RetentionText {
+    static func label(_ preset: HistoryRetention) -> String {
+        let cost = ByteCountFormatter.string(fromByteCount: preset.estimatedBytes, countStyle: .file)
+        return String(localized: "\(preset.detailedHours) h detailed, \(preset.summaryDays) days summarised (about \(cost))")
+    }
+
+    static func size(_ bytes: Int64?) -> String {
+        guard let bytes else { return String(localized: "Stored size unknown") }
+        let used = ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
+        let cap = ByteCountFormatter.string(fromByteCount: HistoryRetention.sizeCap, countStyle: .file)
+        return String(localized: "Now \(used) on disk; never more than \(cap)")
     }
 }

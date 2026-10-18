@@ -167,6 +167,18 @@ public final class DashboardModel {
     public var recordsHistory: Bool { historyRecorder != nil }
     /// Why the stored part of a long range is missing, when it is.
     public private(set) var storedHistoryProblem: String?
+    /// How long history is kept; saved, and applied to the store's next write.
+    public var historyRetention = HistoryRetention.saved() {
+        didSet {
+            guard historyRetention != oldValue else { return }
+            historyRetention.save()
+            applyRetention()
+            dropStoredHistory()
+            if timeRange.reachesStoredHistory { refreshStoredHistory() }
+        }
+    }
+    /// The measured size of stored history, refreshed on request.
+    public private(set) var historyBytes: Int64?
     /// Rules currently raised, by id; lanes tint while their rule is active.
     public private(set) var activeAlerts: [AlertLane: String] = [:]
     public private(set) var hasProviderKey = false
@@ -260,6 +272,7 @@ public final class DashboardModel {
             sensorMonitor = nil
             collectionError = "Cannot initialize monitoring: \(error)"
         }
+        applyRetention()
     }
 
     init(
@@ -463,10 +476,13 @@ public final class DashboardModel {
 
         storedLoadedAt = now
         let start = now.addingTimeInterval(-timeRange.seconds)
+        let recentRetention = historyRetention.plan.recent
         storedLoad = Task { [weak self] in
             let result: Result<StoredHistory, any Error>
             do {
-                result = .success(try await StoredHistory.load(from: historyRecorder, start: start, end: now))
+                result = .success(try await StoredHistory.load(
+                    from: historyRecorder, start: start, end: now, recentRetention: recentRetention
+                ))
             } catch {
                 result = .failure(error)
             }
@@ -492,6 +508,28 @@ public final class DashboardModel {
         let older = stored.filter { $0.time < liveStart ?? .distantFuture }
         let offset = (older.last?.segment ?? -1) + 1
         return older + live.map { DashboardPoint(id: $0.id, time: $0.time, value: $0.value, segment: $0.segment + offset) }
+    }
+
+    /// Every reading's availability and provenance, for Settings (plan: the Data Sources pane).
+    public var dataSources: [DataSourceStatus] { DiagnosticTools.dataSources(diagnosticSnapshot()) }
+
+    public func refreshHistorySize() async {
+        guard let historyRecorder else { return }
+        historyBytes = try? await historyRecorder.size()
+    }
+
+    private func applyRetention() {
+        guard let historyRecorder else { return }
+        let plan = historyRetention.plan
+        Task { await historyRecorder.setRetention(plan) }
+    }
+
+    private func dropStoredHistory() {
+        storedLoad?.cancel()
+        storedLoad = nil
+        storedLoadedAt = nil
+        storedHistory = nil
+        storedScopedCache = nil
     }
 
     /// One-click deletion of everything recorded on disk.

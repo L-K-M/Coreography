@@ -92,6 +92,19 @@ public struct HistoryRollup: Equatable, Sendable {
     }
 }
 
+/// How long each tier keeps its data.
+public struct RetentionPlan: Equatable, Sendable {
+    /// 1 s readings and the app ledger.
+    public let recent: TimeInterval
+    /// 10 s buckets.
+    public let day: TimeInterval
+
+    public init(recent: TimeInterval, day: TimeInterval) {
+        self.recent = recent
+        self.day = day
+    }
+}
+
 public enum HistoryStoreError: Error, Equatable, Sendable {
     case storage(String)
 }
@@ -108,8 +121,9 @@ public enum HistoryStoreError: Error, Equatable, Sendable {
 /// day_samples(metric, t, minimum, maximum, total, count)     10 s buckets, 7 days
 /// ```
 public actor HistoryStore {
+    /// The plan's defaults: six hours at 1 s, and the Day tier (10 s,
+    /// keeping minimum, maximum and mean) for 7 days.
     public static let retention: TimeInterval = 6 * 3600
-    /// The Day tier (plan: 10 s for 7 days, keeping minimum, maximum and mean).
     public static let dayRetention: TimeInterval = 7 * 86_400
     public static let dayBucket: TimeInterval = 10
     /// Hard size cap; the oldest rows go first when it is exceeded.
@@ -128,6 +142,7 @@ public actor HistoryStore {
     public let fileURL: URL
     private let connection: SQLiteConnection
     private let maximumBytes: Int64
+    private var plan = RetentionPlan(recent: HistoryStore.retention, day: HistoryStore.dayRetention)
     private var appIDs: [String: Int64] = [:]
     private var lastNameSweep: Date?
 
@@ -213,8 +228,8 @@ public actor HistoryStore {
             )
             try insert(ledger)
             try rollUp(samples)
-            try prune(before: now.addingTimeInterval(-Self.retention))
-            try pruneDay(before: now.addingTimeInterval(-Self.dayRetention))
+            try prune(before: now.addingTimeInterval(-plan.recent))
+            try pruneDay(before: now.addingTimeInterval(-plan.day))
             try enforceSizeCap()
             try sweepNames(now: now)
         }
@@ -241,6 +256,16 @@ public actor HistoryStore {
             guard case .integer(let count)? = try connection.query("SELECT COUNT(*) FROM samples").first?.first else { return 0 }
             return Int(count)
         }
+    }
+
+    /// Takes effect with the next write, which prunes to the new plan.
+    public func setRetention(_ plan: RetentionPlan) {
+        self.plan = plan
+    }
+
+    /// Bytes the stored history occupies, freed pages excluded.
+    public func size() throws -> Int64 {
+        try storage { try liveBytes() }
     }
 
     /// Day-tier buckets starting in the window, oldest first.
