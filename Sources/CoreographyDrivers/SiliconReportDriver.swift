@@ -208,7 +208,7 @@ enum IOReportLibrary {
     fileprivate typealias StateResidency = @convention(c) (CFDictionary, Int32) -> Int64
 
     private static let path = "/usr/lib/libIOReport.dylib"
-    private static let channelsKey: NSString = "IOReportChannels"
+    private static let channelsKey = "IOReportChannels"
     /// A state channel never has more states than this; more means a misread.
     private static let maximumStates: Int32 = 64
 
@@ -253,7 +253,7 @@ enum IOReportLibrary {
         /// Metadata comes from each item of the actual sample: IOReport may
         /// omit or reorder channels relative to the request.
         func channels(in sample: CFDictionary) -> [RawReportChannel] {
-            guard let items = (sample as NSDictionary)[IOReportLibrary.channelsKey] as? [NSDictionary] else { return [] }
+            guard let items = (sample as NSDictionary)[IOReportLibrary.channelsKey as NSString] as? [NSDictionary] else { return [] }
             return items.map { item in
                 let channel = item as CFDictionary
                 let group = text(functions.group, channel)
@@ -287,7 +287,7 @@ enum IOReportLibrary {
     static func subscribe(to groups: [(group: String, subgroup: String?)]) -> Result<Subscription, SiliconDriverError> {
         guard let functions = resolve() else { return .failure(.unavailable("libIOReport or one of its functions is missing")) }
         guard let all = functions.copyAllChannels(0, 0)?.takeRetainedValue(),
-              let items = (all as NSDictionary)[channelsKey] as? [NSDictionary] else {
+              let items = (all as NSDictionary)[channelsKey as NSString] as? [NSDictionary] else {
             return .failure(.unavailable("IOReport lists no channels"))
         }
 
@@ -300,7 +300,7 @@ enum IOReportLibrary {
         guard !selected.isEmpty else { return .failure(.unavailable("IOReport has no energy or performance-state channels")) }
 
         let request = NSMutableDictionary(dictionary: all as NSDictionary)
-        request[channelsKey] = selected
+        request[channelsKey as NSString] = selected
         var subscribed: Unmanaged<CFMutableDictionary>?
         guard let handle = functions.createSubscription(nil, request as CFMutableDictionary, &subscribed, 0, nil) else {
             subscribed?.release()
