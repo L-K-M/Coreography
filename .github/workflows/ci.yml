@@ -468,6 +468,44 @@ jobs:
           print(json.dumps({"days": len(days)}))
           PY
 
+      - name: Smoke-test per-process network
+        run: |
+          set -euo pipefail
+          # One process streams over loopback TCP to itself; its PID must show bytes both ways.
+          python3 -c '
+          import os, socket, sys, threading, time
+          server = socket.socket(); server.bind(("127.0.0.1", 0)); server.listen(1)
+          client = socket.create_connection(server.getsockname()); peer, _ = server.accept()
+          open(sys.argv[1], "w").write(str(os.getpid()))
+          def drain():
+              while peer.recv(65536): pass
+          threading.Thread(target=drain, daemon=True).start()
+          end = time.time() + 12
+          while time.time() < end:
+              client.sendall(b"x" * 65536); time.sleep(0.05)
+          ' "$RUNNER_TEMP/traffic.pid" &
+          until [ -s "$RUNNER_TEMP/traffic.pid" ]; do sleep 0.2; done
+          dist/Coreography.app/Contents/Helpers/coreo traffic --once --json > "$RUNNER_TEMP/traffic.json"
+          wait
+          python3 - "$RUNNER_TEMP/traffic.json" "$(cat "$RUNNER_TEMP/traffic.pid")" <<'PY'
+          import json, sys
+          with open(sys.argv[1]) as source:
+              traffic = json.load(source)
+          assert traffic.get("unavailableReason") is None, traffic.get("unavailableReason")
+          pid = int(sys.argv[2])
+          mine = [p for p in traffic["processes"] if p["pid"] == pid]
+          assert mine, f"the streaming process {pid} is missing from {len(traffic['processes'])} processes"
+          for key in ("receivedBytesPerSecond", "sentBytesPerSecond"):
+              reading = mine[0][key]
+              assert reading["availability"] == "measured" and reading["numericValue"] > 0, (key, reading)
+          for process in traffic["processes"]:
+              for key in ("receivedBytesPerSecond", "sentBytesPerSecond"):
+                  if "numericValue" in process[key]:
+                      assert process[key]["numericValue"] >= 0, process
+          print(json.dumps({"processes": len(traffic["processes"]),
+                            "streamer": {k: mine[0][k]["numericValue"] for k in ("receivedBytesPerSecond", "sentBytesPerSecond")}}))
+          PY
+
       - name: Smoke-test per-process connections
         run: |
           set -euo pipefail

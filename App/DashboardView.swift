@@ -1386,6 +1386,7 @@ private struct ProcessPane: View {
                         Text("Memory").tag(ProcessSort.memory)
                         Text("Disk read").tag(ProcessSort.diskRead)
                         Text("Disk write").tag(ProcessSort.diskWrite)
+                        Text("Network").tag(ProcessSort.network)
                         Text("Name").tag(ProcessSort.name)
                     }
                     .frame(width: 180)
@@ -1447,6 +1448,12 @@ private struct ProcessPane: View {
                                           heat: heat.write($0), hue: .orange)
                     }
                     TableColumn("Wakeups/s") { Text(WakeupText.rate($0.wakeupsPerSecond.numericValue)) }
+                    TableColumn("Network in/out") { row in
+                        Text(NetworkText.processRates(row))
+                            .monospacedDigit()
+                            .help(row.networkReceivedBytesPerSecond.method ?? row.networkReceivedBytesPerSecond.reason
+                                  ?? String(localized: "TCP and UDP bytes per second; no open socket reads as zero"))
+                    }
                 }
                 .frame(height: 260)
                 .textSelection(.enabled)
@@ -1676,6 +1683,8 @@ private struct InspectorView: View {
             Text("Footprint \(MetricText.bytes(process.memoryFootprintBytes.numericValue))")
             Text("Disk \(MetricText.bytes(process.diskReadBytesPerSecond.numericValue))/s read, \(MetricText.bytes(process.diskWriteBytesPerSecond.numericValue))/s written")
             Text(WakeupText.rate(process.wakeupsPerSecond.numericValue))
+            let network = model.networkRates(for: process)
+            Text("Network \(NetworkText.rates(network.received, network.sent))")
         }
 
         InspectorSection("Identity") {
@@ -2633,6 +2642,19 @@ enum MetricText {
     static func frequency(_ megahertz: Double?) -> String {
         guard let megahertz, megahertz.isFinite else { return "–" }
         return (megahertz / 1000).formatted(.number.precision(.fractionLength(1))) + " GHz"
+    }
+}
+
+/// Per-process network rates: "↓1.2 MB/s ↑40 KB/s", or "–" while unknown.
+enum NetworkText {
+    static func processRates(_ row: ProcessRow) -> String {
+        rates(row.networkReceivedBytesPerSecond, row.networkSentBytesPerSecond)
+    }
+
+    static func rates(_ received: DashboardReading, _ sent: DashboardReading) -> String {
+        guard received.numericValue != nil || sent.numericValue != nil else { return "–" }
+        let estimate = received.availability == .estimated || sent.availability == .estimated ? String(localized: " est.") : ""
+        return "↓\(MetricText.rate(received.numericValue)) ↑\(MetricText.rate(sent.numericValue))\(estimate)"
     }
 }
 

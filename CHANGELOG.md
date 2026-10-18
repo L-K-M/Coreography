@@ -13,6 +13,9 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
   after the store first exceeds it.
 
 ### Added
+- Per-process and per-app network: a Network in/out column and sort in
+  the process table, the inspector's rate and `coreo traffic`, from the
+  same source nettop uses.
 - A month of history: 1-minute minimum, maximum and mean kept 30 days,
   7 d and 30 d ranges, per-app daily CPU and disk totals and
   `coreo apps --days N`. Retention presets include the new tier.

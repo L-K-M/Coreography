@@ -5,7 +5,7 @@ public typealias CapturedProcesses = ProcessSnapshot
 public typealias ObservedProcess = ProcessReading
 
 public enum ProcessSort: String, CaseIterable, Identifiable, Sendable {
-    case cpu, memory, diskRead, diskWrite, name
+    case cpu, memory, diskRead, diskWrite, network, name
 
     public var id: Self { self }
 }
@@ -22,8 +22,8 @@ enum ProcessList {
                 let order = lhs.name.localizedStandardCompare(rhs.name)
                 if order != .orderedSame { return order == .orderedAscending }
             } else {
-                let left = value(lhs, sort: sort)
-                let right = value(rhs, sort: sort)
+                let left = value(lhs, sort: sort, facts: facts)
+                let right = value(rhs, sort: sort, facts: facts)
                 if left != right {
                     if let left, let right { return left > right }
                     return left != nil
@@ -33,13 +33,17 @@ enum ProcessList {
         }
     }
 
-    private static func value(_ row: ObservedProcess, sort: ProcessSort) -> Double? {
-        switch sort {
+    private static func value(_ row: ObservedProcess, sort: ProcessSort, facts: ProcessFacts) -> Double? {
+        if sort == .network {
+            let rates = ProcessNetwork.rates(for: row, in: facts.traffic)
+            return ProcessNetwork.total(rates.received, rates.sent)
+        }
+        return switch sort {
         case .cpu: row.cpuPercentOfMachine.numericValue
         case .memory: row.memoryFootprintBytes.numericValue
         case .diskRead: row.diskReadBytesPerSecond.numericValue
         case .diskWrite: row.diskWriteBytesPerSecond.numericValue
-        case .name: nil
+        case .name, .network: nil
         }
     }
 }

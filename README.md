@@ -77,6 +77,10 @@ APIs. Footprints are not an additive system memory total. By default it
 folds helpers into their app, using the process macOS holds responsible
 or the enclosing app bundle; group totals mark unreadable members.
 
+The process table also shows each process's TCP and UDP rates, from the
+same private framework nettop uses, matched by PID and name so a reused
+PID never borrows another process's bytes.
+
 The network lane uses full-width interface MIB counters, with receive/send
 graphs on the same time axis. It defaults to the published primary IPv4
 interface, then IPv6, and allows explicit interface selection. Its numeric
@@ -126,6 +130,7 @@ swift run coreo power --once --json     # macOS only; battery and adapter
 swift run coreo sensors --once --json   # macOS only; SMC temperatures, fans, power
 swift run coreo silicon --once --json   # Apple Silicon; IOReport power and frequency
 swift run coreo connections --once --json # macOS only; your processes' sockets
+swift run coreo traffic --once --json   # macOS only; per-process network rates
 swift run coreo diagnose --json         # macOS only; summary, signals, top apps
 swift run coreo mcp --stdio             # macOS only; read-only MCP server
 swift run coreo history --json cpu      # recorded history for one metric
