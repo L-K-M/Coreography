@@ -109,6 +109,8 @@ public final class DashboardModel {
     public var processFilter = "" {
         didSet { if wantsConnections { sampleConnections() } }
     }
+    /// Filters kept as chips under the field.
+    public private(set) var savedFilters: [String] = []
     /// The pane under the lanes; connections are read only while shown or filtered on.
     public var detailPane: DetailPane = .processes {
         didSet {
@@ -197,6 +199,7 @@ public final class DashboardModel {
     @ObservationIgnored private var liveConnections: CapturedConnections?
     @ObservationIgnored private let assertionReader: AssertionReader?
     @ObservationIgnored private var liveAssertions: CapturedAssertions?
+    @ObservationIgnored private var filterStore = SavedFilters(defaults: .standard)
     @ObservationIgnored private var sensorStats = SensorStats()
     @ObservationIgnored private let startupProvider: StartupProvider?
     @ObservationIgnored private let inspector: ProcessInspector?
@@ -278,6 +281,7 @@ public final class DashboardModel {
             collectionError = "Cannot initialize monitoring: \(error)"
         }
         applyRetention()
+        savedFilters = filterStore.all
     }
 
     init(
@@ -973,6 +977,16 @@ public final class DashboardModel {
         return ProcessInspections.make(
             process, in: processSnapshot, startup: startupInventory, detail: processDetail, sockets: inspectedSockets
         )
+    }
+
+    public func saveProcessFilter() { savedFilters = filterStore.save(processFilter) }
+
+    public func removeSavedFilter(_ filter: String) { savedFilters = filterStore.remove(filter) }
+
+    /// Tests keep their chips out of the person's preferences.
+    func useFilterStore(_ defaults: UserDefaults) {
+        filterStore = SavedFilters(defaults: defaults)
+        savedFilters = filterStore.all
     }
 
     /// Who holds the Mac or its display awake now (plan P2), joined to the

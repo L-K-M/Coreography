@@ -1345,6 +1345,8 @@ private struct ProcessPane: View {
                     .frame(width: 180)
                 }
 
+                SavedFilterChips(model: model)
+
                 ForEach(model.processFilterIssues, id: \.self) { issue in
                     Text(issue).font(.caption).foregroundStyle(.orange)
                 }
@@ -1425,6 +1427,27 @@ private struct ProcessPane: View {
         }
         // Destructive actions confirm with their consequences; the identity is re-checked on send.
         .modifier(ProcessActionConfirmation(model: model, pendingAction: $pendingAction))
+    }
+}
+
+/// Saved filters as chips (plan P22): a click applies one, the menu removes it.
+private struct SavedFilterChips: View {
+    let model: DashboardModel
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Button("Save filter", systemImage: "bookmark") { model.saveProcessFilter() }
+                .labelStyle(.iconOnly)
+                .disabled(model.processFilter.trimmingCharacters(in: .whitespaces).isEmpty)
+                .help("Keep this filter as a chip")
+            ForEach(model.savedFilters, id: \.self) { filter in
+                Button(filter) { model.processFilter = filter }
+                    .buttonStyle(.bordered)
+                    .buttonBorderShape(.capsule)
+                    .controlSize(.small)
+                    .contextMenu { Button("Remove", role: .destructive) { model.removeSavedFilter(filter) } }
+            }
+        }
     }
 }
 
