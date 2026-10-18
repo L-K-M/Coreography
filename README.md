@@ -17,7 +17,12 @@ and disk read/write rates, with filtering, sorting and explicit restricted
 or unreadable coverage. It refreshes every two seconds using public libproc
 APIs. Footprints are not an additive system memory total.
 
-App grouping and attribution, other subsystems, persistent history, power tools,
+The network lane uses full-width interface MIB counters, with receive/send
+graphs on the same time axis. It defaults to the published primary IPv4
+interface, then IPv6, and allows explicit interface selection. Its numeric
+table and chart accessibility descriptor retain missing-data states.
+
+App grouping and attribution, disk and SoC providers, persistent history, power tools,
 MCP and Ask are tracked in the [implementation ledger](docs/implementation.md).
 The full product is still in progress.
 
@@ -48,6 +53,7 @@ native sampling as unsupported; it does not manufacture Mac telemetry.
 swift run coreo doctor
 swift run coreo snapshot --once --json  # macOS only
 swift run coreo processes --once --json # macOS only; two-second baseline
+swift run coreo network --once --json   # macOS only; per-interface byte rates
 python3 tools/tests/test_buildscripts.py
 shellcheck scripts/*.sh
 python3 tools/doccheck/checkdocs.py .

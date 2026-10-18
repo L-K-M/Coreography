@@ -68,6 +68,13 @@ jobs:
             -o "$RUNNER_TEMP/test_process_bridge"
           "$RUNNER_TEMP/test_process_bridge"
 
+      - name: Verify unsupported-platform network contracts
+        run: |
+          cc -std=c11 -Wall -Wextra -Werror -I Sources/CoreographySystem/include \
+            -I Sources/CoreographySystem tools/tests/test_network_bridge.c \
+            Sources/CoreographySystem/network.c -o "$RUNNER_TEMP/test_network_bridge"
+          "$RUNNER_TEMP/test_network_bridge"
+
       - name: Shellcheck
         run: |
           command -v shellcheck >/dev/null || sudo apt-get install -y shellcheck
@@ -97,6 +104,13 @@ jobs:
             tools/tests/test_process_bridge.c Sources/CoreographySystem/process.c \
             -o "$RUNNER_TEMP/test_process_bridge"
           "$RUNNER_TEMP/test_process_bridge"
+
+      - name: Verify native interface counters and full-width mapping
+        run: |
+          cc -std=c11 -Wall -Wextra -Werror -I Sources/CoreographySystem/include \
+            -I Sources/CoreographySystem tools/tests/test_network_bridge.c \
+            Sources/CoreographySystem/network.c -o "$RUNNER_TEMP/test_network_bridge"
+          "$RUNNER_TEMP/test_network_bridge"
 
       # Builds dist/Coreography.app universal (both slices in app AND embedded
       # CLI are verified by assemble-app.sh before packaging) and zips it to
@@ -148,6 +162,26 @@ jobs:
           assert memory["availability"] == "measured" and memory["numericValue"] > 0
           for field in ("diskReadBytesPerSecond", "diskWriteBytesPerSecond"):
               assert own[field]["availability"] == "measured" and own[field]["numericValue"] >= 0
+          PY
+
+      - name: Smoke-test native network counters
+        run: |
+          set -euo pipefail
+          dist/Coreography.app/Contents/Helpers/coreo network --once --json > "$RUNNER_TEMP/network.json"
+          python3 - "$RUNNER_TEMP/network.json" <<'PY'
+          import json, math, sys
+          with open(sys.argv[1]) as source:
+              snapshot = json.load(source)
+          assert snapshot["enumeration"]["availability"] == "measured"
+          assert snapshot["interfaces"]
+          loopback = next(row for row in snapshot["interfaces"] if row["id"]["name"] == "lo0")
+          assert loopback["id"]["index"] > 0
+          for field in ("receivedBytesPerSecond", "sentBytesPerSecond"):
+              reading = loopback[field]
+              assert reading["availability"] == "measured"
+              assert math.isfinite(reading["numericValue"]) and reading["numericValue"] >= 0
+          if snapshot.get("primaryInterface") is None:
+              assert snapshot["primaryIssue"]["availability"] in ("unavailable", "restricted")
           PY
 
       - name: Package tested app

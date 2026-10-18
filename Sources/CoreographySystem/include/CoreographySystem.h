@@ -2,6 +2,7 @@
 #define COREOGRAPHY_SYSTEM_H
 
 #include <stdint.h>
+#include <net/if.h>
 
 typedef struct {
     int32_t pid;
@@ -31,5 +32,21 @@ int32_t coreo_process_list(int32_t *pids, int32_t capacity,
    (e.g. EPERM, ESRCH, EOVERFLOW) leaves those fields zero. name is always
    bounded and NUL-terminated. Returns ENOTSUP on unsupported platforms. */
 int32_t coreo_process_read(int32_t pid, coreo_process_sample *sample);
+
+typedef struct {
+    uint32_t index;
+    uint32_t flags;
+    char name[IF_NAMESIZE];
+    uint64_t received_bytes;
+    uint64_t sent_bytes;
+} coreo_network_sample;
+
+/* Enumerate interface indices. Count never exceeds capacity; no byte counters here. */
+int32_t coreo_network_indices(uint32_t *indices, int32_t capacity,
+                             int32_t *count, int32_t *truncated);
+
+/* Read unmasked 64-bit IFMIB_IFDATA/IFDATA_GENERAL counters, not routing statistics.
+   A detached interface's zero-filled success response is an ENXIO, not zero traffic. */
+int32_t coreo_network_read(uint32_t index, coreo_network_sample *sample);
 
 #endif
