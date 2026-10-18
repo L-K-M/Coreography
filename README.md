@@ -28,6 +28,9 @@ temperatures and fans come with the sensor provider.
 A toolbar picker shows the last minute, ten minutes or hour; an hour of
 samples stays in memory, and charts keep every spike when zoomed out.
 
+Dragging across any lane selects a range; a panel totals CPU-seconds and
+disk bytes per app over it, tail apps included.
+
 Hovering any lane moves one cursor through all of them: every header
 shows its value at that time, and the CPU, memory and disk headers name
 the apps that led then.

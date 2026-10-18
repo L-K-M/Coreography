@@ -32,6 +32,10 @@ struct DashboardView: View {
                 NetworkLane(model: model)
                 ThermalLane(model: model)
 
+                if let report = model.rangeReport {
+                    RangePanel(model: model, report: report)
+                }
+
                 ProcessPane(model: model, filterFocused: $processFilterFocused)
 
                 DisclosureGroup("Numeric readings") {
@@ -220,6 +224,7 @@ struct DashboardView: View {
                         .interpolationMethod(.linear)
                     }
                     CursorRule(time: model.cursorTime, range: start...end)
+                    SelectionBand(selection: model.draftSelection ?? model.selection, range: start...end)
                 }
                 .chartCursor(model)
                 .chartLegend(.hidden)
@@ -332,6 +337,7 @@ private struct MemoryLane: View {
                 .foregroundStyle(MemoryStyle.color(span.level))
             }
             CursorRule(time: model.cursorTime, range: start...end)
+            SelectionBand(selection: model.draftSelection ?? model.selection, range: start...end)
         }
         .chartCursor(model)
         .chartLegend(.hidden)
@@ -500,6 +506,7 @@ private struct GPULane: View {
                 }
             }
             CursorRule(time: model.cursorTime, range: start...end)
+            SelectionBand(selection: model.draftSelection ?? model.selection, range: start...end)
         }
         .chartCursor(model)
         .chartLegend(.hidden)
@@ -633,6 +640,7 @@ private struct PowerLane: View {
                 .interpolationMethod(.linear)
             }
             CursorRule(time: model.cursorTime, range: start...end)
+            SelectionBand(selection: model.draftSelection ?? model.selection, range: start...end)
         }
         .chartCursor(model)
         .chartLegend(.hidden)
@@ -797,6 +805,7 @@ private struct ThermalLane: View {
                         .foregroundStyle(ThermalText.color(span.level))
                     }
                     CursorRule(time: model.cursorTime, range: start...end)
+                    SelectionBand(selection: model.draftSelection ?? model.selection, range: start...end)
                 }
                 .chartCursor(model)
                 .chartLegend(.hidden)
@@ -842,6 +851,7 @@ private extension ThermalLane {
                 .interpolationMethod(.linear)
             }
             CursorRule(time: model.cursorTime, range: start...end)
+            SelectionBand(selection: model.draftSelection ?? model.selection, range: start...end)
         }
         .chartCursor(model)
         .chartLegend(.hidden)
@@ -1138,6 +1148,7 @@ private struct TransferChart: View {
                 .lineStyle(StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
             }
             CursorRule(time: model.cursorTime, range: start...end)
+            SelectionBand(selection: model.draftSelection ?? model.selection, range: start...end)
         }
         .chartCursor(model)
         .chartLegend(.hidden)
@@ -1334,6 +1345,97 @@ private struct ProcessMetricCell: View {
     }
 }
 
+/// Totals for the dragged range: lane extremes and the apps that used it.
+private struct RangePanel: View {
+    let model: DashboardModel
+    let report: RangeReport
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text(RangeText.span(report.requested)).font(.headline)
+                Spacer()
+                Button("Clear selection") { model.clearSelection() }
+                    .keyboardShortcut(.cancelAction)
+            }
+            Text(RangeText.lanes(report)).font(.callout)
+            Text(RangeText.apps(String(localized: "Top CPU"), report.topCPUApps) { RangeText.cpuSeconds($0.cpuSeconds) })
+                .font(.callout)
+            Text(RangeText.apps(String(localized: "Top disk"), report.topDiskApps) { MetricText.bytes($0.diskBytes) })
+                .font(.callout)
+            Text(RangeText.coverage(report)).font(.caption).foregroundStyle(.secondary)
+        }
+        .monospacedDigit()
+        .padding(Layout.padding)
+        .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: Layout.cornerRadius))
+        .overlay(RoundedRectangle(cornerRadius: Layout.cornerRadius).strokeBorder(
+            Color(nsColor: .separatorColor), lineWidth: 0.5
+        ))
+    }
+}
+
+private enum RangeText {
+    static func span(_ range: ClosedRange<Date>) -> String {
+        let seconds = range.upperBound.timeIntervalSince(range.lowerBound)
+        let duration = Duration.seconds(seconds.rounded()).formatted(.units(allowed: [.hours, .minutes, .seconds], width: .abbreviated))
+        let from = range.lowerBound.formatted(date: .omitted, time: .standard)
+        let to = range.upperBound.formatted(date: .omitted, time: .standard)
+        return String(localized: "Range \(from)–\(to) (\(duration))")
+    }
+
+    static func lanes(_ report: RangeReport) -> String {
+        var parts: [String] = []
+        if let mean = report.cpuMeanPercent, let peak = report.cpuPeakPercent {
+            parts.append(String(localized: "CPU mean \(MetricText.percent(mean)), peak \(MetricText.percent(peak))"))
+        }
+        if let memory = report.memoryPeakBytes {
+            parts.append(String(localized: "memory peak \(MetricText.bytes(memory))"))
+        }
+        if let gpu = report.gpuPeakPercent {
+            parts.append(String(localized: "GPU peak \(MetricText.percent(gpu))"))
+        }
+        if let hottest = report.hottest {
+            parts.append(String(localized: "hottest \(hottest.key) \(ThermalText.celsius(hottest.celsius))"))
+        }
+        return parts.isEmpty ? String(localized: "No samples in this range") : parts.joined(separator: " · ")
+    }
+
+    static func apps(_ title: String, _ apps: [AppRangeTotal], value: (AppRangeTotal) -> String) -> String {
+        guard !apps.isEmpty else { return title + ": " + String(localized: "no recorded activity") }
+        let items = apps.map { $0.name + " " + value($0) + ($0.isLowerBound ? " " + String(localized: "est.") : "") }
+        return title + ": " + items.joined(separator: " · ")
+    }
+
+    static func cpuSeconds(_ value: Double) -> String {
+        value.formatted(.number.precision(.fractionLength(value < 10 ? 1 : 0))) + " CPU-s"
+    }
+
+    static func coverage(_ report: RangeReport) -> String {
+        guard let covered = report.covered else {
+            return String(localized: "No process samples fall in this range.")
+        }
+        let from = covered.lowerBound.formatted(date: .omitted, time: .standard)
+        let to = covered.upperBound.formatted(date: .omitted, time: .standard)
+        return String(localized: "\(report.activeAppCount) active apps; process samples cover \(from)–\(to). Own-user processes only; \"est.\" marks lower bounds.")
+    }
+}
+
+/// The selected range, shaded across every lane.
+private struct SelectionBand: ChartContent {
+    let selection: ClosedRange<Date>?
+    let range: ClosedRange<Date>
+
+    var body: some ChartContent {
+        if let selection, selection.overlaps(range) {
+            RectangleMark(
+                xStart: .value("Selection start", max(selection.lowerBound, range.lowerBound)),
+                xEnd: .value("Selection end", min(selection.upperBound, range.upperBound))
+            )
+            .foregroundStyle(Color.accentColor.opacity(0.15))
+        }
+    }
+}
+
 /// One hairline at the shared cursor time, drawn in every lane (plan P4).
 private struct CursorRule: ChartContent {
     let time: Date?
@@ -1353,22 +1455,52 @@ private extension View {
     func chartCursor(_ model: DashboardModel) -> some View {
         chartOverlay { proxy in
             GeometryReader { geometry in
-                Rectangle()
-                    .fill(.clear)
-                    .contentShape(Rectangle())
-                    .onContinuousHover { phase in
-                        switch phase {
-                        case .active(let location):
-                            guard let plot = proxy.plotFrame else { return }
-                            let x = location.x - geometry[plot].origin.x
-                            // The axis margin maps to no date; keep the cursor rather than flicker to live.
-                            if let time = proxy.value(atX: x, as: Date.self) { model.cursorTime = time }
-                        case .ended:
-                            model.cursorTime = nil
-                        }
-                    }
+                ChartInteraction(model: model, proxy: proxy, geometry: geometry)
             }
         }
+    }
+}
+
+/// Hover and drag over one plot. A drag the system cancels never reaches
+/// onEnded; the gesture state resets anyway, which drops its draft.
+private struct ChartInteraction: View {
+    let model: DashboardModel
+    let proxy: ChartProxy
+    let geometry: GeometryProxy
+    @GestureState private var dragging = false
+
+    var body: some View {
+        Rectangle()
+            .fill(.clear)
+            .contentShape(Rectangle())
+            .onContinuousHover { phase in
+                switch phase {
+                case .active(let location):
+                    guard let plot = proxy.plotFrame else { return }
+                    let x = location.x - geometry[plot].origin.x
+                    // The axis margin maps to no date; keep the cursor rather than flicker to live.
+                    if let time = proxy.value(atX: x, as: Date.self) { model.cursorTime = time }
+                case .ended:
+                    model.cursorTime = nil
+                }
+            }
+            // Dragging across any lane selects one range for all of them (plan P7).
+            .gesture(DragGesture(minimumDistance: 4).updating($dragging) { _, state, _ in
+                state = true
+            }.onChanged { drag in
+                guard let plot = proxy.plotFrame else { return }
+                let origin = geometry[plot].origin.x
+                guard let first = proxy.value(atX: drag.startLocation.x - origin, as: Date.self),
+                      let second = proxy.value(atX: drag.location.x - origin, as: Date.self) else { return }
+                model.draftSelection = min(first, second)...max(first, second)
+            }.onEnded { _ in
+                // Commit once, so the range report is computed per drag, not per frame.
+                if let draft = model.draftSelection { model.selection = draft }
+                model.draftSelection = nil
+            })
+            .onChange(of: dragging) { _, active in
+                if !active { model.draftSelection = nil }
+            }
     }
 }
 

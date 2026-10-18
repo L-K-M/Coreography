@@ -104,6 +104,10 @@ public final class DashboardModel {
     /// The shared hover time across all lanes; nil follows the live edge.
     public var cursorTime: Date?
     public var timeRange: TimeRange = .minute
+    /// A dragged time range; cleared only explicitly (plan: Esc or clear).
+    public var selection: ClosedRange<Date>?
+    /// The range while a drag is in progress; reports wait for the drag to end.
+    public var draftSelection: ClosedRange<Date>?
     public private(set) var contributorHistory: [ContributorSnapshot] = []
 
     @ObservationIgnored private let monitor: SystemMonitor?
@@ -120,6 +124,8 @@ public final class DashboardModel {
     @ObservationIgnored private var liveFrames: [CapturedSnapshot] = []
     @ObservationIgnored private var liveProcesses: CapturedProcesses?
     @ObservationIgnored private var liveContributorHistory: [ContributorSnapshot] = []
+    @ObservationIgnored private var liveLedger = AppLedger(capacity: contributorCapacity)
+    private var ledger = AppLedger(capacity: contributorCapacity)
     @ObservationIgnored private var liveNetworkFrames: [CapturedNetwork] = []
     @ObservationIgnored private var liveDiskFrames: [CapturedDisks] = []
     @ObservationIgnored private var liveGPUFrames: [CapturedGPU] = []
@@ -270,6 +276,44 @@ public final class DashboardModel {
         return "Selected storage device is not observed"
     }
 
+    /// Totals for the selected range, from displayed (possibly held) data.
+    /// What a range report depends on. Hovering re-renders the window at
+    /// pointer rate, so the report is rebuilt only when one of these changes.
+    private struct RangeReportInputs: Equatable {
+        let selection: ClosedRange<Date>
+        let ledgerIntervals: Int
+        let ledgerEnd: Date?
+        let frame: UUID?
+        let gpuFrame: UUID?
+        let sensorFrame: UUID?
+    }
+
+    @ObservationIgnored private var rangeReportCache: (inputs: RangeReportInputs, report: RangeReport)?
+    /// How many reports were built; tests check that rereading reuses one.
+    @ObservationIgnored private(set) var rangeReportBuilds = 0
+
+    public var rangeReport: RangeReport? {
+        guard let selection else { return nil }
+        let inputs = RangeReportInputs(
+            selection: selection, ledgerIntervals: ledger.intervals.count, ledgerEnd: ledger.intervals.last?.end,
+            frame: frames.last?.id, gpuFrame: gpuFrames.last?.id, sensorFrame: sensorFrames.last?.id
+        )
+        if let cache = rangeReportCache, cache.inputs == inputs { return cache.report }
+        let report = RangeReport.make(
+            range: selection, ledger: ledger, frames: frames, gpuFrames: gpuFrames, sensorFrames: sensorFrames
+        )
+        rangeReportCache = (inputs, report)
+        rangeReportBuilds += 1
+        return report
+    }
+
+    /// Also drops a drag the system cancelled before it ended, whose band
+    /// would otherwise stay on every lane with no panel to clear it.
+    public func clearSelection() {
+        selection = nil
+        draftSelection = nil
+    }
+
     /// Coreography's own process cost, from the latest process sample.
     public var selfCost: SelfCost? {
         SelfCost.measure(in: processSnapshot, logicalCPUCount: latest?.inventory.logicalCPUCount)
@@ -346,6 +390,7 @@ public final class DashboardModel {
                         self.liveProcesses = processes
                         self.liveContributorHistory.append(Contributors.snapshot(from: processes))
                         self.liveContributorHistory = Array(self.liveContributorHistory.suffix(Self.contributorCapacity))
+                        self.liveLedger.record(processes, logicalCPUCount: history.last?.inventory.logicalCPUCount)
                     }
                     if let network { self.liveNetworkFrames = network }
                     if let disks { self.liveDiskFrames = disks }
@@ -357,6 +402,7 @@ public final class DashboardModel {
                         if let processes {
                             self.processSnapshot = processes
                             self.contributorHistory = self.liveContributorHistory
+                            self.ledger = self.liveLedger
                         }
                         if let network { self.networkFrames = network }
                         if let disks { self.diskFrames = disks }
@@ -391,6 +437,7 @@ public final class DashboardModel {
         frames = liveFrames
         processSnapshot = liveProcesses
         contributorHistory = liveContributorHistory
+        ledger = liveLedger
         networkFrames = liveNetworkFrames
         diskFrames = liveDiskFrames
         gpuFrames = liveGPUFrames
