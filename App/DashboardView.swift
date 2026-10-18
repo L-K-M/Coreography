@@ -1429,6 +1429,9 @@ private struct SelfCostLine: View {
                 .monospacedDigit()
                 .foregroundStyle(cost.cpuOverBudget || cost.footprintOverBudget ? Color.orange : Color.secondary)
                 .help("Coreography's own process, from the latest process sample. Wakeups are not measured yet.")
+        } else if let processes = model.processSnapshot {
+            // A process sample without our own row is a failure to report, not a wait.
+            Text("Self-cost: unavailable · \(processes.enumeration.reason ?? String(localized: "own process not observed"))")
         } else {
             Text("Self-cost: collecting…")
         }
