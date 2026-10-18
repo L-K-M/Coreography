@@ -7,6 +7,8 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
 ## [Unreleased]
 
 ### Added
+- Self-cost readout: Coreography's own CPU and footprint beside the
+  plan's budgets.
 - One hour of in-memory history with 1 min, 10 min and 1 h ranges and
   spike-preserving min/max decimation.
 - AppleSMC sensors: hottest temperature line over thermal-pressure bands,

@@ -270,6 +270,11 @@ public final class DashboardModel {
         return "Selected storage device is not observed"
     }
 
+    /// Coreography's own process cost, from the latest process sample.
+    public var selfCost: SelfCost? {
+        SelfCost.measure(in: processSnapshot, logicalCPUCount: latest?.inventory.logicalCPUCount)
+    }
+
     public var visibleProcessRows: [ProcessRow] {
         ProcessGroups.rows(
             in: processSnapshot, matching: processFilter, sortedBy: processSort, grouping: processGrouping
