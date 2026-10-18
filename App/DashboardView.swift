@@ -268,6 +268,9 @@ struct DashboardView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 if metric == .cpu {
+                    Text(SiliconText.tiers(model.displayedSiliconFrame))
+                        .font(.caption).foregroundStyle(.secondary)
+                        .help("Activity and frequency per core tier from IOReport residency, estimated")
                     ContributorLine(model: model, subsystem: .cpu)
                     if let app = model.scopedApp {
                         Text("\(app): \(MetricText.percent(scoped?.last?.value))")
@@ -679,6 +682,8 @@ private struct PowerLane: View {
                 Text(MetricText.watts(system?.numericValue) + (system?.availability == .estimated ? " est." : ""))
                     .font(.system(size: 30, weight: .semibold))
                 Text(PowerText.systemSource(system)).font(.caption)
+                Text(SiliconText.blocks(model.displayedSiliconFrame)).font(.caption)
+                    .help("Modeled block power from IOReport's energy model; not a measured rail")
                 Text(PowerText.battery(latest)).font(.caption)
                 Text(PowerText.adapterAndHealth(latest)).font(.caption).foregroundStyle(.secondary)
                 if let awake = PowerText.keptAwake(model.sleepPreventers) {
@@ -2613,6 +2618,43 @@ enum MetricText {
     static func rate(_ value: Double?) -> String {
         guard let value else { return "–" }
         return bytes(value) + "/s"
+    }
+
+    /// "3.2 GHz" from MHz.
+    static func frequency(_ megahertz: Double?) -> String {
+        guard let megahertz, megahertz.isFinite else { return "–" }
+        return (megahertz / 1000).formatted(.number.precision(.fractionLength(1))) + " GHz"
+    }
+}
+
+/// IOReport readings as captions: every value is estimated, and a missing
+/// source shows its reason rather than zeros.
+enum SiliconText {
+    /// "E 1.2 GHz 23% · P 3.1 GHz 41%".
+    static func tiers(_ frame: CapturedSilicon?) -> String {
+        guard let frame else { return String(localized: "Core tiers: collecting…") }
+        guard !frame.cpuTiers.isEmpty else {
+            return frame.cpuPowerWatts.reason ?? String(localized: "No core tiers reported")
+        }
+        return frame.cpuTiers.map(tier).joined(separator: " · ")
+    }
+
+    static func tier(_ tier: CapturedCPUTier) -> String {
+        let frequency = tier.frequencyMHz.availability == .gap
+            ? String(localized: "idle") : MetricText.frequency(tier.frequencyMHz.numericValue)
+        return "\(tier.kind.rawValue) \(frequency) \(MetricText.percent(tier.activePercent.numericValue))"
+    }
+
+    /// "CPU 4.2 W · GPU 1.1 W · ANE 0.0 W est."
+    static func blocks(_ frame: CapturedSilicon?) -> String {
+        guard let frame else { return String(localized: "Block power: collecting…") }
+        guard frame.cpuPowerWatts.numericValue != nil else {
+            return frame.cpuPowerWatts.reason ?? String(localized: "Block power: collecting…")
+        }
+        let parts = [("CPU", frame.cpuPowerWatts), ("GPU", frame.gpuPowerWatts), ("ANE", frame.anePowerWatts)]
+            .filter { $0.1.numericValue != nil }
+            .map { "\($0.0) \(MetricText.watts($0.1.numericValue))" }
+        return parts.joined(separator: " · ") + String(localized: " est.")
     }
 }
 

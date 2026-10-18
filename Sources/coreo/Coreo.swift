@@ -12,6 +12,7 @@ private struct Coreo {
            coreo gpu --once --json
            coreo power --once --json
            coreo sensors --once --json
+           coreo silicon --once --json
            coreo connections --once --json
            coreo diagnose --json [--seconds N]
            coreo mcp --stdio
@@ -27,6 +28,8 @@ private struct Coreo {
     gpu reports each GPU's driver-published utilization and memory in use.
     power reports battery, adapter and (on battery) system draw.
     sensors reports SMC system power, the hottest temperature and fans.
+    silicon reports modeled CPU, GPU, ANE and DRAM power and each CPU tier's
+    activity and frequency from IOReport over one second (Apple Silicon only).
     connections reports the TCP and UDP sockets of your own processes.
     diagnose samples for N seconds (3-60, default 5) and reports a summary with
     fact-only signals, top apps by CPU and disk, and data-source availability.
@@ -94,6 +97,12 @@ private struct Coreo {
                 }
                 let service = try DiagnosticService()
                 try emit(await service.captureSensorsOnce())
+            case ["silicon", "--once", "--json"], ["silicon", "--json", "--once"]:
+                guard DiagnosticService.nativeSamplingSupport == .supported else {
+                    throw CommandError.unsupportedPlatform
+                }
+                let service = try DiagnosticService()
+                try emit(await service.captureSiliconOnce())
             case ["connections", "--once", "--json"], ["connections", "--json", "--once"]:
                 guard DiagnosticService.nativeSamplingSupport == .supported else {
                     throw CommandError.unsupportedPlatform

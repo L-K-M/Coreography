@@ -10,7 +10,7 @@ import CoreographyServices
 @MainActor
 @Observable
 final class HUDController {
-    private static let size = NSSize(width: 230, height: 92)
+    private static let size = NSSize(width: 230, height: 128)
     private static let margin: CGFloat = 16
 
     private(set) var isShown = false
@@ -70,7 +70,9 @@ private struct HUDView: View {
         let gpu = model.displayedGPUFrame?.devices.compactMap(\.utilizationPercent.numericValue).max()
         VStack(alignment: .leading, spacing: 3) {
             row("CPU", MetricText.percent(model.latest?.cpuPercentOfMachine.numericValue))
+            row("Cores", model.displayedSiliconFrame?.topTier.map(SiliconText.tier) ?? "–")
             row("GPU", MetricText.percent(gpu))
+            row("GPU clock", MetricText.frequency(model.displayedSiliconFrame?.gpuFrequencyMHz.numericValue))
             row("Temp", ThermalText.celsius(model.displayedSensorFrame?.hottest?.celsius.numericValue))
             row("Power", MetricText.watts(model.displayedSystemPower?.numericValue))
         }

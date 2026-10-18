@@ -17,12 +17,13 @@ public struct DiagnosticSnapshot: Sendable {
     let sleep: SleepHistoryState
     let assertions: AssertionSnapshot?
     let maintenance: CapturedMaintenance?
+    let silicon: [CapturedSilicon]
 
     init(
         takenAt: Date, host: [CapturedSnapshot], network: [CapturedNetwork], gpu: [CapturedGPU],
         power: [CapturedPower], sensors: [CapturedSensors], processes: CapturedProcesses?, ledger: AppLedger,
         sleep: SleepHistoryState = .notImported, assertions: AssertionSnapshot? = nil,
-        maintenance: CapturedMaintenance? = nil
+        maintenance: CapturedMaintenance? = nil, silicon: [CapturedSilicon] = []
     ) {
         self.id = UUID()
         self.takenAt = takenAt
@@ -36,6 +37,7 @@ public struct DiagnosticSnapshot: Sendable {
         self.sleep = sleep
         self.assertions = assertions
         self.maintenance = maintenance
+        self.silicon = silicon
     }
 }
 
@@ -92,7 +94,22 @@ public struct SystemSummary: Codable, Sendable {
     public let hottestCelsius: DiagnosticValue?
     /// Time Machine and Spotlight state when last read; absent before the first read.
     public let maintenance: MaintenanceReport?
+    /// Modeled block power from IOReport's energy model; estimates, not measured rails.
+    public let cpuPowerWatts: DiagnosticValue?
+    public let gpuPowerWatts: DiagnosticValue?
+    public let anePowerWatts: DiagnosticValue?
+    /// Each CPU tier's active share and frequency, lowest tier first.
+    public let cpuTiers: [CPUTierSummary]
+    public let gpuFrequencyMHz: DiagnosticValue?
     public let signals: [DiagnosticSignal]
+}
+
+/// One CPU tier as IOReport names it (E, M or P cores).
+public struct CPUTierSummary: Codable, Sendable {
+    public let tier: String
+    public let cores: Int
+    public let activePercent: DiagnosticValue
+    public let frequencyMHz: DiagnosticValue
 }
 
 public struct AppActivity: Codable, Sendable {
@@ -215,6 +232,7 @@ public enum DiagnosticTools {
             frame.interfaces.first { $0.id == frame.primaryInterface }.map { (frame, $0) }
         }
         let sensors = snapshot.sensors.last
+        let silicon = snapshot.silicon.last
         let power = sensors?.systemPowerWatts.numericValue != nil
             ? sensors?.systemPowerWatts : snapshot.power.last?.systemPowerWatts
 
@@ -239,6 +257,18 @@ public enum DiagnosticTools {
                 frame.hottest.map { DiagnosticValue(unit: "°C (\($0.key))", reading: $0.celsius, evidence: "sensors:\(frame.id)") }
             },
             maintenance: snapshot.maintenance.map(MaintenanceReport.init),
+            cpuPowerWatts: silicon.map { value("W", $0.cpuPowerWatts, $0.id) },
+            gpuPowerWatts: silicon.map { value("W", $0.gpuPowerWatts, $0.id) },
+            anePowerWatts: silicon.map { value("W", $0.anePowerWatts, $0.id) },
+            cpuTiers: silicon.map { frame in
+                frame.cpuTiers.map { tier in
+                    CPUTierSummary(
+                        tier: tier.kind.rawValue, cores: tier.cores, activePercent: value("%", tier.activePercent, frame.id),
+                        frequencyMHz: value("MHz", tier.frequencyMHz, frame.id)
+                    )
+                }
+            } ?? [],
+            gpuFrequencyMHz: silicon.map { value("MHz", $0.gpuFrequencyMHz, $0.id) },
             signals: signals(window) + maintenanceSignals(snapshot.maintenance)
         )
     }
@@ -369,6 +399,14 @@ public enum DiagnosticTools {
             readings += [("sensors", sensors.source), ("systemPower", sensors.systemPowerWatts)]
         }
         if let processes = snapshot.processes { readings.append(("processes", processes.enumeration)) }
+        if let silicon = snapshot.silicon.last {
+            readings += [
+                ("cpuPower", silicon.cpuPowerWatts), ("gpuPower", silicon.gpuPowerWatts),
+                ("anePower", silicon.anePowerWatts), ("dramPower", silicon.dramPowerWatts),
+                ("gpuFrequency", silicon.gpuFrequencyMHz)
+            ]
+            readings += silicon.cpuTiers.map { ("cpuFrequency\($0.kind.rawValue)", $0.frequencyMHz) }
+        }
         return readings.map {
             DataSourceStatus(metric: $0.0, availability: $0.1.availability, source: $0.1.source, reason: $0.1.reason)
         }
