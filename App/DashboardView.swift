@@ -1274,7 +1274,7 @@ private struct ProcessPane: View {
         DisclosureGroup("Processes") {
             VStack(alignment: .leading, spacing: 10) {
                 HStack {
-                    TextField("Filter by process name, PID or UID", text: $model.processFilter)
+                    TextField("Filter: name, cpu:>10, mem:>1GB, user:me, #apps, #new", text: $model.processFilter)
                         .textFieldStyle(.roundedBorder)
                         .focused(filterFocused)
                     Picker("Group", selection: $model.processGrouping) {
@@ -1291,6 +1291,11 @@ private struct ProcessPane: View {
                         Text("Name").tag(ProcessSort.name)
                     }
                     .frame(width: 180)
+                }
+
+                // The same mistake typed twice is two issues; identity is the position.
+                ForEach(Array(model.processFilterIssues.enumerated()), id: \.offset) { _, issue in
+                    Text(issue).font(.caption).foregroundStyle(.orange)
                 }
 
                 if let snapshot = model.processSnapshot {

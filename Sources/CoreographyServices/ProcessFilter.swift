@@ -1,0 +1,173 @@
+import Foundation
+import CoreographyKit
+
+/// A parsed process filter (plan P22). Whitespace separates terms; every
+/// term must match. Examples: `safari`, `cpu:>10`, `mem:>1GB`, `disk:>5MB`,
+/// `pid:42`, `user:root`, `user:me`, `#apps`, `#mine`, `#third-party`, `#new`.
+/// Terms that cannot be evaluated are reported, never silently dropped.
+public struct ProcessFilter: Equatable, Sendable {
+    enum Comparison: Equatable, Sendable {
+        case greater(Double), greaterOrEqual(Double), less(Double), lessOrEqual(Double), equal(Double)
+
+        func holds(_ value: Double) -> Bool {
+            switch self {
+            case .greater(let bound): value > bound
+            case .greaterOrEqual(let bound): value >= bound
+            case .less(let bound): value < bound
+            case .lessOrEqual(let bound): value <= bound
+            case .equal(let bound): value == bound
+            }
+        }
+    }
+
+    enum Token: String, Sendable {
+        case apps, mine, root, thirdParty = "third-party", new
+    }
+
+    enum Term: Equatable, Sendable {
+        case text(String)
+        case cpu(Comparison)
+        case memory(Comparison)
+        case disk(Comparison)
+        case pid(Int32)
+        case user(UInt32)
+        case token(Token)
+    }
+
+    /// Tokens the plan names whose data sources do not exist yet.
+    private static let pendingTokens: [String: String] = [
+        "listening": "needs the Connections data source",
+        "not-responding": "needs the helper's responsiveness check",
+        "preventing-sleep": "needs power assertions",
+        "exited": "exited processes are listed below the table"
+    ]
+    private static let byteUnits: [(String, Double)] = [("TB", 1e12), ("GB", 1e9), ("MB", 1e6), ("KB", 1e3), ("B", 1)]
+    // Locations Apple ships system software under; anything else is third-party.
+    private static let systemPrefixes = ["/System/", "/usr/", "/bin/", "/sbin/", "/Library/Apple/"]
+    /// Under a system prefix but installed by the person or a package manager.
+    private static let localPrefix = "/usr/local/"
+
+    let terms: [Term]
+    /// Human-readable notes about terms that were not applied.
+    public let issues: [String]
+
+    public static func parse(_ text: String, currentUser: UInt32 = UInt32(getuid())) -> ProcessFilter {
+        var terms: [Term] = []
+        var issues: [String] = []
+        for word in text.split(whereSeparator: \.isWhitespace).map(String.init) {
+            if word.hasPrefix("#") {
+                let name = String(word.dropFirst()).lowercased()
+                if let token = Token(rawValue: name) {
+                    terms.append(.token(token))
+                } else if let reason = pendingTokens[name] {
+                    issues.append("Ignored \(word): \(reason)")
+                } else {
+                    issues.append("Unknown token \(word)")
+                }
+                continue
+            }
+            guard let colon = word.firstIndex(of: ":") else {
+                terms.append(.text(word))
+                continue
+            }
+            let key = word[..<colon].lowercased()
+            let value = String(word[word.index(after: colon)...])
+            switch key {
+            case "cpu":
+                if let comparison = comparison(value, unit: { Double($0.replacingOccurrences(of: "%", with: "")) }) {
+                    terms.append(.cpu(comparison))
+                } else { issues.append("Unreadable \(word); try cpu:>10") }
+            case "mem", "memory":
+                if let comparison = comparison(value, unit: bytes) { terms.append(.memory(comparison)) }
+                else { issues.append("Unreadable \(word); try mem:>1GB") }
+            case "disk":
+                if let comparison = comparison(value, unit: { bytes($0.replacingOccurrences(of: "/s", with: "")) }) {
+                    terms.append(.disk(comparison))
+                } else { issues.append("Unreadable \(word); try disk:>5MB") }
+            case "pid":
+                if let pid = Int32(value) { terms.append(.pid(pid)) } else { issues.append("Unreadable \(word)") }
+            case "user", "uid":
+                switch value.lowercased() {
+                case "root": terms.append(.user(0))
+                case "me", "mine": terms.append(.user(currentUser))
+                default:
+                    if let uid = UInt32(value) { terms.append(.user(uid)) } else { issues.append("Unknown user \(value); use a UID, me or root") }
+                }
+            default:
+                terms.append(.text(word))
+            }
+        }
+        return ProcessFilter(terms: terms, issues: issues)
+    }
+
+    var isEmpty: Bool { terms.isEmpty }
+    /// Only free text: a matching app name shows the whole group.
+    var isTextOnly: Bool { terms.allSatisfy { if case .text = $0 { true } else { false } } }
+
+    func matchesName(_ name: String) -> Bool {
+        terms.allSatisfy { term in
+            guard case .text(let text) = term else { return true }
+            return name.localizedCaseInsensitiveContains(text)
+        }
+    }
+
+    /// Unknown readings never match a numeric predicate: they are not zero.
+    /// Text also matches the member's app, so `safari cpu:>10` keeps Safari's helpers.
+    func matches(
+        _ process: ObservedProcess, isNew: Bool, appName: String? = nil, currentUser: UInt32 = UInt32(getuid())
+    ) -> Bool {
+        terms.allSatisfy { term in
+            switch term {
+            case .text(let text):
+                return process.name.localizedCaseInsensitiveContains(text)
+                    || appName?.localizedCaseInsensitiveContains(text) == true
+                    || String(process.id.pid).contains(text) || String(process.uid).contains(text)
+            case .cpu(let comparison):
+                return process.cpuPercentOfMachine.numericValue.map(comparison.holds) ?? false
+            case .memory(let comparison):
+                return process.memoryFootprintBytes.numericValue.map(comparison.holds) ?? false
+            case .disk(let comparison):
+                guard let read = process.diskReadBytesPerSecond.numericValue,
+                      let write = process.diskWriteBytesPerSecond.numericValue else { return false }
+                return comparison.holds(read + write)
+            case .pid(let pid):
+                return process.id.pid == pid
+            case .user(let uid):
+                return process.uid == uid
+            case .token(.apps):
+                return process.executablePath?.contains(".app/") ?? false
+            case .token(.mine):
+                return process.uid == currentUser
+            case .token(.root):
+                return process.uid == 0
+            case .token(.thirdParty):
+                guard let path = process.executablePath else { return false }
+                return path.hasPrefix(Self.localPrefix) || !Self.systemPrefixes.contains { path.hasPrefix($0) }
+            case .token(.new):
+                return isNew
+            }
+        }
+    }
+
+    private static func comparison(_ text: String, unit: (String) -> Double?) -> Comparison? {
+        let operators: [(String, (Double) -> Comparison)] = [
+            (">=", Comparison.greaterOrEqual), ("<=", Comparison.lessOrEqual),
+            (">", Comparison.greater), ("<", Comparison.less), ("=", Comparison.equal)
+        ]
+        // "nan", "inf" and "1e400" parse as numbers no reading can be compared with.
+        func bound(_ text: String) -> Double? { unit(text).flatMap { $0.isFinite ? $0 : nil } }
+        for (symbol, make) in operators where text.hasPrefix(symbol) {
+            return bound(String(text.dropFirst(symbol.count))).map(make)
+        }
+        // A bare number means "at least", the common question.
+        return bound(text).map(Comparison.greaterOrEqual)
+    }
+
+    private static func bytes(_ text: String) -> Double? {
+        let upper = text.uppercased()
+        for (suffix, scale) in byteUnits where upper.hasSuffix(suffix) {
+            return Double(upper.dropLast(suffix.count)).map { $0 * scale }
+        }
+        return Double(upper)
+    }
+}

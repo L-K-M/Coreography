@@ -481,12 +481,18 @@ public final class DashboardModel {
     }
 
     public var visibleProcessRows: [ProcessRow] {
+        let time = processSnapshot?.stamp.wallTime ?? Date()
+        let lifecycle = lifecycle
         let rows = ProcessGroups.rows(
-            in: processSnapshot, matching: processFilter, sortedBy: processSort, grouping: processGrouping
+            in: processSnapshot, matching: processFilter, sortedBy: processSort, grouping: processGrouping,
+            isNew: { lifecycle.isNew($0, at: time) }
         )
         guard let scopedApp else { return rows }
         return rows.filter { $0.appName == scopedApp }
     }
+
+    /// Filter terms that were not applied, named for the person who typed them.
+    public var processFilterIssues: [String] { ProcessFilter.parse(processFilter).issues }
 
     /// Processes gone within the last 30 s, newest first, matching filter and scope.
     public var exitedProcesses: [ExitedProcess] {

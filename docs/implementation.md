@@ -3,7 +3,7 @@
 Track actual delivery against the [product plan](plan.md). A stage is
 complete only after its relevant checks and review pass and its PR merges.
 
-## Current slice: process change highlighting
+## Current slice: process filter grammar
 
 The native foundation merged in [PR #5](https://github.com/L-K-M/Coreography/pull/5)
 at `aee9494` after two GLM rounds and passing CI. Process monitoring merged
@@ -31,8 +31,9 @@ the menu bar extra in [PR #22](https://github.com/L-K-M/Coreography/pull/22);
 the diagnostic contract in [PR #23](https://github.com/L-K-M/Coreography/pull/23);
 MCP over stdio in [PR #24](https://github.com/L-K-M/Coreography/pull/24);
 Ask Coreography in [PR #25](https://github.com/L-K-M/Coreography/pull/25);
-alerts in [PR #26](https://github.com/L-K-M/Coreography/pull/26).
-This slice adds heat cells, new-row tints and ghost rows to the process pane.
+alerts in [PR #26](https://github.com/L-K-M/Coreography/pull/26);
+process change highlighting in [PR #27](https://github.com/L-K-M/Coreography/pull/27).
+This slice adds the process filter grammar.
 
 Implemented:
 
@@ -185,6 +186,13 @@ Implemented:
   process first seen within 10 s (not present at launch) tints its name;
   processes gone within 30 s are listed with their app as ghosts. Exit
   status is not claimed, and samples across sleep are not read as exits.
+- Process filter grammar: whitespace-separated terms that all must match:
+  free text, `cpu:>10`, `mem:>1GB`, `disk:>5MB`, `pid:42`, `user:root|me|UID`
+  and the tokens `#apps`, `#mine`, `#root`, `#third-party` and `#new`. An
+  unreadable reading never satisfies a numeric predicate. Tokens awaiting
+  data (`#listening`, `#not-responding`, `#preventing-sleep`) and
+  unreadable terms are named under the field rather than dropped; saved
+  filter chips and reverse lookup remain.
 - A thermal lane showing system thermal pressure as a band, from the public
   `com.apple.system.thermalpressurelevel` notify state. Temperatures, fans
   and the hottest-sensor line wait for the sensor provider.
@@ -207,6 +215,7 @@ time, helper, MCP or model integration in this slice.
 | Native process collection, cancellation and CPU units | Passed [native review-fix CI](https://github.com/L-K-M/Coreography/actions/runs/39105964147) at `7df03ec`, including cancellation, saturation and `getrusage` cross-checks |
 | Native network MIB, wide-counter mapping and three-lane UI | Passed at `e62fac1`, including native C fixtures, live CLI and both executable architectures; integrated candidate pending |
 | Native IOKit storage counters and four-lane renderer | Passed [native CI](https://github.com/L-K-M/Coreography/actions/runs/39110306993) at `6434722`: 75 tests, 16 drivers, 32 measured rate fields, no inventory issues; owner checks pending |
+| Process filter grammar | Filter slice: 143 Swift tests pass on Linux (predicates, units, tokens, reported issues, unknown-is-not-zero, group visibility) |
 | Process heat, new and exited rows | Lifecycle slice: 139 Swift tests pass on Linux (new-row window, ghost expiry, sleep not read as exits); UI compile pending |
 | Alerts | Alerts slice: 137 Swift tests pass on Linux (debounce, hysteresis, unknown readings, cooldown, permission-once delivery, end-to-end tint, marker and notification); native notification permission and banners are owner checks |
 | Ask Coreography | Ask slice: 131 Swift tests pass on Linux with a scripted transport (tool loop echo, batched results, request shape, every failure path, key handling); live provider calls and the UI are owner checks |
