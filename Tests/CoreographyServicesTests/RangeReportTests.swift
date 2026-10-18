@@ -85,3 +85,39 @@ final class RangeReportTests: XCTestCase {
         )
     }
 }
+
+final class AppSeriesTests: XCTestCase {
+    private let epoch = Date(timeIntervalSince1970: 1_700_000_000)
+
+    func testScopedSeriesShowsIdleAsZeroAndMissingIntervalsAsGaps() throws {
+        var ledger = AppLedger(capacity: 10)
+        for (second, cpu, continuity) in [(0.0, 10.0, SamplingContinuity.continuous), (2, 10, .continuous),
+                                          (4, 0, .continuous), (3600, 50, .interrupted), (3602, 30, .continuous)] {
+            ledger.record(try snapshot(at: second, app: cpu > 0 ? "App" : "Other", cpu: max(cpu, 1), continuity: continuity),
+                          logicalCPUCount: 2)
+        }
+        let series = ledger.series(for: "App")
+        // Intervals end at 2, 4 and 3602; the interrupted sample opens no interval.
+        XCTAssertEqual(series.cpu.map(\.value), [10, 0, 30])
+        XCTAssertEqual(series.cpu.map(\.time), [2, 4, 3602].map { epoch.addingTimeInterval($0) })
+        XCTAssertEqual(Set(series.cpu.prefix(2).map(\.segment)).count, 1)
+        XCTAssertNotEqual(series.cpu[1].segment, series.cpu[2].segment)
+        XCTAssertEqual(ledger.series(for: "Unknown").cpu.map(\.value), [0, 0, 0])
+    }
+
+    private func snapshot(
+        at second: TimeInterval, app: String, cpu: Double, continuity: SamplingContinuity
+    ) throws -> CapturedProcesses {
+        let stamp = SampleStamp(clockID: UUID(), monotonicNanoseconds: 1, wallTime: epoch.addingTimeInterval(second))
+        let process = ProcessReading(
+            id: try ProcessIdentity(pid: 10, startSeconds: 1, startMicroseconds: 0), parentPID: 1, uid: 501,
+            name: app, stamp: stamp, cpuPercentOfMachine: try .measured(cpu),
+            memoryFootprintBytes: try .measured(1), diskReadBytesPerSecond: try .measured(0),
+            diskWriteBytesPerSecond: try .measured(0), executablePath: nil, responsiblePID: nil
+        )
+        return ProcessSnapshot(
+            stamp: stamp, collectorPID: 1, enumeration: try .measured(1), enumerationTruncated: false,
+            processes: [process], issues: [], continuity: continuity
+        )
+    }
+}

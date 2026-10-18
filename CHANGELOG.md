@@ -7,6 +7,8 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
 ## [Unreleased]
 
 ### Added
+- App scope: a scoped app's CPU share overlays the CPU lane, its disk
+  rate shows in the disk lane, and the process pane filters to it.
 - Quit and Force Quit for processes with identity re-checks, stated
   consequences and timeline markers.
 - JSON and CSV export of a selected range; missing readings stay empty.

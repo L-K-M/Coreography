@@ -31,6 +31,7 @@ struct AppLedger: Sendable {
     struct Interval: Sendable {
         let start: Date
         let end: Date
+        let cores: Double
         let entries: [Entry]
     }
 
@@ -65,7 +66,7 @@ struct AppLedger: Sendable {
                 isLowerBound: row.cpuPercentOfMachine.availability != .measured || disk.availability != .measured
             ))
         }
-        intervals.append(Interval(start: start, end: end, entries: entries))
+        intervals.append(Interval(start: start, end: end, cores: cores, entries: entries))
         if intervals.count > capacity { intervals.removeFirst(intervals.count - capacity) }
     }
 
@@ -90,6 +91,29 @@ struct AppLedger: Sendable {
             )
         }
         return (apps, first.start...last.end)
+    }
+
+    /// One app's CPU share (% of machine) and disk rate per interval, at
+    /// interval ends. An absent entry is idle (0); a missing interval is a gap.
+    func series(for name: String) -> (cpu: [DashboardPoint], disk: [DashboardPoint]) {
+        let app = indices[name]
+        var cpu: [DashboardPoint] = []
+        var disk: [DashboardPoint] = []
+        var segment = 0
+        var previousEnd: Date?
+        for interval in intervals {
+            if let previousEnd, previousEnd != interval.start { segment += 1 }
+            previousEnd = interval.end
+            let seconds = interval.end.timeIntervalSince(interval.start)
+            let entry = app.flatMap { app in interval.entries.first { $0.app == app } }
+            let id = UUID()
+            if interval.cores > 0 {
+                let share = (entry?.cpuSeconds ?? 0) / (seconds * interval.cores) * Self.percentScale
+                cpu.append(DashboardPoint(id: id, time: interval.end, value: share, segment: segment))
+            }
+            disk.append(DashboardPoint(id: id, time: interval.end, value: (entry?.diskBytes ?? 0) / seconds, segment: segment))
+        }
+        return (cpu, disk)
     }
 
     private mutating func index(of name: String) -> Int {
