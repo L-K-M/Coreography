@@ -108,9 +108,12 @@ public final class DashboardModel {
     public var selection: ClosedRange<Date>?
     /// The range while a drag is in progress; reports wait for the drag to end.
     public var draftSelection: ClosedRange<Date>?
+    public private(set) var markers: [TimelineMarker] = []
+    public private(set) var actionMessage: String?
     public private(set) var contributorHistory: [ContributorSnapshot] = []
 
     @ObservationIgnored private let monitor: SystemMonitor?
+    @ObservationIgnored private let controller: ProcessController
     @ObservationIgnored private let processMonitor: ProcessMonitor?
     @ObservationIgnored private let networkMonitor: NetworkMonitor?
     @ObservationIgnored private let diskMonitor: DiskMonitor?
@@ -133,6 +136,7 @@ public final class DashboardModel {
     @ObservationIgnored private var liveSensorFrames: [CapturedSensors] = []
 
     public init() {
+        controller = ProcessController()
         interval = .seconds(1)
         processInterval = .seconds(2)
         do {
@@ -167,8 +171,9 @@ public final class DashboardModel {
         processMonitor: ProcessMonitor? = nil, processInterval: Duration = .seconds(2),
         networkMonitor: NetworkMonitor? = nil, diskMonitor: DiskMonitor? = nil,
         gpuMonitor: GPUMonitor? = nil, powerMonitor: PowerMonitor? = nil,
-        sensorMonitor: SensorMonitor? = nil
+        sensorMonitor: SensorMonitor? = nil, controller: ProcessController = ProcessController()
     ) {
+        self.controller = controller
         self.monitor = monitor
         self.interval = interval
         self.processMonitor = processMonitor
@@ -323,6 +328,23 @@ public final class DashboardModel {
         )
         let apps = ledger.totals(in: selection).apps.sorted { $0.cpuSeconds > $1.cpuSeconds }
         return RangeExport.document(range: selection, model: frames, apps: apps)
+    }
+
+    /// What quitting this process would do, for confirmation before sending.
+    public func actionRequest(for process: ObservedProcess, mode: QuitMode) -> ProcessActionRequest {
+        ProcessActions.request(for: process, mode: mode, in: processSnapshot)
+    }
+
+    /// Send a confirmed request; the identity is re-checked at the last moment.
+    public func perform(_ request: ProcessActionRequest) {
+        switch controller.terminate(request.target, mode: request.mode) {
+        case .requested:
+            let verb = request.mode == .forced ? "Force quit" : "Quit"
+            markers.append(TimelineMarker(id: UUID(), time: Date(), label: "\(verb) \(request.name)"))
+            actionMessage = "\(verb) requested for \(request.name) (PID \(request.target.pid))"
+        case .failed(let reason):
+            actionMessage = "\(request.name): \(reason)"
+        }
     }
 
     /// Coreography's own process cost, from the latest process sample.

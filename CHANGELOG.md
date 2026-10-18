@@ -7,6 +7,8 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
 ## [Unreleased]
 
 ### Added
+- Quit and Force Quit for processes with identity re-checks, stated
+  consequences and timeline markers.
 - JSON and CSV export of a selected range; missing readings stay empty.
 - Range selection across all lanes with a range report backed by an
   in-memory per-app ledger of CPU-seconds and disk bytes.

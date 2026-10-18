@@ -43,6 +43,21 @@ int32_t coreo_process_list(int32_t *pids, int32_t capacity,
    responsibility symbol. Returns ENOTSUP on unsupported platforms. */
 int32_t coreo_process_read(int32_t pid, coreo_process_sample *sample);
 
+/* Signals the bridge may send; the caller names intent, not signal numbers. */
+enum {
+    COREO_SIGNAL_TERMINATE = 1, /* SIGTERM: ask the process to exit */
+    COREO_SIGNAL_KILL = 2       /* SIGKILL: end it immediately */
+};
+
+/* Send a signal only if pid still has the given start time. Returns 0,
+   EINVAL for pid <= 0 (process groups and broadcast are never targeted)
+   or an unknown signal, ESRCH when the process is gone, EAGAIN when the
+   pid now names a different process, EPERM when not permitted, ENOTSUP
+   off macOS. A gap between the identity check and kill() remains; it is
+   microseconds and the kernel does not reuse a pid that quickly. */
+int32_t coreo_process_signal(int32_t pid, uint64_t start_seconds, uint64_t start_microseconds,
+                             int32_t signal_kind);
+
 typedef struct {
     uint32_t index;
     uint32_t flags;

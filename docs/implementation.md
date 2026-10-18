@@ -3,7 +3,7 @@
 Track actual delivery against the [product plan](plan.md). A stage is
 complete only after its relevant checks and review pass and its PR merges.
 
-## Current slice: range export
+## Current slice: process actions
 
 The native foundation merged in [PR #5](https://github.com/L-K-M/Coreography/pull/5)
 at `aee9494` after two GLM rounds and passing CI. Process monitoring merged
@@ -22,8 +22,10 @@ the shared cursor in [PR #13](https://github.com/L-K-M/Coreography/pull/13);
 SMC sensors in [PR #14](https://github.com/L-K-M/Coreography/pull/14);
 time ranges in [PR #15](https://github.com/L-K-M/Coreography/pull/15);
 the self-cost readout in [PR #16](https://github.com/L-K-M/Coreography/pull/16);
-range selection in [PR #17](https://github.com/L-K-M/Coreography/pull/17).
-This slice exports a selected range as JSON or CSV.
+range selection in [PR #17](https://github.com/L-K-M/Coreography/pull/17);
+range export in [PR #18](https://github.com/L-K-M/Coreography/pull/18);
+shared continuity in [PR #19](https://github.com/L-K-M/Coreography/pull/19).
+This slice adds Quit and Force Quit with identity checks and markers.
 
 Implemented:
 
@@ -112,6 +114,13 @@ Implemented:
   CSV has one row per host sample with paired GPU, sensor and power values
   within 1.5 s. Missing readings are empty cells, never zero. Export
   redaction checks remain S8.
+- Process actions: a process row's context menu offers Quit and Force
+  Quit. A confirmation states the consequences (logout for loginwindow or
+  WindowServer, child processes, no chance to save). Quit asks a regular
+  app through AppKit and sends SIGTERM otherwise; Force Quit sends
+  SIGKILL. Every send re-checks PID and start time immediately before
+  acting, never targets a process group, and success drops a dashed
+  marker in all lanes. Refusals name their reason.
 - A thermal lane showing system thermal pressure as a band, from the public
   `com.apple.system.thermalpressurelevel` notify state. Temperatures, fans
   and the hottest-sensor line wait for the sensor provider.
@@ -134,6 +143,7 @@ time, helper, MCP or model integration in this slice.
 | Native process collection, cancellation and CPU units | Passed [native review-fix CI](https://github.com/L-K-M/Coreography/actions/runs/39105964147) at `7df03ec`, including cancellation, saturation and `getrusage` cross-checks |
 | Native network MIB, wide-counter mapping and three-lane UI | Passed at `e62fac1`, including native C fixtures, live CLI and both executable architectures; integrated candidate pending |
 | Native IOKit storage counters and four-lane renderer | Passed [native CI](https://github.com/L-K-M/Coreography/actions/runs/39110306993) at `6434722`: 75 tests, 16 drivers, 32 measured rate fields, no inventory issues; owner checks pending |
+| Process actions and markers | Actions slice: 120 Swift tests and the Linux C contract pass; the native contract forks a child, refuses a wrong start time and terminates it with the right one; UI compile pending |
 | Range export (JSON, CSV) | Export slice: 117 Swift tests pass on Linux, including range filtering, JSON round trip and empty cells for missing readings; save panel compile pending |
 | Range selection, ledger and range report | Range slice: 115 Swift tests pass on Linux (integration over real intervals, tail apps, interruptions, midpoint inclusion, lower bounds); native compile pending |
 | Time ranges, decimation and one-hour buffers | Range slice: 110 Swift tests pass on Linux, including spike survival and segment isolation; native compile and S2 rendering cost pending |

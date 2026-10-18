@@ -26,7 +26,9 @@
 #endif
 
 #if defined(__APPLE__)
+#include <signal.h>
 #include <sys/resource.h>
+#include <sys/wait.h>
 #include <unistd.h>
 #endif
 
@@ -48,6 +50,10 @@ test_invalid_args(void)
                               &count, &truncated) == EINVAL);
 
     assert(coreo_process_read(-7, &sample) == EINVAL);
+    /* Never a process group or broadcast target, never an unnamed signal. */
+    assert(coreo_process_signal(0, 1, 0, COREO_SIGNAL_TERMINATE) == EINVAL);
+    assert(coreo_process_signal(-1, 1, 0, COREO_SIGNAL_KILL) == EINVAL);
+    assert(coreo_process_signal(42, 1, 0, 99) == EINVAL);
     assert(coreo_process_read(1, NULL) == EINVAL);
     assert(count == -1 && truncated == -1);
 }
@@ -114,6 +120,30 @@ test_platform(void)
         + (double)(second.system_nanoseconds - first.system_nanoseconds);
     assert(elapsed_ns > 0 && observed_ns > elapsed_ns * 0.5 && observed_ns < elapsed_ns * 2);
 
+    /* Signals re-check identity: a wrong start time is refused, the right one lands. */
+    pid_t child = fork();
+    assert(child >= 0);
+    if (child == 0) {
+        for (;;) {
+            pause();
+        }
+    }
+    coreo_process_sample target;
+    int32_t read_status = coreo_process_read((int32_t)child, &target);
+    for (int attempt = 0; attempt < 100 && read_status != 0; attempt++) {
+        usleep(10000);
+        read_status = coreo_process_read((int32_t)child, &target);
+    }
+    assert(read_status == 0 && target.pid == (int32_t)child);
+    assert(coreo_process_signal((int32_t)child, target.start_seconds + 1, target.start_microseconds,
+                                COREO_SIGNAL_TERMINATE) == EAGAIN);
+    assert(coreo_process_signal((int32_t)child, target.start_seconds, target.start_microseconds,
+                                COREO_SIGNAL_TERMINATE) == 0);
+    int status = 0;
+    assert(waitpid(child, &status, 0) == child);
+    assert(WIFSIGNALED(status) && WTERMSIG(status) == SIGTERM);
+    assert(coreo_process_signal(INT32_MAX - 1, 1, 0, COREO_SIGNAL_KILL) == ESRCH);
+
     /* A nonexistent pid must surface the identity errno, not usage data. */
     memset(&sample, 0xAA, sizeof(sample));
     rc = coreo_process_read(INT32_MAX - 1, &sample);
@@ -153,6 +183,8 @@ test_platform(void)
     assert(sample.path[0] == '\0');
     assert(sample.responsible_error == ENOTSUP);
     assert(sample.responsible_pid == 0);
+
+    assert(coreo_process_signal(42, 1, 0, COREO_SIGNAL_TERMINATE) == ENOTSUP);
 
     /* PID 0 names kernel_task on macOS; it is a valid identity, not EINVAL. */
     assert(coreo_process_read(0, &sample) == ENOTSUP);

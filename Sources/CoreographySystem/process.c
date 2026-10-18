@@ -26,6 +26,7 @@
 #include <libproc.h>
 #include <mach/kern_return.h>
 #include <pthread.h>
+#include <signal.h>
 #include <mach/mach_time.h>
 #include <sys/proc_info.h>
 #include <sys/resource.h>
@@ -227,6 +228,41 @@ coreo_process_read(int32_t pid, coreo_process_sample *sample)
     return 0;
 }
 
+int32_t
+coreo_process_signal(int32_t pid, uint64_t start_seconds, uint64_t start_microseconds,
+                     int32_t signal_kind)
+{
+    struct proc_bsdinfo identity;
+    int signal_number;
+    int32_t err;
+
+    if (pid <= 0) {
+        return EINVAL;
+    }
+    switch (signal_kind) {
+    case COREO_SIGNAL_TERMINATE:
+        signal_number = SIGTERM;
+        break;
+    case COREO_SIGNAL_KILL:
+        signal_number = SIGKILL;
+        break;
+    default:
+        return EINVAL;
+    }
+
+    err = coreo_read_identity(pid, &identity);
+    if (err != 0) {
+        return err;
+    }
+    if (identity.pbi_start_tvsec != start_seconds || identity.pbi_start_tvusec != start_microseconds) {
+        return EAGAIN;
+    }
+    if (kill((pid_t)pid, signal_number) != 0) {
+        return errno ? errno : EIO;
+    }
+    return 0;
+}
+
 #else /* !__APPLE__ */
 
 int32_t
@@ -252,6 +288,18 @@ coreo_process_read(int32_t pid, coreo_process_sample *sample)
     sample->usage_error = ENOTSUP;
     sample->path_error = ENOTSUP;
     sample->responsible_error = ENOTSUP;
+    return ENOTSUP;
+}
+
+int32_t
+coreo_process_signal(int32_t pid, uint64_t start_seconds, uint64_t start_microseconds,
+                     int32_t signal_kind)
+{
+    (void)start_seconds;
+    (void)start_microseconds;
+    if (pid <= 0 || (signal_kind != COREO_SIGNAL_TERMINATE && signal_kind != COREO_SIGNAL_KILL)) {
+        return EINVAL;
+    }
     return ENOTSUP;
 }
 
