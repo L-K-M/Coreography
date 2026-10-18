@@ -10,7 +10,10 @@ let package = Package(
         .executable(name: "coreo", targets: ["coreo"])
     ],
     targets: [
-        .target(name: "CoreographyDrivers"),
+        .target(name: "CoreographySystem"),
+        .target(name: "CoreographyDrivers", dependencies: [
+            .target(name: "CoreographySystem", condition: .when(platforms: [.macOS]))
+        ]),
         .target(name: "CoreographyKit", dependencies: ["CoreographyDrivers"]),
         .target(name: "CoreographyServices", dependencies: ["CoreographyKit"]),
         .executableTarget(name: "coreo", dependencies: ["CoreographyServices"]),

@@ -27,50 +27,83 @@ public final class DashboardModel {
     public private(set) var frames: [CapturedSnapshot] = []
     public private(set) var displayMode: DashboardDisplayMode = .live
     public private(set) var collectionError: String?
+    public private(set) var processSnapshot: CapturedProcesses?
+    public var processFilter = ""
+    public var processSort: ProcessSort = .cpu
 
     @ObservationIgnored private let monitor: SystemMonitor?
+    @ObservationIgnored private let processMonitor: ProcessMonitor?
     @ObservationIgnored private let interval: Duration
+    @ObservationIgnored private let processInterval: Duration
     @ObservationIgnored private var worker: Task<Void, Never>?
     @ObservationIgnored private var generation = UUID()
     @ObservationIgnored private var liveFrames: [CapturedSnapshot] = []
+    @ObservationIgnored private var liveProcesses: CapturedProcesses?
 
     public init() {
         interval = .seconds(1)
+        processInterval = .seconds(2)
         do {
-            monitor = try SystemMonitor()
+            let system = try SystemMonitor()
+            let processes = try ProcessMonitor()
+            monitor = system
+            processMonitor = processes
         } catch {
             monitor = nil
+            processMonitor = nil
             collectionError = "Cannot initialize monitoring: \(error)"
         }
     }
 
-    init(monitor: SystemMonitor, interval: Duration) {
+    init(
+        monitor: SystemMonitor, interval: Duration,
+        processMonitor: ProcessMonitor? = nil, processInterval: Duration = .seconds(2)
+    ) {
         self.monitor = monitor
         self.interval = interval
+        self.processMonitor = processMonitor
+        self.processInterval = processInterval
     }
 
     deinit { worker?.cancel() }
 
     public var latest: CapturedSnapshot? { frames.last }
 
+    public var visibleProcesses: [ObservedProcess] {
+        ProcessList.rows(in: processSnapshot, matching: processFilter, sortedBy: processSort)
+    }
+
     public func start() {
         guard worker == nil, let monitor else { return }
         let run = UUID()
         generation = run
         collectionError = nil
+        let processMonitor = processMonitor
+        let processInterval = processInterval
 
         worker = Task { [weak self] in
             defer {
                 if let self, self.generation == run { self.worker = nil }
             }
             await monitor.reset()
+            await processMonitor?.reset()
+            var nextProcessSample = ContinuousClock.now
             while !Task.isCancelled {
                 do {
                     _ = try await monitor.sample()
                     let history = await monitor.history()
+                    var processes: CapturedProcesses?
+                    if let processMonitor, ContinuousClock.now >= nextProcessSample {
+                        processes = try await processMonitor.sample()
+                        nextProcessSample = ContinuousClock.now.advanced(by: processInterval)
+                    }
                     guard let self, self.generation == run, !Task.isCancelled else { return }
                     self.liveFrames = history
-                    if self.displayMode == .live { self.frames = history }
+                    if let processes { self.liveProcesses = processes }
+                    if self.displayMode == .live {
+                        self.frames = history
+                        if let processes { self.processSnapshot = processes }
+                    }
                     try await Task.sleep(for: self.interval)
                 } catch is CancellationError {
                     return
@@ -96,6 +129,7 @@ public final class DashboardModel {
         }
         displayMode = .live
         frames = liveFrames
+        processSnapshot = liveProcesses
     }
 
     public func reading(for metric: DashboardMetric) -> DashboardReading? {

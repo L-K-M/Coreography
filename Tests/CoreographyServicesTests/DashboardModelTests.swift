@@ -44,6 +44,54 @@ final class DashboardModelTests: XCTestCase {
         XCTAssertEqual(points.count, model.frames.count)
     }
 
+    func testDisplayHoldAlsoHoldsProcessRowsWhileTheirCollectionContinues() async throws {
+        let driver = IncreasingProcessDriver()
+        let model = DashboardModel(
+            monitor: try SystemMonitor(driver: IncreasingHostDriver()),
+            interval: .milliseconds(10), processMonitor: try ProcessMonitor(driver: driver),
+            processInterval: .milliseconds(10)
+        )
+        model.start()
+        defer { model.stop() }
+        try await eventually { await driver.readCount >= 2 && model.processSnapshot != nil }
+        model.toggleDisplayHold()
+        let held = model.processSnapshot?.stamp.monotonicNanoseconds
+        let before = await driver.readCount
+        try await eventually { await driver.readCount >= before + 3 }
+        XCTAssertEqual(model.processSnapshot?.stamp.monotonicNanoseconds, held)
+        model.toggleDisplayHold()
+        XCTAssertNotEqual(model.processSnapshot?.stamp.monotonicNanoseconds, held)
+    }
+
+    func testProcessListFiltersAndOrdersMeasuredRowsBeforeMissingData() throws {
+        let snapshot = ProcessSnapshot(
+            stamp: SampleStamp(clockID: UUID(), monotonicNanoseconds: 1, wallTime: Date()),
+            collectorPID: 42, enumeration: try .measured(3), enumerationTruncated: false,
+            processes: [
+                try process(pid: 42, name: "Browser", uid: 501, cpu: .measured(25), memory: 500),
+                try process(pid: 50, name: "Editor", uid: 501, cpu: .measured(10), memory: 1000),
+                try process(pid: 1, name: "System", uid: 0, cpu: .restricted(reason: "Fixture"), memory: 50)
+            ], issues: [], continuity: .continuous
+        )
+        XCTAssertEqual(ProcessList.rows(in: snapshot, matching: "", sortedBy: .cpu).map(\.id.pid), [42, 50, 1])
+        XCTAssertEqual(ProcessList.rows(in: snapshot, matching: "", sortedBy: .memory).map(\.id.pid), [50, 42, 1])
+        XCTAssertEqual(ProcessList.rows(in: snapshot, matching: "broW", sortedBy: .name).map(\.id.pid), [42])
+        XCTAssertEqual(ProcessList.rows(in: snapshot, matching: "42", sortedBy: .cpu).map(\.id.pid), [42])
+        XCTAssertEqual(ProcessList.rows(in: snapshot, matching: " 501 ", sortedBy: .cpu).count, 2)
+    }
+
+    private func process(
+        pid: Int32, name: String, uid: UInt32, cpu: MetricReading, memory: Double
+    ) throws -> ProcessReading {
+        ProcessReading(
+            id: try ProcessIdentity(pid: pid, startSeconds: 100, startMicroseconds: 0),
+            parentPID: 0, uid: uid, name: name,
+            stamp: SampleStamp(clockID: UUID(), monotonicNanoseconds: 1, wallTime: Date()),
+            cpuPercentOfMachine: cpu, memoryFootprintBytes: try .measured(memory),
+            diskReadBytesPerSecond: .collecting(), diskWriteBytesPerSecond: .collecting()
+        )
+    }
+
     private func eventually(_ condition: () async -> Bool) async throws {
         let deadline = ContinuousClock.now.advanced(by: .seconds(5))
         while ContinuousClock.now < deadline {
@@ -52,6 +100,28 @@ final class DashboardModelTests: XCTestCase {
         }
         XCTFail("Condition did not become true before the deadline")
         throw CancellationError()
+    }
+}
+
+private actor IncreasingProcessDriver: ProcessSampleReading {
+    private let clock = UUID()
+    private(set) var readCount: UInt64 = 0
+
+    func read() async -> RawProcessSnapshot {
+        readCount += 1
+        return RawProcessSnapshot(
+            clockID: clock, monotonicNanoseconds: readCount * 1_000_000_000,
+            wallTime: Date(timeIntervalSince1970: 1_700_000_000 + Double(readCount)),
+            logicalCPUCount: 4, collectorPID: 42,
+            enumeration: .success(ProcessEnumeration(processes: [RawProcessInfo(
+                pid: 42, parentPID: 1, uid: 501, startSeconds: 100,
+                startMicroseconds: 0, name: "Fixture", monotonicNanoseconds: readCount * 1_000_000_000,
+                counters: .success(ProcessCounters(
+                    userNanoseconds: readCount, systemNanoseconds: 0,
+                    physicalFootprintBytes: readCount, diskReadBytes: readCount, diskWriteBytes: 0
+                ))
+            )]))
+        )
     }
 }
 

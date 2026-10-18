@@ -61,6 +61,13 @@ jobs:
       - name: Run build-script tests
         run: python3 tools/tests/test_buildscripts.py
 
+      - name: Verify unsupported-platform C contracts
+        run: |
+          cc -std=c11 -Wall -Wextra -Werror -I Sources/CoreographySystem/include \
+            tools/tests/test_process_bridge.c Sources/CoreographySystem/process.c \
+            -o "$RUNNER_TEMP/test_process_bridge"
+          "$RUNNER_TEMP/test_process_bridge"
+
       - name: Shellcheck
         run: |
           command -v shellcheck >/dev/null || sudo apt-get install -y shellcheck
@@ -83,6 +90,13 @@ jobs:
       # No Xcode test target yet: the SwiftPM suite is the test gate.
       - name: Run SwiftPM tests
         run: swift test
+
+      - name: Verify libproc bridge contracts and CPU units
+        run: |
+          cc -std=c11 -Wall -Wextra -Werror -I Sources/CoreographySystem/include \
+            tools/tests/test_process_bridge.c Sources/CoreographySystem/process.c \
+            -o "$RUNNER_TEMP/test_process_bridge"
+          "$RUNNER_TEMP/test_process_bridge"
 
       # Builds dist/Coreography.app universal (both slices in app AND embedded
       # CLI are verified by assemble-app.sh before packaging) and zips it to
@@ -114,6 +128,27 @@ jobs:
           "$CLI" doctor
           "$CLI" snapshot --once --json > "$RUNNER_TEMP/snapshot.json"
           python3 tools/check_snapshot.py "$RUNNER_TEMP/snapshot.json"
+
+      - name: Smoke-test native process counters
+        run: |
+          set -euo pipefail
+          dist/Coreography.app/Contents/Helpers/coreo processes --once --json > "$RUNNER_TEMP/processes.json"
+          python3 - "$RUNNER_TEMP/processes.json" <<'PY'
+          import json, sys
+          with open(sys.argv[1]) as source:
+              snapshot = json.load(source)
+          assert snapshot["enumeration"]["availability"] == "measured"
+          assert snapshot["enumeration"]["numericValue"] >= len(snapshot["processes"])
+          own = next(row for row in snapshot["processes"] if row["id"]["pid"] == snapshot["collectorPID"])
+          assert own["id"]["startSeconds"] > 0
+          assert 0 <= own["id"]["startMicroseconds"] < 1_000_000
+          cpu = own["cpuPercentOfMachine"]
+          assert cpu["availability"] == "measured" and 0 <= cpu["numericValue"] <= 100
+          memory = own["memoryFootprintBytes"]
+          assert memory["availability"] == "measured" and memory["numericValue"] > 0
+          for field in ("diskReadBytesPerSecond", "diskWriteBytesPerSecond"):
+              assert own[field]["availability"] == "measured" and own[field]["numericValue"] >= 0
+          PY
 
       - name: Package tested app
         run: |

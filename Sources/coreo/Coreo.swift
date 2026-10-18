@@ -6,9 +6,11 @@ private struct Coreo {
     private static let usage = """
     Usage: coreo doctor
            coreo snapshot --once --json
+           coreo processes --once --json
            coreo --version
 
     doctor reports source availability. snapshot waits for a CPU baseline.
+    processes waits for a two-second baseline and reports collection coverage.
     Native host sampling requires macOS 26 or later.
     """
 
@@ -29,6 +31,12 @@ private struct Coreo {
                 }
                 let service = try DiagnosticService()
                 try emit(await service.captureOnce())
+            case ["processes", "--once", "--json"], ["processes", "--json", "--once"]:
+                guard DiagnosticService.nativeSamplingSupport == .supported else {
+                    throw CommandError.unsupportedPlatform
+                }
+                let service = try DiagnosticService()
+                try emit(await service.captureProcessesOnce())
             default:
                 throw CommandError.invalidArguments
             }

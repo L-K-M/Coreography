@@ -6,6 +6,7 @@ import CoreographyServices
 @MainActor
 struct DashboardView: View {
     @Bindable var model: DashboardModel
+    @FocusState private var processFilterFocused: Bool
 
     var body: some View {
         ScrollView {
@@ -23,6 +24,8 @@ struct DashboardView: View {
                 ForEach(DashboardMetric.allCases) { metric in
                     lane(metric)
                 }
+
+                ProcessPane(model: model, filterFocused: $processFilterFocused)
 
                 DisclosureGroup("Numeric readings") {
                     Table(Array(model.frames.suffix(10))) {
@@ -67,7 +70,7 @@ struct DashboardView: View {
                 ) {
                     model.toggleDisplayHold()
                 }
-                .keyboardShortcut(.space, modifiers: [])
+                .keyboardShortcut(processFilterFocused ? nil : KeyboardShortcut(.space, modifiers: []))
                 .help("Hold the display while collection continues")
             }
         }
@@ -147,6 +150,100 @@ struct DashboardView: View {
         .overlay(RoundedRectangle(cornerRadius: Layout.cornerRadius).strokeBorder(
             Color(nsColor: .separatorColor), lineWidth: 0.5
         ))
+    }
+}
+
+private struct ProcessPane: View {
+    @Bindable var model: DashboardModel
+    var filterFocused: FocusState<Bool>.Binding
+
+    var body: some View {
+        DisclosureGroup("Processes") {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    TextField("Filter by process name, PID or UID", text: $model.processFilter)
+                        .textFieldStyle(.roundedBorder)
+                        .focused(filterFocused)
+                    Picker("Sort", selection: $model.processSort) {
+                        Text("CPU").tag(ProcessSort.cpu)
+                        Text("Memory").tag(ProcessSort.memory)
+                        Text("Disk read").tag(ProcessSort.diskRead)
+                        Text("Disk write").tag(ProcessSort.diskWrite)
+                        Text("Name").tag(ProcessSort.name)
+                    }
+                    .frame(width: 180)
+                }
+
+                if let snapshot = model.processSnapshot {
+                    if let reason = snapshot.enumeration.reason {
+                        Text(reason).foregroundStyle(.secondary)
+                    }
+                    Text("\(snapshot.processes.count) identified · \(snapshot.restrictedUsageCount) restricted · \(snapshot.issues.count) identity failures")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    if snapshot.enumerationTruncated {
+                        Text("Enumeration reached capacity; additional processes may exist.")
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                    }
+                }
+
+                Table(model.visibleProcesses) {
+                    TableColumn("Process", value: \.name)
+                    TableColumn("PID") { Text($0.id.pid.formatted(.number.grouping(.never))) }
+                        .width(60)
+                    TableColumn("UID") { Text($0.uid.formatted(.number.grouping(.never))) }
+                        .width(65)
+                    TableColumn("CPU, machine") {
+                        ProcessMetricCell(reading: $0.cpuPercentOfMachine, format: .percent)
+                    }
+                    TableColumn("Footprint") {
+                        ProcessMetricCell(reading: $0.memoryFootprintBytes, format: .bytes)
+                    }
+                    TableColumn("Disk read/s") {
+                        ProcessMetricCell(reading: $0.diskReadBytesPerSecond, format: .rate)
+                    }
+                    TableColumn("Disk write/s") {
+                        ProcessMetricCell(reading: $0.diskWriteBytesPerSecond, format: .rate)
+                    }
+                }
+                .frame(height: 260)
+                .textSelection(.enabled)
+
+                Text("CPU uses the whole-machine scale. Footprints are not an additive memory total. Process sampling: 2 s; short-lived processes can be missed.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.top, 8)
+        }
+    }
+}
+
+private struct ProcessMetricCell: View {
+    enum Format { case percent, bytes, rate }
+    let reading: DashboardReading
+    let format: Format
+
+    var body: some View {
+        Text(label)
+            .monospacedDigit()
+            .help(reading.reason ?? "libproc · RUSAGE_INFO_V2")
+    }
+
+    private var label: String {
+        guard let value = reading.numericValue else {
+            switch reading.availability {
+            case .collecting: return String(localized: "Collecting…")
+            case .restricted: return String(localized: "Restricted")
+            case .gap: return String(localized: "Gap")
+            default: return String(localized: "Unavailable")
+            }
+        }
+        switch format {
+        case .percent: return MetricText.percent(value)
+        case .bytes: return MetricText.bytes(value)
+        case .rate: return MetricText.bytes(value) + "/s"
+        }
     }
 }
 
