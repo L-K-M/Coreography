@@ -11,6 +11,9 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
   after the store first exceeds it.
 
 ### Added
+- An inspector for the selected process: identity, parent chain,
+  signature, launchd job, arguments, sockets, a plain-language note for
+  known system processes and Quit; with nothing selected, this Mac.
 - A Startup tab listing launch agents and daemons with their enabled
   state, signer and current cost; Apple items hidden by default.
 - A Sensors tab with current, minimum, maximum and average for every

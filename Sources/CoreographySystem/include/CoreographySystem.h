@@ -58,6 +58,20 @@ enum {
 int32_t coreo_process_signal(int32_t pid, uint64_t start_seconds, uint64_t start_microseconds,
                              int32_t signal_kind);
 
+/* The largest argument block the kernel hands out (kern.argmax), or 0
+   off macOS. Size the coreo_process_arguments buffer with it. */
+int32_t coreo_process_arguments_capacity(void);
+
+/* The raw KERN_PROCARGS2 block of pid while it still has the given start
+   time: a native-endian int32 argc, the executable path, NUL padding,
+   argc NUL-terminated arguments, then the environment, which callers
+   must not parse or expose. length is the byte count written. Returns
+   EINVAL for pid <= 0 or bad buffers, EPERM for another user's process,
+   ESRCH once it is gone, EAGAIN when the pid names another process,
+   ENOTSUP off macOS. */
+int32_t coreo_process_arguments(int32_t pid, uint64_t start_seconds, uint64_t start_microseconds,
+                                uint8_t *buffer, int32_t capacity, int32_t *length);
+
 /* Internet socket kinds the connection bridge reports. */
 enum {
     COREO_SOCKET_TCP = 1,

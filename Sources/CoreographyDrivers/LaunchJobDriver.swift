@@ -1,9 +1,5 @@
 import Foundation
 
-#if os(macOS)
-import Security
-#endif
-
 /// Where a launchd job is defined; the folder decides who runs it and when.
 public enum LaunchDomain: String, CaseIterable, Sendable {
     /// `~/Library/LaunchAgents`: this user, at login.
@@ -111,7 +107,7 @@ public struct LaunchJobDriver: LaunchJobReading {
             domain: domain, plistPath: file.path, label: label, program: program,
             runAtLoad: plist["RunAtLoad"] as? Bool ?? false, keepAlive: keepAlive,
             disabledInPlist: plist["Disabled"] as? Bool ?? false,
-            signature: program.map(Self.signature(of:)) ?? .unknown
+            signature: program.map { CodeSignatureReader.signing(path: $0).signature } ?? .unknown
         )
     }
 
@@ -152,29 +148,6 @@ public struct LaunchJobDriver: LaunchJobReading {
         return (overrides, nil)
         #else
         return ([:], "launchd overrides need macOS")
-        #endif
-    }
-
-    /// Basic validation only: checking every resource of a bundle would take
-    /// seconds per item, and the question here is only who signed it.
-    private static func signature(of path: String) -> CodeSignature {
-        #if os(macOS)
-        var code: SecStaticCode?
-        guard FileManager.default.fileExists(atPath: path),
-              SecStaticCodeCreateWithPath(URL(fileURLWithPath: path) as CFURL, [], &code) == errSecSuccess,
-              let code else { return .unknown }
-        var requirement: SecRequirement?
-        guard SecRequirementCreateWithString("anchor apple" as CFString, [], &requirement) == errSecSuccess else {
-            return .unknown
-        }
-        switch SecStaticCodeCheckValidity(code, SecCSFlags(rawValue: kSecCSBasicValidateOnly), requirement) {
-        case errSecSuccess: return .apple
-        case errSecCSReqFailed: return .otherSigner
-        case errSecCSUnsigned: return .unsigned
-        default: return .unknown
-        }
-        #else
-        return .unknown
         #endif
     }
 }

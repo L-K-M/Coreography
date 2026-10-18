@@ -147,6 +147,9 @@ enum ProcessGroups {
         )
     }
 
+    /// The table row id of one process, stable while its identity holds.
+    static func rowID(_ process: ObservedProcess) -> ProcessRow.ID { "process-\(identityKey(process))" }
+
     private static func identityKey(_ process: ObservedProcess) -> String {
         "\(process.id.pid)-\(process.id.startSeconds)-\(process.id.startMicroseconds)"
     }
@@ -155,7 +158,7 @@ enum ProcessGroups {
         _ process: ObservedProcess, method: ProcessGroupingMethod?, appName: String
     ) -> ProcessRow {
         ProcessRow(
-            id: "process-\(identityKey(process))", name: process.name, process: process,
+            id: rowID(process), name: process.name, process: process,
             groupingMethod: method, appName: appName, memberCount: 1,
             cpuPercentOfMachine: process.cpuPercentOfMachine,
             memoryFootprintBytes: process.memoryFootprintBytes,
