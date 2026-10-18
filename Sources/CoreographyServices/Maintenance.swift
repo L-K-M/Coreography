@@ -31,6 +31,7 @@ public struct MaintenanceNote: Equatable, Sendable {
 
 enum MaintenanceNotes {
     private static let secondsPerMinute = 60.0
+    private static let minutesPerHour = 60.0
 
     static func note(_ work: MaintenanceWork, _ status: CapturedMaintenance) -> MaintenanceNote {
         let text = switch work {
@@ -91,9 +92,13 @@ enum MaintenanceNotes {
         return words.map { $0.allSatisfy(\.isUppercase) && $0.count > 1 ? $0 : $0.lowercased() }.joined(separator: " ")
     }
 
+    /// "about 5 min left"; an hour or more in half hours: "about 1.5 h left".
     private static func remainingText(_ seconds: Int) -> String {
         guard Double(seconds) >= secondsPerMinute else { return "under a minute left" }
-        return "about \(Int((Double(seconds) / secondsPerMinute).rounded())) min left"
+        let minutes = (Double(seconds) / secondsPerMinute).rounded()
+        guard minutes >= minutesPerHour else { return "about \(Int(minutes)) min left" }
+        let hours = (minutes / minutesPerHour * 2).rounded() / 2
+        return "about \(hours.formatted(.number.precision(.fractionLength(0...1)))) h left"
     }
 }
 
