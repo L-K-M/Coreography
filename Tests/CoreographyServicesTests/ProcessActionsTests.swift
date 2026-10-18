@@ -73,6 +73,25 @@ final class ProcessActionsTests: XCTestCase {
         XCTAssertTrue(model.copyJSON(for: worker).contains("\"name\" : \"Worker\""))
     }
 
+    func testSamplingOpensAReportOrNamesWhyNot() async throws {
+        let model = DashboardModel(
+            monitor: try SystemMonitor(driver: NoHostDriver()), interval: .seconds(1),
+            sampler: ProcessSampler(driver: Sampler())
+        )
+        await model.sampleProcess(try process(pid: 77, name: "Worker", start: 1234))
+        guard case .finished(let report) = model.sampleState else { return XCTFail("expected a report") }
+        XCTAssertEqual(report.name, "Worker")
+        XCTAssertEqual(report.seconds, ProcessSampler.defaultSeconds)
+        XCTAssertTrue(report.text.hasPrefix("Call graph"))
+
+        await model.sampleProcess(try process(pid: 78, name: "Gone"))
+        guard case .failed(let name, let reason) = model.sampleState else { return XCTFail("expected a failure") }
+        XCTAssertEqual(name, "Gone")
+        XCTAssertEqual(reason, "The process exited before it could be sampled")
+        model.dismissSample()
+        guard case .idle = model.sampleState else { return XCTFail("dismissed") }
+    }
+
     private func process(pid: Int32, name: String, parent: UInt32 = 1, start: UInt64 = 10) throws -> ObservedProcess {
         ProcessReading(
             id: try ProcessIdentity(pid: pid, startSeconds: start, startMicroseconds: 0),
@@ -124,6 +143,12 @@ private final class RecordingSignaler: ProcessSignaling, @unchecked Sendable {
     func renice(pid: Int32, startSeconds: UInt64, startMicroseconds: UInt64, to niceValue: Int32) -> Result<Void, ProcessControlError> {
         calls.append(Call(signal: nil, nice: niceValue, startSeconds: startSeconds))
         return results.removeFirst()
+    }
+}
+
+private struct Sampler: ProcessSampling {
+    func sample(pid: Int32, startSeconds: UInt64, startMicroseconds: UInt64, seconds: Int) async -> Result<String, ProcessSampleError> {
+        pid == 77 ? .success("Call graph:\n    3 Thread_1") : .failure(.exited)
     }
 }
 
