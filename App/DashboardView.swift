@@ -1857,12 +1857,13 @@ private struct RangePanel: View {
                 }
                 .frame(width: 200)
                 .help("Redacted exports number apps instead of naming them, for sharing")
+                let document = model.rangeExport
                 Group {
                     Button("Export JSON…") { export(as: .json) }
                     Button("Export CSV…") { export(as: .commaSeparatedText) }
                 }
-                .disabled(model.rangeExport == nil)
-                .help(RangeText.exportScope(model.rangeExport, requested: report.requested))
+                .disabled(document == nil)
+                .help(RangeText.exportScope(document, requested: report.requested))
                 Button("Clear selection") { model.selection = nil }
                     .keyboardShortcut(.cancelAction)
             }
