@@ -15,7 +15,9 @@ when it exists; until then, keep changes to docs/tooling small and correct.
   `--clean`), `scripts/release.sh` driving annotated `vX.Y.Z` tags, the
   macOS leg in `ci.yml` (tests + universal build + arch check), a
   tag-triggered `release.yml`, and the `<!-- version -->` marker in this
-  repo's README — the same shape as RunningMan/Jetty.
+  repo's README — the same shape as RunningMan/Jetty. Release assets are
+  named `Coreography-v<X.Y.Z>-macos-<arch>.zip` (fleet convention:
+  platform + arch in every artifact name).
 
 <!-- shared-rules:start -->
 
