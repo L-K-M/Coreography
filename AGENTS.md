@@ -1,23 +1,36 @@
 # AGENTS.md
 
-Coreography is planned as a native macOS app — **early stage**: the repo
-holds the project furniture, not the app yet. Land the Xcode project here
-when it exists; until then, keep changes to docs/tooling small and correct.
+Coreography is an early-stage native macOS system monitor. Current scope
+and verification gaps are in `docs/implementation.md`; the complete
+product plan is `docs/plan.md`.
+
+- Native toolchain: macOS 26+, Xcode 26.6. Open `Coreography.xcodeproj`.
+  `scripts/build.sh --universal --zip --no-reveal` uses the shared
+  `lkm-build` engine and the repo's assemble adapter. Ad-hoc CI artifacts
+  are development builds; Developer ID/notarization remains a release gate.
+- `swift test` verifies the portable engine and service contracts.
+  `python3 tools/tests/test_buildscripts.py` and `shellcheck scripts/*.sh`
+  verify tooling. Native compilation and actual Mach collection run in
+  the macOS CI job; Linux results are not Mac validation.
+- Layer boundaries: App/CLI use CoreographyServices, which orchestrates
+  CoreographyKit. Kit providers use CoreographyDrivers for OS calls.
+  Preserve explicit unavailable states and actual sample intervals.
 
 - Documentation checks (CI runs them on every PR):
   `python3 tools/doccheck/checkdocs.py .` for links, anchors, fences and
   tables, and `node tools/doccheck/mmdcheck.mjs .` for Mermaid diagrams
   (needs `npm --prefix tools/doccheck install --no-save mermaid@11 jsdom@25`
   once).
-- When the app lands: native macOS target (SwiftUI/AppKit), bundle id
+- Native macOS target (SwiftUI/AppKit), bundle id
   `ch.lkmc.Coreography` (fleet reverse-DNS: macOS keeps CamelCase). Add
   `scripts/build.sh` (`--universal`, `--zip`, `--install`, `--run`,
   `--clean`), `scripts/release.sh` driving annotated `vX.Y.Z` tags, the
   macOS leg in `ci.yml` (tests + universal build + arch check), a
   tag-triggered `release.yml`, and the `<!-- version -->` marker in this
   repo's README — the same shape as RunningMan/Jetty. Release assets are
-  named `Coreography-v<X.Y.Z>-macos-<arch>.zip` (fleet convention:
-  platform + arch in every artifact name).
+   named `Coreography-v<X.Y.Z>-macos-<arch>.zip`, with arch `arm64`,
+   `x86_64` or `universal` (both slices verified). Platform and arch belong
+   in every artifact name.
 
 <!-- shared-rules:start -->
 

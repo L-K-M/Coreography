@@ -1,0 +1,100 @@
+name: Release
+
+# Triggered by scripts/release.sh --push: the tag is the source of truth for
+# the released version.
+on:
+  push:
+    tags: ['v*']
+
+# Publishing needs to create the GitHub Release and attach the zip.
+permissions:
+  contents: write
+
+# A tag publishes once: never cancel an in-progress release run.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Build and publish
+    runs-on: macos-26
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
+        with:
+          xcode-version: '26.6'
+
+      # Only ad-hoc signing exists today (no Developer ID / notary secrets). If
+      # notarized production releases are ever required (vars.REQUIRE_NOTARIZED_RELEASE),
+      # fail loudly instead of shipping an unsigned build that claims to be notarized.
+      - name: Check required signing level
+        env:
+          REQUIRE_NOTARIZED: ${{ vars.REQUIRE_NOTARIZED_RELEASE }}
+        run: |
+          if [ "$REQUIRE_NOTARIZED" = "true" ]; then
+            echo "::error::Notarized releases are required but no Developer ID / notary credentials are configured on this repo."
+            echo "::error::Refusing to publish an ad-hoc build as a notarized release."
+            exit 1
+          fi
+          echo "Publishing an ad-hoc signed build (not notarized — Gatekeeper warns on first open)."
+
+      # Tests gate publication: a tag on a broken commit must not publish.
+      - name: Run SwiftPM tests
+        run: swift test
+
+      - name: Build universal app (ad-hoc signed)
+        run: COREO_ARCH=universal ./scripts/assemble-app.sh
+
+      - name: Verify universal slices
+        run: |
+          for bin in dist/Coreography.app/Contents/MacOS/Coreography \
+                     dist/Coreography.app/Contents/Helpers/coreo; do
+            arches="$(lipo -archs "$bin")"
+            echo "$bin: $arches"
+            for want in arm64 x86_64; do
+              case " $arches " in *" $want "*) ;; *)
+                echo "::error::$bin lacks the $want slice (has: $arches)"
+                exit 1 ;;
+              esac
+            done
+          done
+
+      - name: Smoke-test embedded CLI
+        run: |
+          set -euo pipefail
+          CLI="dist/Coreography.app/Contents/Helpers/coreo"
+          "$CLI" doctor
+          "$CLI" snapshot --once --json | python3 -m json.tool >/dev/null
+
+      - name: Validate version and package
+        run: |
+          set -euo pipefail
+          version=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' dist/Coreography.app/Contents/Info.plist)
+          tag_version="${GITHUB_REF_NAME#v}"
+          [ "${tag_version%%-*}" = "$version" ] || {
+            echo "::error::Tag and built app version differ"
+            exit 1
+          }
+          archive="dist/Coreography-v${version}-macos-universal.zip"
+          ditto -c -k --keepParent dist/Coreography.app "$archive"
+          unzip -t "$archive"
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
+        with:
+          files: dist/Coreography-v*-macos-universal.zip
+          fail_on_unmatched_files: true
+          # A hyphen in the tag (v0.2.0-beta.1) means pre-release: mark it and
+          # keep it out of releases/latest.
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          make_latest: ${{ !contains(github.ref_name, '-') }}
+          generate_release_notes: true
+          body: |
+            Universal macOS build (arm64 + x86_64), ad-hoc signed — **not
+            notarized**: Gatekeeper will warn on first open
+            (right-click → Open, or `xattr -d com.apple.quarantine`).
