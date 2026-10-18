@@ -11,6 +11,8 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
   after the store first exceeds it.
 
 ### Added
+- On the 6 h range, range reports and the scoped app's overlay include
+  recorded history; export says it covers live data only.
 - The per-app ledger is recorded to the history store for six hours;
   `coreo apps` totals recorded app activity.
 - A 6 h range: lanes show recorded history behind the live hour, with

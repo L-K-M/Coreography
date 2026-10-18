@@ -144,6 +144,7 @@ public final class DashboardModel {
     @ObservationIgnored private var storedLoad: Task<Void, Never>?
     @ObservationIgnored private var storedLoadedAt: Date?
     @ObservationIgnored private var recordedSources = RecordedSources()
+    @ObservationIgnored private var storedScopedCache: (app: String, loadedAt: Date, cpu: [DashboardPoint], disk: [DashboardPoint])?
     @ObservationIgnored private var sleepState: SleepHistoryState = .notImported
     @ObservationIgnored private var sleepImport: Task<Void, Never>?
     @ObservationIgnored private var alertEngine = AlertEngine(rules: AlertRules.shipped)
@@ -340,23 +341,30 @@ public final class DashboardModel {
         return "Selected storage device is not observed"
     }
 
-    /// Totals for the selected range, from displayed (possibly held) data.
+    /// Totals for the selected range, from displayed (possibly held) data
+    /// and, on the 6 h range, stored history before it.
     public var rangeReport: RangeReport? {
         guard let selection else { return nil }
         return RangeReport.make(
-            range: selection, ledger: ledger, frames: frames, gpuFrames: gpuFrames, sensorFrames: sensorFrames
+            range: selection, ledger: ledger, frames: frames, gpuFrames: gpuFrames, sensorFrames: sensorFrames,
+            stored: storedHistory
         )
     }
 
-    /// The selected range as an export document of displayed (possibly held) data.
+    /// The selected range as an export document of displayed (possibly held)
+    /// live data. Stored history is not exported yet, so the document starts
+    /// where live data does; nil when the whole selection predates it.
     public var rangeExport: RangeExport.Document? {
         guard let selection else { return nil }
+        let start = max(selection.lowerBound, frames.first?.stamp.wallTime ?? selection.lowerBound)
+        guard start <= selection.upperBound else { return nil }
+        let live = start...selection.upperBound
         let frames = DashboardFrames(
             host: frames, network: networkFrames, disks: diskFrames,
             gpu: gpuFrames, power: powerFrames, sensors: sensorFrames
         )
-        let apps = ledger.totals(in: selection).apps.sorted { $0.cpuSeconds > $1.cpuSeconds }
-        return RangeExport.document(range: selection, model: frames, apps: apps)
+        let apps = ledger.totals(in: live).apps.sorted { $0.cpuSeconds > $1.cpuSeconds }
+        return RangeExport.document(range: live, model: frames, apps: apps)
     }
 
     /// Hand the newest live readings to the recorder, which batches writes.
@@ -384,6 +392,7 @@ public final class DashboardModel {
             storedLoad = nil
             storedLoadedAt = nil
             storedHistory = nil
+            storedScopedCache = nil
             storedHistoryProblem = timeRange.reachesStoredHistory
                 ? (historyProblem ?? "History is not being recorded.") : nil
             return
@@ -436,6 +445,7 @@ public final class DashboardModel {
             storedLoad = nil
             storedLoadedAt = nil
             storedHistory = nil
+            storedScopedCache = nil
             if timeRange.reachesStoredHistory { refreshStoredHistory() }
             return nil
         } catch HistoryStoreError.storage(let reason) {
@@ -613,10 +623,31 @@ public final class DashboardModel {
         lifecycle.isNew(identity, at: processSnapshot?.stamp.wallTime ?? Date())
     }
 
-    /// The scoped app's CPU share and disk rate from the ledger, for lane overlays.
+    /// The scoped app's CPU share and disk rate from the ledger, for lane
+    /// overlays; on the 6 h range, stored intervals come first.
     public func scopedSeries() -> (cpu: [DashboardPoint], disk: [DashboardPoint])? {
         guard let scopedApp else { return nil }
-        return ledger.series(for: scopedApp)
+        let live = ledger.series(for: scopedApp)
+        guard let stored = storedScopedSeries(scopedApp) else { return live }
+        let liveStart = ledger.intervals.first?.end
+        return (
+            prefixed(live.cpu, stored: stored.cpu, liveStart: liveStart),
+            prefixed(live.disk, stored: stored.disk, liveStart: liveStart)
+        )
+    }
+
+    /// Built and reduced once per load and app: the stored ledger holds up
+    /// to six hours of intervals, too many to walk on every redraw.
+    private func storedScopedSeries(_ app: String) -> (cpu: [DashboardPoint], disk: [DashboardPoint])? {
+        guard let storedHistory else { return nil }
+        if let cache = storedScopedCache, cache.app == app, cache.loadedAt == storedHistory.end {
+            return (cache.cpu, cache.disk)
+        }
+        let series = storedHistory.ledger.series(for: app)
+        let cpu = Decimation.points(series.cpu, start: storedHistory.start, end: storedHistory.end)
+        let disk = Decimation.points(series.disk, start: storedHistory.start, end: storedHistory.end)
+        storedScopedCache = (app: app, loadedAt: storedHistory.end, cpu: cpu, disk: disk)
+        return (cpu, disk)
     }
 
     public func start() {

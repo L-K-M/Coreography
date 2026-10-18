@@ -93,9 +93,13 @@ struct AppLedger: Sendable {
         )
     }
 
-    func totals(in range: ClosedRange<Date>) -> (apps: [AppRangeTotal], covered: ClosedRange<Date>?) {
+    /// - Parameter cutoff: only intervals ending by then count; stored
+    ///   history passes the live ledger's start so no interval counts twice.
+    func totals(
+        in range: ClosedRange<Date>, endingBy cutoff: Date = .distantFuture
+    ) -> (apps: [AppRangeTotal], covered: ClosedRange<Date>?) {
         let included = intervals.filter {
-            range.contains($0.start.addingTimeInterval($0.end.timeIntervalSince($0.start) / 2))
+            $0.end <= cutoff && range.contains($0.start.addingTimeInterval($0.end.timeIntervalSince($0.start) / 2))
         }
         guard let first = included.first, let last = included.last else { return ([], nil) }
 
@@ -137,6 +141,28 @@ struct AppLedger: Sendable {
             disk.append(DashboardPoint(id: id, time: interval.end, value: (entry?.diskBytes ?? 0) / seconds, segment: segment))
         }
         return (cpu, disk)
+    }
+
+    /// Two totals over disjoint intervals, combined per app.
+    static func combine(
+        _ older: (apps: [AppRangeTotal], covered: ClosedRange<Date>?),
+        _ newer: (apps: [AppRangeTotal], covered: ClosedRange<Date>?)
+    ) -> (apps: [AppRangeTotal], covered: ClosedRange<Date>?) {
+        var merged: [String: AppRangeTotal] = [:]
+        for app in older.apps + newer.apps {
+            guard let existing = merged[app.name] else {
+                merged[app.name] = app
+                continue
+            }
+            merged[app.name] = AppRangeTotal(
+                name: app.name, cpuSeconds: existing.cpuSeconds + app.cpuSeconds,
+                diskBytes: existing.diskBytes + app.diskBytes, isLowerBound: existing.isLowerBound || app.isLowerBound
+            )
+        }
+        let spans = [older.covered, newer.covered].compactMap { $0 }
+        let covered = spans.isEmpty ? nil
+            : spans.map(\.lowerBound).min()!...spans.map(\.upperBound).max()!
+        return (Array(merged.values), covered)
     }
 
     private mutating func index(of name: String) -> Int {

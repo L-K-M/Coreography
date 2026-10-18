@@ -56,6 +56,44 @@ final class RangeReportTests: XCTestCase {
         XCTAssertTrue(app.isLowerBound)
     }
 
+    func testStoredHistoryAnswersOnlyForTimeBeforeLiveData() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("coreo-range-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = try HistoryStore(directory: directory)
+        func stored(_ start: TimeInterval, _ cpu: Double) -> LedgerInterval {
+            LedgerInterval(
+                start: epoch.addingTimeInterval(start), end: epoch.addingTimeInterval(start + 2), cores: 2,
+                entries: [LedgerEntry(app: "A", cpuSeconds: cpu, diskBytes: 0, isLowerBound: false)]
+            )
+        }
+        // The recorder also stored the interval the live ledger still holds ([4, 6]).
+        let samples = [10.0, 20, 30, 40].enumerated().map {
+            HistorySample(metric: .cpu, time: epoch.addingTimeInterval(Double($0.offset)), value: $0.element, availability: .measured)
+        } + [HistorySample(metric: .hottestCelsius, time: epoch.addingTimeInterval(1), value: 90, availability: .measured)]
+        try await store.append(samples, ledger: [stored(0, 1), stored(2, 1), stored(4, 1)], now: epoch.addingTimeInterval(10))
+        let history = try await StoredHistory.load(
+            from: HistoryRecorder(store: store), start: epoch, end: epoch.addingTimeInterval(10)
+        )
+
+        var live = AppLedger(capacity: 10)
+        live.record(try snapshot(at: 4, rows: [("A", 50, 0)]), logicalCPUCount: 2)
+        live.record(try snapshot(at: 6, rows: [("A", 50, 0)]), logicalCPUCount: 2)
+        let report = RangeReport.make(
+            range: epoch...epoch.addingTimeInterval(10), ledger: live, frames: [], gpuFrames: [], sensorFrames: [],
+            stored: history
+        )
+
+        // Stored [0, 2] and [2, 4], then live [4, 6] (half of two cores for 2 s), never [4, 6] twice.
+        XCTAssertEqual(report.topCPUApps.first?.cpuSeconds ?? 0, 1 + 1 + 2, accuracy: 1e-9)
+        XCTAssertEqual(report.covered, epoch...epoch.addingTimeInterval(6))
+        XCTAssertEqual(report.cpuMeanPercent ?? 0, 25, accuracy: 1e-9, "the true mean of stored readings")
+        XCTAssertEqual(report.cpuPeakPercent, 40)
+        XCTAssertEqual(report.hottest?.celsius, 90)
+        XCTAssertNil(report.hottest?.key, "stored history keeps no sensor key")
+
+        XCTAssertEqual(history.values(.cpu, in: epoch...epoch.addingTimeInterval(10), before: epoch.addingTimeInterval(2)), [10, 20])
+    }
+
     func testReportRanksAppsAndSummarisesLanes() throws {
         var ledger = AppLedger(capacity: 10)
         ledger.record(try snapshot(at: 0, rows: [("A", 10, 5), ("B", 30, 1)]), logicalCPUCount: 2)
