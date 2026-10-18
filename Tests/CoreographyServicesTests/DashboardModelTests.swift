@@ -108,6 +108,49 @@ final class DashboardModelTests: XCTestCase {
         XCTAssertFalse(pluggedEnds.isEmpty)
     }
 
+    func testSixHourRangePutsStoredHistoryBehindLiveWithoutBridgingTheSeam() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("coreo-replay-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = try HistoryStore(directory: directory)
+        let now = Date()
+        let threeHoursAgo = now.addingTimeInterval(-3 * 3600)
+        let stored = (0..<600).map {
+            HistorySample(metric: .cpu, time: threeHoursAgo.addingTimeInterval(Double($0)), value: 50, availability: .measured)
+        }
+        try await store.append(stored, now: now)
+
+        let model = DashboardModel(
+            monitor: try SystemMonitor(driver: IncreasingHostDriver(origin: now)), interval: .milliseconds(10),
+            historyRecorder: HistoryRecorder(store: store)
+        )
+        model.start()
+        defer { model.stop() }
+        try await eventually { model.frames.count >= 2 }
+        XCTAssertTrue(model.points(for: .cpu).allSatisfy { $0.time >= now }, "short ranges stay live")
+
+        model.timeRange = .sixHours
+        try await eventually { model.points(for: .cpu).contains { $0.time < now } }
+        let points = model.points(for: .cpu)
+        let older = points.filter { $0.time < now }
+        let live = points.filter { $0.time >= now }
+        XCTAssertEqual(older.first?.time.timeIntervalSince(threeHoursAgo) ?? .infinity, 0, accuracy: 1e-3)
+        XCTAssertTrue(older.allSatisfy { $0.value == 50 })
+        XCTAssertFalse(live.isEmpty)
+        XCTAssertTrue(Set(older.map(\.segment)).isDisjoint(with: live.map(\.segment)), "no line joins stored and live")
+        XCTAssertNil(model.storedHistoryProblem)
+
+        model.timeRange = .hour
+        XCTAssertTrue(model.points(for: .cpu).allSatisfy { $0.time >= now }, "leaving the range drops the stored part")
+    }
+
+    func testSixHourRangeWithoutRecordingNamesTheMissingHistory() async throws {
+        let model = DashboardModel(monitor: try SystemMonitor(driver: IncreasingHostDriver()), interval: .milliseconds(10))
+        model.timeRange = .sixHours
+        XCTAssertEqual(model.storedHistoryProblem, "History is not being recorded.")
+        model.timeRange = .minute
+        XCTAssertNil(model.storedHistoryProblem)
+    }
+
     func testCursorReadsTheNearestSampleOrNothingAndNilFollowsLive() async throws {
         let model = DashboardModel(monitor: try SystemMonitor(driver: IncreasingHostDriver()), interval: .milliseconds(10))
         model.start()
@@ -508,8 +551,11 @@ private actor CyclingGPUDriver: GPUSampleReading {
 
 private actor IncreasingHostDriver: HostSampleReading {
     private let clock = UUID()
+    private let origin: Date
     private var wallOffset: TimeInterval = 0
     private(set) var readCount: UInt64 = 0
+
+    init(origin: Date = Date(timeIntervalSince1970: 1_700_000_000)) { self.origin = origin }
 
     func skipWallTime() { wallOffset += 3600 }
 
@@ -517,7 +563,7 @@ private actor IncreasingHostDriver: HostSampleReading {
         readCount += 1
         return RawHostSnapshot(
             clockID: clock, monotonicNanoseconds: readCount * 1_000_000_000,
-            wallTime: Date(timeIntervalSince1970: 1_700_000_000 + Double(readCount) + wallOffset),
+            wallTime: origin.addingTimeInterval(Double(readCount) + wallOffset),
             inventory: HostInventory(
                 operatingSystem: "Fixture", architecture: "fixture",
                 logicalCPUCount: 4, physicalMemoryBytes: 4096 * 100

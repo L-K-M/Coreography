@@ -156,6 +156,7 @@ struct DashboardView: View {
                 Text(ToolbarText.status(model))
                     .font(.caption)
                     .monospacedDigit()
+                    .help(model.storedHistoryProblem ?? "")
             }
             if let app = model.scopedApp {
                 ToolbarItem(placement: .automatic) {
@@ -1757,6 +1758,7 @@ private enum TimeRangeText {
         case .minute: return String(localized: "1 min")
         case .tenMinutes: return String(localized: "10 min")
         case .hour: return String(localized: "1 h")
+        case .sixHours: return String(localized: "6 h")
         }
     }
 }
@@ -1768,9 +1770,13 @@ private enum ToolbarText {
         if let cursor = model.cursorTime {
             return String(localized: "Cursor \(cursor.formatted(date: .omitted, time: .standard)) · values at cursor")
         }
-        return model.displayMode == .live
-            ? String(localized: "Live · last \(TimeRangeText.label(model.timeRange))")
-            : String(localized: "Display held · recording continues")
+        guard model.displayMode == .live else { return String(localized: "Display held · recording continues") }
+        let range = TimeRangeText.label(model.timeRange)
+        // A long range missing its stored part says so rather than looking empty.
+        guard model.storedHistoryProblem == nil else {
+            return String(localized: "Live · last \(range) · older history unavailable")
+        }
+        return String(localized: "Live · last \(range)")
     }
 }
 
