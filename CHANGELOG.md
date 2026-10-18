@@ -11,6 +11,8 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
   after the store first exceeds it.
 
 ### Added
+- Lanes mark sleep and wake, power source changes and pressure
+  transitions; range reports list the markers inside them.
 - Range exports redact app names by default; names can be included.
 - `port:443` in the process filter finds which process holds a port.
 - An inspector for the selected process: identity, parent chain,

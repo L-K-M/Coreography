@@ -271,7 +271,7 @@ struct DashboardView: View {
                     }
                     CursorRule(time: model.cursorTime, range: start...end)
                     SelectionBand(selection: model.draftSelection ?? model.selection, range: start...end)
-                    MarkerRules(markers: model.markers, range: start...end)
+                    MarkerRules(markers: model.timelineMarkers, range: start...end)
                 }
                 .chartCursor(model)
                 .chartLegend(.hidden)
@@ -386,7 +386,7 @@ private struct MemoryLane: View {
             }
             CursorRule(time: model.cursorTime, range: start...end)
             SelectionBand(selection: model.draftSelection ?? model.selection, range: start...end)
-            MarkerRules(markers: model.markers, range: start...end)
+            MarkerRules(markers: model.timelineMarkers, range: start...end)
         }
         .chartCursor(model)
         .chartLegend(.hidden)
@@ -556,7 +556,7 @@ private struct GPULane: View {
             }
             CursorRule(time: model.cursorTime, range: start...end)
             SelectionBand(selection: model.draftSelection ?? model.selection, range: start...end)
-            MarkerRules(markers: model.markers, range: start...end)
+            MarkerRules(markers: model.timelineMarkers, range: start...end)
         }
         .chartCursor(model)
         .chartLegend(.hidden)
@@ -692,7 +692,7 @@ private struct PowerLane: View {
             }
             CursorRule(time: model.cursorTime, range: start...end)
             SelectionBand(selection: model.draftSelection ?? model.selection, range: start...end)
-            MarkerRules(markers: model.markers, range: start...end)
+            MarkerRules(markers: model.timelineMarkers, range: start...end)
         }
         .chartCursor(model)
         .chartLegend(.hidden)
@@ -858,7 +858,7 @@ private struct ThermalLane: View {
                     }
                     CursorRule(time: model.cursorTime, range: start...end)
                     SelectionBand(selection: model.draftSelection ?? model.selection, range: start...end)
-                    MarkerRules(markers: model.markers, range: start...end)
+                    MarkerRules(markers: model.timelineMarkers, range: start...end)
                 }
                 .chartCursor(model)
                 .chartLegend(.hidden)
@@ -906,7 +906,7 @@ private extension ThermalLane {
             }
             CursorRule(time: model.cursorTime, range: start...end)
             SelectionBand(selection: model.draftSelection ?? model.selection, range: start...end)
-            MarkerRules(markers: model.markers, range: start...end)
+            MarkerRules(markers: model.timelineMarkers, range: start...end)
         }
         .chartCursor(model)
         .chartLegend(.hidden)
@@ -1208,7 +1208,7 @@ private struct TransferChart: View {
             }
             CursorRule(time: model.cursorTime, range: start...end)
             SelectionBand(selection: model.draftSelection ?? model.selection, range: start...end)
-            MarkerRules(markers: model.markers, range: start...end)
+            MarkerRules(markers: model.timelineMarkers, range: start...end)
         }
         .chartCursor(model)
         .chartLegend(.hidden)
@@ -1876,6 +1876,10 @@ private struct RangePanel: View {
             Text(RangeText.apps(String(localized: "Top disk"), report.topDiskApps) { MetricText.bytes($0.diskBytes) })
                 .font(.callout)
             Text(RangeText.coverage(report)).font(.caption).foregroundStyle(.secondary)
+            let inside = model.timelineMarkers.filter { report.requested.contains($0.time) }
+            if !inside.isEmpty {
+                Text(RangeText.markers(inside)).font(.caption)
+            }
         }
         .monospacedDigit()
         .fileExporter(
@@ -1938,6 +1942,13 @@ private enum RangeText {
         return String(localized: "Export starts at \(start), where live data begins; recorded history is not exported yet.")
     }
 
+    /// "Markers: 10:02 Memory pressure warning · 10:05 Wake: Lid Open".
+    static func markers(_ markers: [TimelineMarker]) -> String {
+        String(localized: "Markers: ") + markers.map {
+            "\($0.time.formatted(date: .omitted, time: .shortened)) \($0.label)"
+        }.joined(separator: " · ")
+    }
+
     static func lanes(_ report: RangeReport) -> String {
         var parts: [String] = []
         if let mean = report.cpuMeanPercent, let peak = report.cpuPeakPercent {
@@ -1975,7 +1986,8 @@ private enum RangeText {
     }
 }
 
-/// Dashed rules where the person acted, so the effect shows on every graph.
+/// Dashed rules where something happened, so the effect shows on every
+/// graph; the person's actions and alerts stand out from system events.
 private struct MarkerRules: ChartContent {
     let markers: [TimelineMarker]
     let range: ClosedRange<Date>
@@ -1983,8 +1995,9 @@ private struct MarkerRules: ChartContent {
     var body: some ChartContent {
         ForEach(markers.filter { range.contains($0.time) }) { marker in
             RuleMark(x: .value("Marker", marker.time))
-                .foregroundStyle(Color.secondary)
-                .lineStyle(StrokeStyle(lineWidth: 1, dash: [2, 3]))
+                .foregroundStyle(marker.kind == .system ? Color.secondary.opacity(0.5) : Color.secondary)
+                .lineStyle(StrokeStyle(lineWidth: 1, dash: marker.kind == .system ? [1, 4] : [2, 3]))
+                .accessibilityLabel(marker.label)
         }
     }
 }
