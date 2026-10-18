@@ -231,6 +231,12 @@ final class DashboardModelTests: XCTestCase {
         XCTAssertEqual(model.appConnections.first?.connected.count, 1)
     }
 
+    func testNothingExportsBeforeTheFirstLiveSample() async throws {
+        let model = DashboardModel(monitor: try SystemMonitor(driver: IncreasingHostDriver()), interval: .milliseconds(10))
+        model.selection = Date().addingTimeInterval(-60)...Date()
+        XCTAssertNil(model.rangeExport, "no live data, nothing to export")
+    }
+
     func testSixHourRangeWithoutRecordingNamesTheMissingHistory() async throws {
         let model = DashboardModel(monitor: try SystemMonitor(driver: IncreasingHostDriver()), interval: .milliseconds(10))
         model.timeRange = .sixHours
