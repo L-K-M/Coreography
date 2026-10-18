@@ -50,6 +50,29 @@ public struct StoredAppsReport: Codable, Sendable {
     public let apps: [AppRangeTotal]
 }
 
+/// Per-app totals by local day from the Month tier, for `coreo apps --days`.
+public struct StoredAppDaysReport: Codable, Sendable {
+    public struct App: Codable, Sendable {
+        public let app: String
+        public let cpuSeconds: Double
+        public let diskBytes: Double
+        /// Some interval counted only readable members.
+        public let isLowerBound: Bool
+    }
+
+    public struct Day: Codable, Sendable {
+        /// Local midnight starting the day.
+        public let day: Date
+        /// By CPU-seconds, at most 50.
+        public let apps: [App]
+    }
+
+    public let windowStart: Date
+    public let windowEnd: Date
+    /// Oldest first; days without recorded activity are absent.
+    public let days: [Day]
+}
+
 public struct DiagnosticReport: Codable, Sendable {
     public let schemaVersion: Int
     public let buildVersion: String
@@ -219,6 +242,29 @@ public actor DiagnosticService {
             apps: Array(apps.sorted { $0.cpuSeconds > $1.cpuSeconds }.prefix(Self.maximumStoredApps))
         )
     }
+
+    /// Per-app daily totals over the last N days (1 through the longest Month retention).
+    public func storedAppDays(days: Int) async throws -> StoredAppDaysReport {
+        let recorder = try Self.storedHistory()
+        let end = Date()
+        let longest = Int(HistoryRetention.longestMonth / Self.secondsPerDay)
+        let span = Double(min(max(days, 1), longest)) * Self.secondsPerDay
+        // Whole local days: the window starts at the midnight N days back.
+        let start = Calendar.current.startOfDay(for: end.addingTimeInterval(-span + Self.secondsPerDay))
+        let totals = try await recorder.appDays(from: start, to: end)
+        let byDay = Dictionary(grouping: totals, by: \.day)
+        return StoredAppDaysReport(
+            windowStart: start, windowEnd: end,
+            days: byDay.keys.sorted().map { day in
+                StoredAppDaysReport.Day(day: day, apps: (byDay[day] ?? [])
+                    .sorted { $0.cpuSeconds > $1.cpuSeconds }
+                    .prefix(Self.maximumStoredApps)
+                    .map { .init(app: $0.app, cpuSeconds: $0.cpuSeconds, diskBytes: $0.diskBytes, isLowerBound: $0.isLowerBound) })
+            }
+        )
+    }
+
+    private static let secondsPerDay: TimeInterval = 86_400
 
     private static func storedHistory() throws -> HistoryRecorder {
         let (recorder, problem) = HistoryRecorder.makeDefault()

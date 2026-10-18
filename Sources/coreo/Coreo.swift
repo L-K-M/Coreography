@@ -18,7 +18,7 @@ private struct Coreo {
            coreo mcp --stdio
            coreo history --json METRIC [--minutes N]
            coreo sleep --json [--hours N]
-           coreo apps --json [--minutes N]
+           coreo apps --json [--minutes N | --days N]
            coreo --version
 
     doctor reports source availability. snapshot waits for a CPU baseline.
@@ -36,7 +36,8 @@ private struct Coreo {
     history prints what the app recorded for METRIC (cpu, memoryUsed, memoryPressure,
     thermalPressure, gpuBusy, systemPower, ...) over the last N minutes (default 60).
     apps totals CPU-seconds and disk bytes per app from what the app recorded
-    over the last N minutes (default 60), up to 50 apps.
+    over the last N minutes (default 60), up to 50 apps; --days N gives
+    per-app totals for each of the last N local days (up to 60).
     sleep imports the power-management log and reports sleep periods and
     sleep, wake and dark-wake records over the last N hours (1-168, default 24).
     mcp serves the read-only diagnostic tools to an MCP client over stdio,
@@ -131,12 +132,17 @@ private struct Coreo {
                 guard options.first == "--json", options.count == 1 || options.count == 3 else {
                     throw CommandError.invalidArguments
                 }
+                let service = try DiagnosticService()
+                if options.count == 3, options[1] == "--days" {
+                    guard let days = Int(options[2]) else { throw CommandError.invalidArguments }
+                    try emit(await service.storedAppDays(days: days))
+                    return
+                }
                 var minutes = 60
                 if options.count == 3 {
                     guard options[1] == "--minutes", let value = Int(options[2]) else { throw CommandError.invalidArguments }
                     minutes = value
                 }
-                let service = try DiagnosticService()
                 try emit(await service.storedApps(minutes: minutes))
             case let arguments where arguments.first == "sleep":
                 let options = Array(arguments.dropFirst())
