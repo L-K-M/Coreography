@@ -147,6 +147,8 @@ public final class DashboardModel {
     @ObservationIgnored private var liveProcesses: CapturedProcesses?
     @ObservationIgnored private var liveContributorHistory: [ContributorSnapshot] = []
     @ObservationIgnored private var liveLedger = AppLedger(capacity: contributorCapacity)
+    @ObservationIgnored private var liveLifecycle = ProcessLifecycle()
+    private var lifecycle = ProcessLifecycle()
     private var ledger = AppLedger(capacity: contributorCapacity)
     @ObservationIgnored private var liveNetworkFrames: [CapturedNetwork] = []
     @ObservationIgnored private var liveDiskFrames: [CapturedDisks] = []
@@ -456,6 +458,20 @@ public final class DashboardModel {
         return rows.filter { $0.appName == scopedApp }
     }
 
+    /// Processes gone within the last 30 s, newest first, matching filter and scope.
+    public var exitedProcesses: [ExitedProcess] {
+        let query = processFilter.trimmingCharacters(in: .whitespacesAndNewlines)
+        return lifecycle.exited
+            .filter { scopedApp == nil || $0.appName == scopedApp }
+            .filter { query.isEmpty || $0.name.localizedCaseInsensitiveContains(query) || String($0.identity.pid).contains(query) }
+            .sorted { $0.lastSeen > $1.lastSeen }
+    }
+
+    /// True for a process first seen within the last 10 s (not at launch).
+    public func isNewProcess(_ identity: ProcessIdentity) -> Bool {
+        lifecycle.isNew(identity, at: processSnapshot?.stamp.wallTime ?? Date())
+    }
+
     /// The scoped app's CPU share and disk rate from the ledger, for lane overlays.
     public func scopedSeries() -> (cpu: [DashboardPoint], disk: [DashboardPoint])? {
         guard let scopedApp else { return nil }
@@ -528,6 +544,7 @@ public final class DashboardModel {
                         self.liveContributorHistory.append(Contributors.snapshot(from: processes))
                         self.liveContributorHistory = Array(self.liveContributorHistory.suffix(Self.contributorCapacity))
                         self.liveLedger.record(processes, logicalCPUCount: history.last?.inventory.logicalCPUCount)
+                        self.liveLifecycle.record(processes)
                     }
                     if let network { self.liveNetworkFrames = network }
                     if let disks { self.liveDiskFrames = disks }
@@ -541,6 +558,7 @@ public final class DashboardModel {
                             self.processSnapshot = processes
                             self.contributorHistory = self.liveContributorHistory
                             self.ledger = self.liveLedger
+                            self.lifecycle = self.liveLifecycle
                         }
                         if let network { self.networkFrames = network }
                         if let disks { self.diskFrames = disks }
@@ -576,6 +594,7 @@ public final class DashboardModel {
         processSnapshot = liveProcesses
         contributorHistory = liveContributorHistory
         ledger = liveLedger
+        lifecycle = liveLifecycle
         networkFrames = liveNetworkFrames
         diskFrames = liveDiskFrames
         gpuFrames = liveGPUFrames
