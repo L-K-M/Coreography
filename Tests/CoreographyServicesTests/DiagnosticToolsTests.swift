@@ -133,7 +133,9 @@ final class DiagnosticToolsTests: XCTestCase {
         let later = try sleepSnapshot(assertions: AssertionSnapshot(
             takenAt: epoch.addingTimeInterval(10), assertions: [assertion], unavailableReason: nil
         ))
-        XCTAssertNil(try DiagnosticTools.sleepHistory(later).currentAssertions.first?.process, "a distant PID observation is not an identity")
+        let laterReport = try DiagnosticTools.sleepHistory(later)
+        XCTAssertEqual(laterReport.currentAssertions.count, 1, "the distant assertion stays listed, just unidentified")
+        XCTAssertNil(laterReport.currentAssertions.first?.process, "a distant PID observation is not an identity")
         XCTAssertEqual(try DiagnosticTools.sleepHistory(snapshot).assertionsTakenAt, epoch, "a captured answer stays frozen")
     }
 
