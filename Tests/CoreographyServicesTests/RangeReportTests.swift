@@ -1,5 +1,6 @@
 import Foundation
 import XCTest
+import CoreographyDrivers
 @testable import CoreographyKit
 @testable import CoreographyServices
 
@@ -94,6 +95,30 @@ final class RangeReportTests: XCTestCase {
         XCTAssertEqual(history.values(.cpu, in: epoch...epoch.addingTimeInterval(10), before: epoch.addingTimeInterval(2)), [10, 20])
     }
 
+    func testStoredValuesStopWhereEachLiveSeriesStarts() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("coreo-cutoff-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = try HistoryStore(directory: directory)
+        // Stored CPU is 10% before live data starts at +5 s and an impossible 999% after it.
+        let samples = (0..<10).map { second in
+            HistorySample(metric: .cpu, time: epoch.addingTimeInterval(Double(second)), value: second < 5 ? 10 : 999, availability: .measured)
+        }
+        try await store.append(samples, now: epoch.addingTimeInterval(10))
+        let history = try await StoredHistory.load(from: HistoryRecorder(store: store), start: epoch, end: epoch.addingTimeInterval(10))
+
+        let monitor = try SystemMonitor(driver: QuarterBusyHost(start: epoch.addingTimeInterval(5)))
+        var frames: [CapturedSnapshot] = []
+        for _ in 0..<4 { frames.append(try await monitor.sample()) }
+        let report = RangeReport.make(
+            range: epoch...epoch.addingTimeInterval(10), ledger: AppLedger(capacity: 1), frames: frames,
+            gpuFrames: [], sensorFrames: [], stored: history
+        )
+        XCTAssertEqual(report.cpuPeakPercent ?? 0, 25, accuracy: 1e-9, "stored readings after the live start are not counted")
+        // Five stored readings of 10% and three live ones of 25% (the first live sample has no baseline).
+        let expectedMean = (5.0 * 10 + 3 * 25) / 8
+        XCTAssertEqual(report.cpuMeanPercent ?? 0, expectedMean, accuracy: 1e-9)
+    }
+
     func testReportRanksAppsAndSummarisesLanes() throws {
         var ledger = AppLedger(capacity: 10)
         ledger.record(try snapshot(at: 0, rows: [("A", 10, 5), ("B", 30, 1)]), logicalCPUCount: 2)
@@ -165,6 +190,32 @@ final class AppSeriesTests: XCTestCase {
         return ProcessSnapshot(
             stamp: stamp, collectorPID: 1, enumeration: try .measured(1), enumerationTruncated: false,
             processes: [process], issues: [], continuity: continuity
+        )
+    }
+}
+
+/// One busy tick in four, one sample per second from `start`.
+private actor QuarterBusyHost: HostSampleReading {
+    private let clock = UUID()
+    private let start: Date
+    private var step: UInt64 = 0
+
+    init(start: Date) { self.start = start }
+
+    func read() async -> RawHostSnapshot {
+        defer { step += 1 }
+        let inventory = HostInventory(operatingSystem: "Fixture", architecture: "fixture", logicalCPUCount: 4, physicalMemoryBytes: 1 << 30)
+        let ticks = ProcessorTicks(user: step, system: 0, idle: step * 3, nice: 0)
+        let pages = MemoryPages(
+            active: 10, inactive: 0, speculative: 0, wired: 2, compressed: 3, compressorContents: 6, purgeable: 0,
+            fileBacked: 1, pageIns: 0, swapIns: 0, swapOuts: 0, pageSizeBytes: 4096
+        )
+        let monotonic: UInt64 = (step + 1) * 1_000_000_000
+        let wall = start.addingTimeInterval(Double(step))
+        return RawHostSnapshot(
+            clockID: clock, monotonicNanoseconds: monotonic, wallTime: wall, inventory: inventory,
+            cpu: .success(ticks), memory: .success(pages), swap: .success(SwapUsage(totalBytes: 8192, usedBytes: 0)),
+            memoryPressure: .success(.normal), thermalPressure: .success(.nominal)
         )
     }
 }
