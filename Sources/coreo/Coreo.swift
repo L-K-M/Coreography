@@ -14,6 +14,7 @@ private struct Coreo {
            coreo sensors --once --json
            coreo diagnose --json [--seconds N]
            coreo mcp --stdio
+           coreo history --json METRIC [--minutes N]
            coreo --version
 
     doctor reports source availability. snapshot waits for a CPU baseline.
@@ -25,6 +26,8 @@ private struct Coreo {
     sensors reports SMC system power, the hottest temperature and fans.
     diagnose samples for N seconds (3-60, default 5) and reports a summary with
     fact-only signals, top apps by CPU and disk, and data-source availability.
+    history prints what the app recorded for METRIC (cpu, memoryUsed, memoryPressure,
+    thermalPressure, gpuBusy, systemPower, ...) over the last N minutes (default 60).
     mcp serves the read-only diagnostic tools to an MCP client over stdio,
     sampling in this process; add it to the client's MCP server list.
     Native host sampling requires macOS 26 or later.
@@ -88,6 +91,18 @@ private struct Coreo {
                     throw CommandError.unsupportedPlatform
                 }
                 await serveMCP()
+            case let arguments where arguments.first == "history":
+                let options = Array(arguments.dropFirst())
+                guard options.first == "--json", options.count == 2 || options.count == 4 else {
+                    throw CommandError.invalidArguments
+                }
+                var minutes = 60
+                if options.count == 4 {
+                    guard options[2] == "--minutes", let value = Int(options[3]) else { throw CommandError.invalidArguments }
+                    minutes = value
+                }
+                let service = try DiagnosticService()
+                try emit(await service.history(metric: options[1], minutes: minutes))
             case let arguments where arguments.first == "diagnose":
                 guard DiagnosticService.nativeSamplingSupport == .supported else {
                     throw CommandError.unsupportedPlatform

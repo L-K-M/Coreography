@@ -71,6 +71,19 @@ struct SettingsView: View {
 
     var body: some View {
         Form {
+            Section("History") {
+                Text(model.recordsHistory
+                     ? "Coreography keeps 6 hours of system history on this Mac, excluded from backups. Local snapshots and administrators can still read it."
+                     : "History is not being recorded" + (model.historyProblem.map { ": \($0)" } ?? "."))
+                    .font(.caption)
+                if let problem = model.historyProblem, model.recordsHistory {
+                    Text("Last write failed: \(problem)").font(.caption).foregroundStyle(.red)
+                }
+                Button("Delete history", role: .destructive) {
+                    Task { message = await model.deleteHistory() ?? String(localized: "History deleted.") }
+                }
+                .disabled(!model.recordsHistory)
+            }
             Section("Ask Coreography") {
                 SecureField("Anthropic API key", text: $key)
                 HStack {

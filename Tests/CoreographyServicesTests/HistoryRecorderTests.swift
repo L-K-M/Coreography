@@ -1,0 +1,69 @@
+import Foundation
+import CoreographyDrivers
+import XCTest
+@testable import CoreographyKit
+@testable import CoreographyServices
+
+final class HistoryRecorderTests: XCTestCase {
+    private let epoch = Date(timeIntervalSince1970: 1_700_000_000)
+
+    func testBatchesWritesEveryThirtySeconds() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("coreo-recorder-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = try HistoryStore(directory: directory)
+        let recorder = HistoryRecorder(store: store)
+
+        for second in 0..<30 {
+            await recorder.record([sample(second)], at: epoch.addingTimeInterval(TimeInterval(second)))
+        }
+        let beforeFlush = try await store.sampleCount()
+        XCTAssertEqual(beforeFlush, 0, "nothing is written until the batch interval passes")
+
+        await recorder.record([sample(30)], at: epoch.addingTimeInterval(30))
+        let afterFlush = try await store.sampleCount()
+        XCTAssertEqual(afterFlush, 31, "one transaction holds the whole batch")
+        let error = await recorder.lastError
+        XCTAssertNil(error)
+
+        try await recorder.deleteAll()
+        let deleted = try await store.sampleCount()
+        XCTAssertEqual(deleted, 0)
+    }
+
+    func testLatestReadingsKeepUnavailableStatesAndSkipAmbiguousDisks() async throws {
+        let monitor = try SystemMonitor(driver: HostOnce(epoch: epoch))
+        let host = try await monitor.sample()
+        let samples = HistorySamples.latest(host: host, network: nil, disks: nil, gpu: nil, power: nil, sensors: nil)
+        XCTAssertEqual(Set(samples.map(\.metric)), [
+            .cpu, .memoryUsed, .memoryApp, .memoryWired, .memoryCompressed, .memoryCached,
+            .memoryPressure, .swapUsed, .thermalPressure
+        ])
+        let cpu = try XCTUnwrap(samples.first { $0.metric == .cpu })
+        XCTAssertNil(cpu.value, "the first CPU sample is still collecting")
+        XCTAssertEqual(cpu.availability, .collecting)
+        XCTAssertEqual(samples.first { $0.metric == .thermalPressure }?.availability, .unavailable)
+    }
+
+    private func sample(_ second: Int) -> HistorySample {
+        HistorySample(metric: .cpu, time: epoch.addingTimeInterval(TimeInterval(second)), value: Double(second), availability: .measured)
+    }
+}
+
+private actor HostOnce: HostSampleReading {
+    let epoch: Date
+    init(epoch: Date) { self.epoch = epoch }
+
+    func read() async -> RawHostSnapshot {
+        RawHostSnapshot(
+            clockID: UUID(), monotonicNanoseconds: 1, wallTime: epoch,
+            inventory: HostInventory(operatingSystem: "Fixture", architecture: "fixture", logicalCPUCount: 1, physicalMemoryBytes: 1 << 20),
+            cpu: .success(ProcessorTicks(user: 1, system: 0, idle: 1, nice: 0)),
+            memory: .success(MemoryPages(
+                active: 10, inactive: 0, speculative: 0, wired: 1, compressed: 0, compressorContents: 0,
+                purgeable: 0, fileBacked: 0, pageIns: 0, swapIns: 0, swapOuts: 0, pageSizeBytes: 4096
+            )),
+            swap: .success(SwapUsage(totalBytes: 0, usedBytes: 0)), memoryPressure: .success(.normal),
+            thermalPressure: .failure(.systemCall(operation: "notify", code: 5))
+        )
+    }
+}

@@ -9,7 +9,7 @@ private struct CoreographyApp: App {
     /// One sampler for every surface, running from launch, so the menu bar
     /// extra stays live while the window is closed.
     init() {
-        let model = DashboardModel(notifier: AlertNotifications())
+        let model = DashboardModel(notifier: AlertNotifications(), history: HistoryRecorder.makeDefault())
         model.start()
         _dashboard = State(initialValue: model)
     }

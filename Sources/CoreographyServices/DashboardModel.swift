@@ -121,6 +121,9 @@ public final class DashboardModel {
     public var scopedApp: String?
     public private(set) var actionMessage: String?
     public private(set) var askState: AskState = .idle
+    /// Why history is not being recorded, when it is not.
+    public private(set) var historyProblem: String?
+    public var recordsHistory: Bool { historyRecorder != nil }
     /// Rules currently raised, by id; lanes tint while their rule is active.
     public private(set) var activeAlerts: [AlertLane: String] = [:]
     public private(set) var hasProviderKey = false
@@ -130,6 +133,7 @@ public final class DashboardModel {
     @ObservationIgnored private let controller: ProcessController
     @ObservationIgnored private let askService: AskService
     @ObservationIgnored private let notifier: AlertDelivery?
+    @ObservationIgnored private let historyRecorder: HistoryRecorder?
     @ObservationIgnored private var alertEngine = AlertEngine(rules: AlertRules.shipped)
     @ObservationIgnored private var alertCooldown = AlertCooldown()
     @ObservationIgnored private var askTask: Task<Void, Never>?
@@ -158,10 +162,13 @@ public final class DashboardModel {
 
     /// - Parameter notifier: system notifications for actionable alerts; nil
     ///   (as in command-line hosts) keeps alerts to tints and markers.
-    public init(notifier: AlertDelivery? = nil) {
+    ///   History is recorded only when the app supplies a recorder.
+    public init(notifier: AlertDelivery? = nil, history: (recorder: HistoryRecorder?, error: String?) = (nil, nil)) {
         controller = ProcessController()
         askService = AskService()
         self.notifier = notifier
+        historyRecorder = history.recorder
+        historyProblem = history.error
         interval = .seconds(1)
         processInterval = .seconds(2)
         do {
@@ -197,11 +204,13 @@ public final class DashboardModel {
         networkMonitor: NetworkMonitor? = nil, diskMonitor: DiskMonitor? = nil,
         gpuMonitor: GPUMonitor? = nil, powerMonitor: PowerMonitor? = nil,
         sensorMonitor: SensorMonitor? = nil, controller: ProcessController = ProcessController(),
-        askService: AskService = AskService(), notifier: AlertDelivery? = nil
+        askService: AskService = AskService(), notifier: AlertDelivery? = nil,
+        historyRecorder: HistoryRecorder? = nil
     ) {
         self.controller = controller
         self.askService = askService
         self.notifier = notifier
+        self.historyRecorder = historyRecorder
         self.monitor = monitor
         self.interval = interval
         self.processMonitor = processMonitor
@@ -329,6 +338,34 @@ public final class DashboardModel {
         )
         let apps = ledger.totals(in: selection).apps.sorted { $0.cpuSeconds > $1.cpuSeconds }
         return RangeExport.document(range: selection, model: frames, apps: apps)
+    }
+
+    /// Hand the newest live readings to the recorder, which batches writes.
+    private func recordHistory() {
+        guard let historyRecorder else { return }
+        let samples = HistorySamples.latest(
+            host: liveFrames.last, network: liveNetworkFrames.last, disks: liveDiskFrames.last,
+            gpu: liveGPUFrames.last, power: livePowerFrames.last, sensors: liveSensorFrames.last
+        )
+        let now = Date()
+        Task { [weak self] in
+            await historyRecorder.record(samples, at: now)
+            let problem = await historyRecorder.lastError
+            self?.historyProblem = problem
+        }
+    }
+
+    /// One-click deletion of everything recorded on disk.
+    public func deleteHistory() async -> String? {
+        guard let historyRecorder else { return "History is not being recorded." }
+        do {
+            try await historyRecorder.deleteAll()
+            return nil
+        } catch HistoryStoreError.storage(let reason) {
+            return reason
+        } catch {
+            return "\(error)"
+        }
     }
 
     /// Rules read live data, so a held display never delays an alert.
@@ -558,6 +595,7 @@ public final class DashboardModel {
                     if let power { self.livePowerFrames = power }
                     if let sensors { self.liveSensorFrames = sensors }
                     self.evaluateAlerts()
+                    self.recordHistory()
                     if self.displayMode == .live {
                         self.frames = history
                         if let processes {
@@ -588,6 +626,7 @@ public final class DashboardModel {
         generation = UUID()
         worker?.cancel()
         worker = nil
+        if let historyRecorder { Task { await historyRecorder.flush() } }
     }
 
     public func toggleDisplayHold() {

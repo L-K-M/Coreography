@@ -100,7 +100,8 @@ CI uses the same assemble script directly, verifies both executable
 slices and uploads `Coreography-v0.1.0-macos-universal.zip` after tests.
 Development artifacts are ad-hoc signed, not notarized.
 
-Portable engine tests also run on Linux. Linux `coreo doctor` reports
+Portable engine tests also run on Linux; they need the SQLite headers
+(`libsqlite3-dev`), which macOS includes. Linux `coreo doctor` reports
 native sampling as unsupported; it does not manufacture Mac telemetry.
 
 ```sh
@@ -114,6 +115,7 @@ swift run coreo power --once --json     # macOS only; battery and adapter
 swift run coreo sensors --once --json   # macOS only; SMC temperatures, fans, power
 swift run coreo diagnose --json         # macOS only; summary, signals, top apps
 swift run coreo mcp --stdio             # macOS only; read-only MCP server
+swift run coreo history --json cpu      # recorded history for one metric
 python3 tools/tests/test_buildscripts.py
 shellcheck scripts/*.sh
 python3 tools/doccheck/checkdocs.py .
