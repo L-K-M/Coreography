@@ -40,6 +40,8 @@ private struct CoreographyApp: App {
             CommandGroup(after: .toolbar) {
                 Button(hud.isShown ? "Hide HUD" : "Show HUD") { hud.toggle() }
                     .keyboardShortcut("h", modifiers: [.command, .option])
+                Button("Change HUD Detail") { hud.cycleDensity() }
+                    .keyboardShortcut("j", modifiers: [.command, .option])
                 Button("Return to Now") {
                     automation.showDashboard()
                     dashboard.returnToNow()
@@ -61,7 +63,7 @@ private struct CoreographyApp: App {
         .menuBarExtraStyle(.window)
 
         Settings {
-            SettingsView(model: dashboard, mcpAccess: mcpAccess)
+            SettingsView(model: dashboard, mcpAccess: mcpAccess, hud: hud)
         }
     }
 }

@@ -13,6 +13,9 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
   after the store first exceeds it.
 
 ### Added
+- The HUD has four levels of detail (Option-Command-J cycles them),
+  corner presets, dragging with a remembered position per display,
+  opacity, text size, an optional dark backing and click-through.
 - Pause Recording (toolbar, menu bar extra, palette) stops sampling and
   leaves a labelled gap; Command-0 returns to now; M drops a named marker
   shown on every lane.
