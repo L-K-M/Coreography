@@ -344,7 +344,8 @@ jobs:
           record = re.compile(r"^(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d [+-]\d{4}) (Sleep|Wake|DarkWake)(\t| {2,})")
           parse = lambda text: datetime.fromisoformat(text.replace("Z", "+00:00"))
           start = max(parse(report["windowStart"]), parse(report["coveredFrom"]))
-          end = parse(report["windowEnd"])
+          # Records written after the import's own read are not its to count.
+          end = min(parse(report["windowEnd"]), parse(report["coveredTo"]))
           expected = 0
           with open(sys.argv[2], errors="replace") as log:
               for line in log:
