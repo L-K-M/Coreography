@@ -332,7 +332,7 @@ struct DashboardView: View {
                     // The scoped app's share, as a second series in the lane's hue (plan P8).
                     ForEach(scoped ?? []) { point in
                         LineMark(
-                            x: .value("Time", point.time), y: .value("Scoped app", point.value),
+                            x: .value("Time", point.time), y: .value(title, point.value),
                             series: .value("Segment", "scoped-\(point.segment)")
                         )
                         .foregroundStyle(Color.blue.opacity(0.6))
@@ -1434,7 +1434,8 @@ private struct ProcessPane: View {
                     Text("Apps ranked by CPU inside the selected range").font(.caption).foregroundStyle(.secondary)
                 }
 
-                ForEach(model.processFilterIssues, id: \.self) { issue in
+                // The same mistake typed twice is two issues; identity is the position.
+                ForEach(Array(model.processFilterIssues.enumerated()), id: \.offset) { _, issue in
                     Text(issue).font(.caption).foregroundStyle(.orange)
                 }
 
@@ -1521,8 +1522,8 @@ private struct ProcessPane: View {
                 // Ghost rows: the culprit has often already quit (plan: exited rows stay 30 s).
                 let exited = model.exitedProcesses
                 if !exited.isEmpty {
-                    Text("Exited in the last 30 s: " + exited.map { "\($0.name) (PID \($0.identity.pid), \($0.appName))" }
-                        .joined(separator: " · "))
+                    let names = exited.map { "\($0.name) (PID \($0.identity.pid), \($0.appName))" }.joined(separator: " · ")
+                    Text("Exited in the last 30 s: \(names)")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .help("Exit status is not available without the helper")
