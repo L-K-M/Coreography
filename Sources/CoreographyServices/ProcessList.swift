@@ -13,10 +13,10 @@ public enum ProcessSort: String, CaseIterable, Identifiable, Sendable {
 enum ProcessList {
     static func rows(
         in snapshot: CapturedProcesses?, matching filter: String, sortedBy sort: ProcessSort,
-        isNew: (ProcessIdentity) -> Bool = { _ in false }, listening: Set<ProcessIdentity>? = nil
+        isNew: (ProcessIdentity) -> Bool = { _ in false }, sockets: ProcessSocketFacts? = nil
     ) -> [ObservedProcess] {
         let parsed = ProcessFilter.parse(filter)
-        let rows = (snapshot?.processes ?? []).filter { parsed.matches($0, isNew: isNew($0.id), listening: listening) }
+        let rows = (snapshot?.processes ?? []).filter { parsed.matches($0, isNew: isNew($0.id), sockets: sockets) }
         return rows.sorted { lhs, rhs in
             if sort == .name {
                 let order = lhs.name.localizedStandardCompare(rhs.name)

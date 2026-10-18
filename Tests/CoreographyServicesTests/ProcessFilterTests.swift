@@ -39,14 +39,36 @@ final class ProcessFilterTests: XCTestCase {
         XCTAssertFalse(ProcessFilter.parse("#new").matches(busy, isNew: false))
     }
 
-    func testListeningNeedsConnectionDataAndMatchesItsProcesses() throws {
+    func testListeningAndPortLookupNeedConnectionDataAndMatchTheirProcesses() throws {
         let server = try process(name: "nginx", cpu: 1, uid: 501, path: "/opt/nginx", pid: 80)
         let client = try process(name: "curl", cpu: 1, uid: 501, path: "/usr/bin/curl", pid: 81)
-        let filter = ProcessFilter.parse("#listening")
-        XCTAssertTrue(filter.usesListening)
-        XCTAssertTrue(filter.matches(server, isNew: false, listening: [server.id]))
-        XCTAssertFalse(filter.matches(client, isNew: false, listening: [server.id]))
-        XCTAssertFalse(filter.matches(server, isNew: false, listening: nil), "without connection data nothing is listening")
+        let sockets = ProcessSocketFacts(ConnectionSnapshot(
+            takenAt: Date(), connections: [
+                ConnectionReading(
+                    process: server.id, processName: "nginx", descriptor: 3, transport: .tcp, state: .listen,
+                    local: ConnectionEndpoint(address: "0.0.0.0", port: 8080), remote: nil
+                ),
+                ConnectionReading(
+                    process: client.id, processName: "curl", descriptor: 4, transport: .tcp, state: .established,
+                    local: ConnectionEndpoint(address: "10.0.0.2", port: 50000), remote: ConnectionEndpoint(address: "1.1.1.1", port: 443)
+                )
+            ],
+            restrictedProcesses: 0, truncatedProcesses: 0, failedProcesses: 0, unavailableReason: nil
+        ))
+
+        let listening = ProcessFilter.parse("#listening")
+        XCTAssertTrue(listening.usesSockets)
+        XCTAssertTrue(listening.matches(server, isNew: false, sockets: sockets))
+        XCTAssertFalse(listening.matches(client, isNew: false, sockets: sockets))
+        XCTAssertFalse(listening.matches(server, isNew: false, sockets: nil), "without connection data nothing is listening")
+
+        // Reverse lookup by port, local or remote.
+        XCTAssertEqual(ProcessFilter.parse("port:8080").terms, [.port(8080)])
+        XCTAssertTrue(ProcessFilter.parse("port:8080").matches(server, isNew: false, sockets: sockets))
+        XCTAssertTrue(ProcessFilter.parse("port:443").matches(client, isNew: false, sockets: sockets))
+        XCTAssertFalse(ProcessFilter.parse("port:443").matches(server, isNew: false, sockets: sockets))
+        XCTAssertEqual(ProcessFilter.parse("port:http").issues, ["Unreadable port:http; try port:443"])
+        XCTAssertEqual(ProcessFilter.parse("port:0").issues, ["Unreadable port:0; try port:443"])
     }
 
     func testGroupsShowAllMembersOnlyForAppNameText() throws {

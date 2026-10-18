@@ -652,7 +652,7 @@ public final class DashboardModel {
         let lifecycle = lifecycle
         let rows = ProcessGroups.rows(
             in: processSnapshot, matching: processFilter, sortedBy: processSort, grouping: processGrouping,
-            isNew: { lifecycle.isNew($0, at: time) }, listening: connectionSnapshot?.listeningProcesses
+            isNew: { lifecycle.isNew($0, at: time) }, sockets: connectionSnapshot.map(ProcessSocketFacts.init)
         )
         guard let scopedApp else { return rows }
         return rows.filter { $0.appName == scopedApp }
@@ -661,11 +661,11 @@ public final class DashboardModel {
     /// Filter terms that were not applied, named for the person who typed them.
     public var processFilterIssues: [String] {
         let filter = ProcessFilter.parse(processFilter)
-        guard filter.usesListening else { return filter.issues }
-        guard let connections = connectionSnapshot else { return filter.issues + ["#listening is waiting for connection data"] }
-        if let reason = connections.unavailableReason { return filter.issues + ["#listening matches nothing: \(reason)"] }
+        guard filter.usesSockets else { return filter.issues }
+        guard let connections = connectionSnapshot else { return filter.issues + ["#listening and port: are waiting for connection data"] }
+        if let reason = connections.unavailableReason { return filter.issues + ["#listening and port: match nothing: \(reason)"] }
         guard connections.restrictedProcesses > 0 else { return filter.issues }
-        return filter.issues + ["#listening covers your own processes; other users' need the helper"]
+        return filter.issues + ["#listening and port: cover your own processes; other users' need the helper"]
     }
 
     /// The Connections tab's rows, by app, from displayed (possibly held) data.
@@ -675,7 +675,7 @@ public final class DashboardModel {
     }
 
     private var wantsConnections: Bool {
-        detailPane == .connections || ProcessFilter.parse(processFilter).usesListening
+        detailPane == .connections || ProcessFilter.parse(processFilter).usesSockets
     }
 
     /// One read of every process's sockets, off the sampling loop and never

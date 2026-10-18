@@ -233,6 +233,10 @@ Implemented:
   app's overlay extends into stored history. Export still covers live
   data only and says so; cursor readouts and contributors over the
   stored part, exporting it, and the 24 h range (the Day tier) remain.
+- Reverse lookup by port: `port:443` in the process filter keeps the
+  processes with a socket on that local or remote port, from the same
+  on-demand connection data as `#listening`. Lookup by file or path
+  needs open-file enumeration and remains.
 - Inspector, first part: selecting a process opens the right-hand
   inspector with identity (name, app, PID, user, start time, path), the
   parent chain up to launchd, code signature and team, its launchd job,
@@ -303,6 +307,7 @@ time, helper, MCP or model integration in this slice.
 | Native network MIB, wide-counter mapping and three-lane UI | Passed at `e62fac1`, including native C fixtures, live CLI and both executable architectures; integrated candidate pending |
 | Native IOKit storage counters and four-lane renderer | Passed [native CI](https://github.com/L-K-M/Coreography/actions/runs/39110306993) at `6434722`: 75 tests, 16 drivers, 32 measured rate fields, no inventory issues; owner checks pending |
 | On-disk history store and recorder | History slice: 148 Swift tests pass on Linux against the real system SQLite (round trip with gaps, duplicates, retention, reopen, permissions, WAL, batching); native CI checks the CLI and file permissions |
+| Port reverse lookup | Port slice: 186 Swift tests pass on Linux (local and remote ports, unreadable and zero ports named, no match without connection data) |
 | Inspector | Inspector slice: 186 Swift tests and the Linux C contract pass (argument blocks without the environment, malformed blocks, missing-argument reasons, signer mapping, parent chains ending at launchd or an unobserved parent, launchd labels, selection opening the inspector); the native contract reads this process's own argument block and refuses a wrong start time; UI compile pending |
 | Startup tab | Startup slice: 182 Swift tests pass on Linux (plist parsing with unreadable and unlabelled files, override spellings, overrides winning over plists, unconfirmed state, Apple hiding, process and ledger join); native signature checks, `launchctl` output and the UI compile are pending |
 | Sensors tab | Sensors slice: 178 Swift tests pass on Linux (full temperature list with faults excluded, statistics since reset, absent sensors, unreadable values); native readings and the UI compile are pending |
