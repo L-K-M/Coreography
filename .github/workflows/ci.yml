@@ -295,22 +295,73 @@ jobs:
       - name: Smoke-test the MCP stdio server
         run: |
           set -euo pipefail
-          printf '%s\n' \
-            '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}' \
-            '{"jsonrpc":"2.0","method":"notifications/initialized"}' \
-            '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' \
-            '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"get_data_sources","arguments":{}}}' \
-            | dist/Coreography.app/Contents/Helpers/coreo mcp --stdio > "$RUNNER_TEMP/mcp.jsonl"
-          python3 - "$RUNNER_TEMP/mcp.jsonl" <<'PY'
-          import json, sys
-          with open(sys.argv[1]) as source:
-              replies = [json.loads(line) for line in source if line.strip()]
-          assert [reply["id"] for reply in replies] == [1, 2, 3], "one reply per request, none for the notification"
-          assert replies[0]["result"]["protocolVersion"] == "2025-06-18"
-          assert len(replies[1]["result"]["tools"]) == 6
-          call = replies[2]["result"]
-          assert call["isError"] is False and json.loads(call["content"][0]["text"])
-          print(json.dumps({"tools": [tool["name"] for tool in replies[1]["result"]["tools"]]}))
+          python3 - dist/Coreography.app/Contents/Helpers/coreo <<'PY'
+          import json, os, select, subprocess, sys, time
+
+          RESPONSE_TIMEOUT_SECONDS = 5
+          STARTUP_TIMEOUT_SECONDS = 15
+          POLL_INTERVAL_SECONDS = 0.5
+          MAX_RESPONSE_BYTES = 128 * 1024
+          PROTOCOL_VERSION = "2025-06-18"
+          server = subprocess.Popen(
+              [sys.argv[1], "mcp", "--stdio"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, bufsize=0
+          )
+
+          def send(message):
+              server.stdin.write((json.dumps({"jsonrpc": "2.0", **message}) + "\n").encode())
+              server.stdin.flush()
+
+          def request(identifier, method, params=None, timeout=RESPONSE_TIMEOUT_SECONDS):
+              send({"id": identifier, "method": method, "params": params or {}})
+              deadline = time.monotonic() + timeout
+              data = bytearray()
+              while b"\n" not in data:
+                  remaining = deadline - time.monotonic()
+                  assert remaining > 0 and select.select([server.stdout], [], [], remaining)[0], "MCP response timed out"
+                  chunk = os.read(server.stdout.fileno(), 4096)
+                  assert chunk, "MCP exited before replying"
+                  data.extend(chunk)
+                  assert len(data) <= MAX_RESPONSE_BYTES, "MCP response exceeded the smoke-test limit"
+              line, _, extra = data.partition(b"\n")
+              assert not extra.strip(), "unexpected extra MCP reply"
+              reply = json.loads(line)
+              assert reply.get("jsonrpc") == "2.0" and reply.get("id") == identifier, reply
+              assert "result" in reply, reply
+              return reply["result"]
+
+          try:
+              initialized = request(1, "initialize", {"protocolVersion": PROTOCOL_VERSION})
+              assert initialized["protocolVersion"] == PROTOCOL_VERSION
+              send({"method": "notifications/initialized"})
+              tools = request(2, "tools/list")["tools"]
+              assert len(tools) == 6
+
+              # The sampler starts asynchronously; an empty initial snapshot is valid.
+              deadline = time.monotonic() + STARTUP_TIMEOUT_SECONDS
+              identifier = 3
+              while True:
+                  remaining = deadline - time.monotonic()
+                  assert remaining > 0, "MCP sampler did not publish any data sources"
+                  call = request(identifier, "tools/call", {"name": "get_data_sources", "arguments": {}},
+                                 timeout=min(RESPONSE_TIMEOUT_SECONDS, remaining))
+                  assert call["isError"] is False, call
+                  sources = json.loads(call["content"][0]["text"])
+                  assert isinstance(sources, list), sources
+                  if sources:
+                      break
+                  time.sleep(POLL_INTERVAL_SECONDS)
+                  identifier += 1
+
+              server.stdin.close()
+              assert server.wait(timeout=RESPONSE_TIMEOUT_SECONDS) == 0, "MCP failed after stdin closed"
+              assert not server.stdout.read().strip(), "unexpected trailing MCP output"
+              print(json.dumps({"tools": [tool["name"] for tool in tools], "dataSources": len(sources)}))
+          finally:
+              if server.poll() is None:
+                  server.kill()
+                  server.wait(timeout=RESPONSE_TIMEOUT_SECONDS)
+              server.stdin.close()
+              server.stdout.close()
           PY
 
       - name: Smoke-test the on-disk history store
