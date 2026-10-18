@@ -68,6 +68,13 @@ jobs:
             -o "$RUNNER_TEMP/test_process_bridge"
           "$RUNNER_TEMP/test_process_bridge"
 
+      - name: Verify unsupported-platform thermal contracts
+        run: |
+          cc -std=c11 -Wall -Wextra -Werror -I Sources/CoreographySystem/include \
+            tools/tests/test_thermal_bridge.c Sources/CoreographySystem/thermal.c \
+            -o "$RUNNER_TEMP/test_thermal_bridge"
+          "$RUNNER_TEMP/test_thermal_bridge"
+
       - name: Verify unsupported-platform network contracts
         run: |
           cc -std=c11 -Wall -Wextra -Werror -I Sources/CoreographySystem/include \
@@ -104,6 +111,13 @@ jobs:
             tools/tests/test_process_bridge.c Sources/CoreographySystem/process.c \
             -o "$RUNNER_TEMP/test_process_bridge"
           "$RUNNER_TEMP/test_process_bridge"
+
+      - name: Verify native thermal-pressure levels
+        run: |
+          cc -std=c11 -Wall -Wextra -Werror -I Sources/CoreographySystem/include \
+            tools/tests/test_thermal_bridge.c Sources/CoreographySystem/thermal.c \
+            -o "$RUNNER_TEMP/test_thermal_bridge"
+          "$RUNNER_TEMP/test_thermal_bridge"
 
       - name: Verify native interface counters and full-width mapping
         run: |
@@ -168,6 +182,30 @@ jobs:
           assert responsible is None or (type(responsible) is int and responsible >= 0)
           resolved = sum(1 for row in snapshot["processes"] if "responsiblePID" in row)
           print(f"responsiblePID for coreo: {responsible}; resolved for {resolved} of {len(snapshot['processes'])} processes")
+          PY
+
+      - name: Smoke-test native GPU statistics
+        run: |
+          set -euo pipefail
+          dist/Coreography.app/Contents/Helpers/coreo gpu --once --json > "$RUNNER_TEMP/gpu.json"
+          python3 - "$RUNNER_TEMP/gpu.json" <<'PY'
+          import json, math, sys
+          with open(sys.argv[1]) as source:
+              snapshot = json.load(source)
+          assert snapshot["enumeration"]["availability"] == "measured"
+          assert snapshot["enumeration"]["numericValue"] >= len(snapshot["devices"])
+          measured = 0
+          for device in snapshot["devices"]:
+              busy = device["utilizationPercent"]
+              if busy["availability"] == "measured":
+                  assert math.isfinite(busy["numericValue"]) and 0 <= busy["numericValue"] <= 100
+                  measured += 1
+              else:
+                  assert busy["availability"] == "unavailable" and busy["reason"]
+          names = [device["name"] for device in snapshot["devices"]]
+          print(json.dumps({"gpus": names, "measuredUtilization": measured, "issues": len(snapshot["issues"])}))
+          if not snapshot["devices"]:
+              print("No IOAccelerator is exposed; GPU accuracy is unverified on this runner.")
           PY
 
       - name: Smoke-test native network counters

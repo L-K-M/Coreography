@@ -17,6 +17,9 @@ public actor SystemMonitor {
         provider: "memory", driver: "sysctl", channel: "kern.memorystatus_vm_pressure_level"
     )
     private static let compositionMethod = "Mach VM page composition"
+    private static let thermalSource = MetricSource(
+        provider: "thermal", driver: "notify", channel: "com.apple.system.thermalpressurelevel"
+    )
     private let driver: any HostSampleReading
     private let maximumGap: Duration
     private var user: CounterRateTracker
@@ -98,11 +101,25 @@ public actor SystemMonitor {
             try MemoryFootprint.usedBytes(from: $0, physicalBytes: physicalBytes)
         }
         let detail = try memoryDetail(raw, at: stamp, interrupted: interrupted)
+        let thermal: MetricReading
+        switch raw.thermalPressure {
+        case .success(let kernelLevel):
+            let level: ThermalPressureLevel = switch kernelLevel {
+            case .nominal: .nominal
+            case .moderate: .moderate
+            case .heavy: .heavy
+            case .trapping: .trapping
+            case .sleeping: .sleeping
+            }
+            thermal = try .measured(Double(level.rawValue), source: Self.thermalSource)
+        case .failure(let error):
+            thermal = try missingReading(error, source: Self.thermalSource)
+        }
 
         let snapshot = SystemSnapshot(
             stamp: stamp, inventory: raw.inventory,
             cpuPercentOfMachine: cpu, memoryUsedBytes: memory, memory: detail,
-            continuity: interrupted ? .interrupted : .continuous
+            thermalPressure: thermal, continuity: interrupted ? .interrupted : .continuous
         )
         buffer.append(snapshot)
         return snapshot

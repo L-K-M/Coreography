@@ -55,6 +55,28 @@ public struct MemoryPressureSpan: Identifiable, Sendable {
     public let level: MemoryPressureLevel
 }
 
+/// Thermal pressure between two consecutive samples, labelled with the later reading.
+public struct ThermalPressureSpan: Identifiable, Sendable {
+    public let id: UUID
+    public let start: Date
+    public let end: Date
+    public let level: ThermalPressureLevel
+}
+
+public struct GPUTableReading: Identifiable, Sendable {
+    public let id: String
+    public let time: Date
+    public let name: String
+    public let device: CapturedGPUDevice
+}
+
+/// One GPU's utilization history; missing samples split segments.
+public struct GPUSeries: Identifiable, Sendable {
+    public let id: GPUDeviceID
+    public let name: String
+    public let points: [DashboardPoint]
+}
+
 @MainActor
 @Observable
 public final class DashboardModel {
@@ -66,6 +88,7 @@ public final class DashboardModel {
     public var networkScope: NetworkScope = .primary
     public private(set) var diskFrames: [CapturedDisks] = []
     public var storageScope: StorageScope = .automatic
+    public private(set) var gpuFrames: [CapturedGPU] = []
     public var processFilter = ""
     public var processSort: ProcessSort = .cpu
     public var processGrouping: ProcessGrouping = .app
@@ -74,6 +97,7 @@ public final class DashboardModel {
     @ObservationIgnored private let processMonitor: ProcessMonitor?
     @ObservationIgnored private let networkMonitor: NetworkMonitor?
     @ObservationIgnored private let diskMonitor: DiskMonitor?
+    @ObservationIgnored private let gpuMonitor: GPUMonitor?
     @ObservationIgnored private let interval: Duration
     @ObservationIgnored private let processInterval: Duration
     @ObservationIgnored private var worker: Task<Void, Never>?
@@ -82,6 +106,7 @@ public final class DashboardModel {
     @ObservationIgnored private var liveProcesses: CapturedProcesses?
     @ObservationIgnored private var liveNetworkFrames: [CapturedNetwork] = []
     @ObservationIgnored private var liveDiskFrames: [CapturedDisks] = []
+    @ObservationIgnored private var liveGPUFrames: [CapturedGPU] = []
 
     public init() {
         interval = .seconds(1)
@@ -91,15 +116,18 @@ public final class DashboardModel {
             let processes = try ProcessMonitor()
             let network = try NetworkMonitor()
             let disk = try DiskMonitor()
+            let gpu = try GPUMonitor()
             monitor = system
             processMonitor = processes
             networkMonitor = network
             diskMonitor = disk
+            gpuMonitor = gpu
         } catch {
             monitor = nil
             processMonitor = nil
             networkMonitor = nil
             diskMonitor = nil
+            gpuMonitor = nil
             collectionError = "Cannot initialize monitoring: \(error)"
         }
     }
@@ -107,7 +135,8 @@ public final class DashboardModel {
     init(
         monitor: SystemMonitor, interval: Duration,
         processMonitor: ProcessMonitor? = nil, processInterval: Duration = .seconds(2),
-        networkMonitor: NetworkMonitor? = nil, diskMonitor: DiskMonitor? = nil
+        networkMonitor: NetworkMonitor? = nil, diskMonitor: DiskMonitor? = nil,
+        gpuMonitor: GPUMonitor? = nil
     ) {
         self.monitor = monitor
         self.interval = interval
@@ -115,6 +144,7 @@ public final class DashboardModel {
         self.processInterval = processInterval
         self.networkMonitor = networkMonitor
         self.diskMonitor = diskMonitor
+        self.gpuMonitor = gpuMonitor
     }
 
     deinit { worker?.cancel() }
@@ -122,8 +152,10 @@ public final class DashboardModel {
     public var latest: CapturedSnapshot? { frames.last }
 
     public var displayedEndTime: Date? {
-        [latest?.stamp.wallTime, networkFrames.last?.stamp.wallTime, diskFrames.last?.stamp.wallTime]
-            .compactMap { $0 }.max()
+        [
+            latest?.stamp.wallTime, networkFrames.last?.stamp.wallTime,
+            diskFrames.last?.stamp.wallTime, gpuFrames.last?.stamp.wallTime
+        ].compactMap { $0 }.max()
     }
 
     public var networkReadings: [NetworkTableReading] {
@@ -146,6 +178,17 @@ public final class DashboardModel {
                 status: device == nil ? storageSelectionMessage(in: frame) : nil,
                 read: device?.readBytesPerSecond, written: device?.writtenBytesPerSecond
             )
+        }
+    }
+
+    public var gpuReadings: [GPUTableReading] {
+        gpuFrames.suffix(10).flatMap { frame in
+            frame.devices.map {
+                GPUTableReading(
+                    id: "\(frame.id)-\($0.id.registryEntryID)", time: frame.stamp.wallTime,
+                    name: $0.name, device: $0
+                )
+            }
         }
     }
 
@@ -179,6 +222,7 @@ public final class DashboardModel {
         let processInterval = processInterval
         let networkMonitor = networkMonitor
         let diskMonitor = diskMonitor
+        let gpuMonitor = gpuMonitor
 
         worker = Task { [weak self] in
             defer {
@@ -188,6 +232,7 @@ public final class DashboardModel {
             await processMonitor?.reset()
             await networkMonitor?.reset()
             await diskMonitor?.reset()
+            await gpuMonitor?.reset()
             var nextProcessSample = ContinuousClock.now
             while !Task.isCancelled {
                 do {
@@ -203,6 +248,11 @@ public final class DashboardModel {
                         _ = try await diskMonitor.sample()
                         disks = await diskMonitor.history()
                     }
+                    var gpus: [CapturedGPU]?
+                    if let gpuMonitor {
+                        _ = try await gpuMonitor.sample()
+                        gpus = await gpuMonitor.history()
+                    }
                     var processes: CapturedProcesses?
                     if let processMonitor, ContinuousClock.now >= nextProcessSample {
                         processes = try await processMonitor.sample()
@@ -213,11 +263,13 @@ public final class DashboardModel {
                     if let processes { self.liveProcesses = processes }
                     if let network { self.liveNetworkFrames = network }
                     if let disks { self.liveDiskFrames = disks }
+                    if let gpus { self.liveGPUFrames = gpus }
                     if self.displayMode == .live {
                         self.frames = history
                         if let processes { self.processSnapshot = processes }
                         if let network { self.networkFrames = network }
                         if let disks { self.diskFrames = disks }
+                        if let gpus { self.gpuFrames = gpus }
                     }
                     try await Task.sleep(for: self.interval)
                 } catch is CancellationError {
@@ -247,6 +299,7 @@ public final class DashboardModel {
         processSnapshot = liveProcesses
         networkFrames = liveNetworkFrames
         diskFrames = liveDiskFrames
+        gpuFrames = liveGPUFrames
     }
 
     public func reading(for metric: DashboardMetric) -> DashboardReading? {
@@ -314,22 +367,63 @@ public final class DashboardModel {
     }
 
     public func memoryPressureSpans() -> [MemoryPressureSpan] {
-        var result: [MemoryPressureSpan] = []
+        levelSpans { $0.memory.pressureLevel }.map {
+            MemoryPressureSpan(id: $0.id, start: $0.start, end: $0.end, level: $0.level)
+        }
+    }
+
+    public func thermalPressureSpans() -> [ThermalPressureSpan] {
+        levelSpans { ThermalPressureLevel(reading: $0.thermalPressure) }.map {
+            ThermalPressureSpan(id: $0.id, start: $0.start, end: $0.end, level: $0.level)
+        }
+    }
+
+    /// Span consecutive known levels; interruptions and missing levels break the band.
+    private func levelSpans<Level>(
+        _ level: (CapturedSnapshot) -> Level?
+    ) -> [(id: UUID, start: Date, end: Date, level: Level)] {
+        var result: [(id: UUID, start: Date, end: Date, level: Level)] = []
         var previousTime: Date?
         for frame in frames {
             if frame.continuity == .interrupted { previousTime = nil }
-            guard let level = frame.memory.pressureLevel else {
+            guard let current = level(frame) else {
                 previousTime = nil
                 continue
             }
             if let previousTime {
-                result.append(MemoryPressureSpan(
-                    id: frame.id, start: previousTime, end: frame.stamp.wallTime, level: level
-                ))
+                result.append((id: frame.id, start: previousTime, end: frame.stamp.wallTime, level: current))
             }
             previousTime = frame.stamp.wallTime
         }
         return result
+    }
+
+    /// One series per observed GPU, in first-seen order.
+    public func gpuSeries() -> [GPUSeries] {
+        var order: [GPUDeviceID] = []
+        var names: [GPUDeviceID: String] = [:]
+        var points: [GPUDeviceID: [DashboardPoint]] = [:]
+        var segments: [GPUDeviceID: Int] = [:]
+        var interruptions = 0
+        for frame in gpuFrames {
+            if frame.continuity == .interrupted { interruptions += 1 }
+            let present = Set(frame.devices.map(\.id))
+            // A device absent from a frame must not be bridged across it.
+            for id in order where !present.contains(id) { segments[id, default: 0] += 1 }
+            for device in frame.devices {
+                if names[device.id] == nil { order.append(device.id) }
+                names[device.id] = device.name
+                guard let value = device.utilizationPercent.numericValue else {
+                    segments[device.id, default: 0] += 1
+                    continue
+                }
+                points[device.id, default: []].append(DashboardPoint(
+                    id: frame.id, time: frame.stamp.wallTime, value: value,
+                    segment: interruptions + segments[device.id, default: 0]
+                ))
+            }
+        }
+        return order.map { GPUSeries(id: $0, name: names[$0] ?? "GPU", points: points[$0] ?? []) }
     }
 
     private func networkInterface(in frame: CapturedNetwork) -> CapturedInterface? {

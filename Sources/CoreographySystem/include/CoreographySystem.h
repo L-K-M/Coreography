@@ -59,4 +59,19 @@ int32_t coreo_network_indices(uint32_t *indices, int32_t capacity,
    A detached interface's zero-filled success response is an ENXIO, not zero traffic. */
 int32_t coreo_network_read(uint32_t index, coreo_network_sample *sample);
 
+/* OSThermalPressureLevel on macOS (libkern/OSThermalNotification.h); the
+   bridge asserts these equal the SDK's values at compile time. */
+enum {
+    COREO_THERMAL_NOMINAL = 0,
+    COREO_THERMAL_MODERATE = 1,
+    COREO_THERMAL_HEAVY = 2,
+    COREO_THERMAL_TRAPPING = 3,
+    COREO_THERMAL_SLEEPING = 4
+};
+
+/* Read the level published under kOSThermalNotificationPressureLevelName.
+   Returns 0, EINVAL for a NULL output, EIO when notify fails, or ENOTSUP
+   off macOS; level is written only on success and is not range-checked. */
+int32_t coreo_thermal_pressure(uint64_t *level);
+
 #endif

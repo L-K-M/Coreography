@@ -3,6 +3,7 @@ import Dispatch
 
 #if os(macOS)
 import Darwin
+import CoreographySystem
 #endif
 
 public struct HostInventory: Codable, Equatable, Sendable {
@@ -127,6 +128,15 @@ public enum KernelMemoryPressure: String, Equatable, Sendable {
     }
 }
 
+/// `OSThermalPressureLevel` on macOS; the C bridge checks these against the SDK.
+public enum KernelThermalPressure: UInt64, Equatable, Sendable {
+    case nominal = 0
+    case moderate = 1
+    case heavy = 2
+    case trapping = 3
+    case sleeping = 4
+}
+
 public enum HostDriverError: Error, Equatable, Sendable {
     case unsupportedPlatform
     case systemCall(operation: String, code: Int32)
@@ -144,6 +154,7 @@ public struct RawHostSnapshot: Sendable {
     public let memory: Result<MemoryPages, HostDriverError>
     public let swap: Result<SwapUsage, HostDriverError>
     public let memoryPressure: Result<KernelMemoryPressure, HostDriverError>
+    public let thermalPressure: Result<KernelThermalPressure, HostDriverError>
 
     public init(
         clockID: UUID, monotonicNanoseconds: UInt64, wallTime: Date,
@@ -151,7 +162,8 @@ public struct RawHostSnapshot: Sendable {
         cpu: Result<ProcessorTicks, HostDriverError>,
         memory: Result<MemoryPages, HostDriverError>,
         swap: Result<SwapUsage, HostDriverError>,
-        memoryPressure: Result<KernelMemoryPressure, HostDriverError>
+        memoryPressure: Result<KernelMemoryPressure, HostDriverError>,
+        thermalPressure: Result<KernelThermalPressure, HostDriverError>
     ) {
         self.clockID = clockID
         self.monotonicNanoseconds = monotonicNanoseconds
@@ -161,6 +173,7 @@ public struct RawHostSnapshot: Sendable {
         self.memory = memory
         self.swap = swap
         self.memoryPressure = memoryPressure
+        self.thermalPressure = thermalPressure
     }
 }
 
@@ -189,11 +202,13 @@ public actor HostStatisticsDriver: HostSampleReading {
         let memory = readMemory()
         let swap = readSwap()
         let pressure = readPressure()
+        let thermal = readThermalPressure()
         #else
         let cpu: Result<ProcessorTicks, HostDriverError> = .failure(.unsupportedPlatform)
         let memory: Result<MemoryPages, HostDriverError> = .failure(.unsupportedPlatform)
         let swap: Result<SwapUsage, HostDriverError> = .failure(.unsupportedPlatform)
         let pressure: Result<KernelMemoryPressure, HostDriverError> = .failure(.unsupportedPlatform)
+        let thermal: Result<KernelThermalPressure, HostDriverError> = .failure(.unsupportedPlatform)
         #endif
 
         return RawHostSnapshot(
@@ -204,7 +219,8 @@ public actor HostStatisticsDriver: HostSampleReading {
             cpu: cpu,
             memory: memory,
             swap: swap,
-            memoryPressure: pressure
+            memoryPressure: pressure,
+            thermalPressure: thermal
         )
     }
 
@@ -292,6 +308,17 @@ public actor HostStatisticsDriver: HostSampleReading {
             }
             return .success(pressure)
         }
+    }
+
+    private func readThermalPressure() -> Result<KernelThermalPressure, HostDriverError> {
+        let operation = "notify_get_state thermal pressure"
+        var level: UInt64 = 0
+        let status = coreo_thermal_pressure(&level)
+        guard status == 0 else { return .failure(.systemCall(operation: operation, code: status)) }
+        guard let pressure = KernelThermalPressure(rawValue: level) else {
+            return .failure(.unexpectedValue(operation: operation, value: level))
+        }
+        return .success(pressure)
     }
 
     /// Read one fixed-size sysctl value; a short or long reply is malformed.

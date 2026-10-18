@@ -57,6 +57,33 @@ final class DashboardModelTests: XCTestCase {
         XCTAssertTrue(spans.contains { $0.level == .warning })
     }
 
+    func testGPUSeriesSplitWhereADeviceIsMissingAndThermalSpansFollowSamples() async throws {
+        let gpu = try GPUMonitor(driver: CyclingGPUDriver())
+        let model = DashboardModel(
+            monitor: try SystemMonitor(driver: IncreasingHostDriver()), interval: .milliseconds(10),
+            gpuMonitor: gpu
+        )
+        model.start()
+        defer { model.stop() }
+        try await eventually { model.gpuFrames.count >= 4 && model.frames.count >= 4 }
+        model.toggleDisplayHold()
+
+        let series = model.gpuSeries()
+        XCTAssertEqual(series.map(\.name), ["Integrated", "Discrete"])
+        let integrated = try XCTUnwrap(series.first)
+        XCTAssertEqual(Set(integrated.points.map(\.segment)).count, 1)
+        // The discrete GPU disappears every other read; its line must not bridge that.
+        let discrete = try XCTUnwrap(series.last)
+        XCTAssertEqual(Set(discrete.points.map(\.segment)).count, discrete.points.count)
+
+        let spans = model.thermalPressureSpans()
+        XCTAssertEqual(spans.count, model.frames.count - 1)
+        for (span, frame) in zip(spans, model.frames.dropFirst()) {
+            XCTAssertEqual(span.end, frame.stamp.wallTime)
+            XCTAssertEqual(span.level, ThermalPressureLevel(reading: frame.thermalPressure))
+        }
+    }
+
     func testMemorySeriesDoesNotBridgeSamplingGaps() async throws {
         let driver = IncreasingHostDriver()
         let monitor = try SystemMonitor(driver: driver)
@@ -329,6 +356,28 @@ private actor IncreasingProcessDriver: ProcessSampleReading {
     }
 }
 
+private actor CyclingGPUDriver: GPUSampleReading {
+    private let clock = UUID()
+    private var readCount: UInt64 = 0
+
+    func read() async -> RawGPUSnapshot {
+        readCount += 1
+        let integrated = RawGPUDevice(registryEntryID: 1, name: "Integrated", statistics: .success(GPUStatistics(
+            utilizationPercent: 10, rendererPercent: nil, tilerPercent: nil, inUseMemoryBytes: nil
+        )))
+        let discrete = RawGPUDevice(registryEntryID: 2, name: "Discrete", statistics: .success(GPUStatistics(
+            utilizationPercent: 50, rendererPercent: nil, tilerPercent: nil, inUseMemoryBytes: nil
+        )))
+        return RawGPUSnapshot(
+            clockID: clock, monotonicNanoseconds: readCount * 1_000_000_000,
+            wallTime: Date(timeIntervalSince1970: 1_700_000_000 + Double(readCount)),
+            enumeration: .success(GPUEnumeration(
+                devices: readCount.isMultiple(of: 2) ? [integrated] : [integrated, discrete]
+            ))
+        )
+    }
+}
+
 private actor IncreasingHostDriver: HostSampleReading {
     private let clock = UUID()
     private var wallOffset: TimeInterval = 0
@@ -355,7 +404,8 @@ private actor IncreasingHostDriver: HostSampleReading {
                 pageSizeBytes: 4096
             )),
             swap: .success(SwapUsage(totalBytes: 8192, usedBytes: 4096)),
-            memoryPressure: readCount.isMultiple(of: 2) ? .success(.warning) : .success(.normal)
+            memoryPressure: readCount.isMultiple(of: 2) ? .success(.warning) : .success(.normal),
+            thermalPressure: readCount.isMultiple(of: 3) ? .success(.moderate) : .success(.nominal)
         )
     }
 }
