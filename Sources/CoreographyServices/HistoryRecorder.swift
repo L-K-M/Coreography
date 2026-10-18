@@ -91,6 +91,10 @@ public actor HistoryRecorder {
         try await store.samples(metric, from: start, to: end)
     }
 
+    func rollups(_ metric: HistoryMetric, from start: Date, to end: Date) async throws -> [HistoryRollup] {
+        try await store.rollups(metric, from: start, to: end)
+    }
+
     func ledger(from start: Date, to end: Date) async throws -> [LedgerInterval] {
         try await store.ledger(from: start, to: end)
     }

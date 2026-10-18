@@ -71,6 +71,27 @@ public struct LedgerInterval: Equatable, Sendable {
     }
 }
 
+/// One metric over one Day-tier bucket. Only readings with values count,
+/// so a bucket with none is absent: a gap, not a zero.
+public struct HistoryRollup: Equatable, Sendable {
+    public let metric: HistoryMetric
+    /// The bucket's start.
+    public let time: Date
+    public let minimum: Double
+    public let maximum: Double
+    public let mean: Double
+    public let count: Int
+
+    public init(metric: HistoryMetric, time: Date, minimum: Double, maximum: Double, mean: Double, count: Int) {
+        self.metric = metric
+        self.time = time
+        self.minimum = minimum
+        self.maximum = maximum
+        self.mean = mean
+        self.count = count
+    }
+}
+
 public enum HistoryStoreError: Error, Equatable, Sendable {
     case storage(String)
 }
@@ -84,12 +105,16 @@ public enum HistoryStoreError: Error, Equatable, Sendable {
 /// ledger_intervals(t_end, t_start, cores)                    primary key t_end
 /// ledger_entries(t_end, app, cpu_seconds, disk_bytes, lower_bound)  primary key (t_end, app)
 /// apps(id, name)                                             names interned, swept hourly
+/// day_samples(metric, t, minimum, maximum, total, count)     10 s buckets, 7 days
 /// ```
 public actor HistoryStore {
     public static let retention: TimeInterval = 6 * 3600
+    /// The Day tier (plan: 10 s for 7 days, keeping minimum, maximum and mean).
+    public static let dayRetention: TimeInterval = 7 * 86_400
+    public static let dayBucket: TimeInterval = 10
     /// Hard size cap; the oldest rows go first when it is exceeded.
     public static let maximumBytes: Int64 = 256 * 1024 * 1024
-    private static let schemaVersion = 2
+    private static let schemaVersion = 3
     /// App names outlive their last interval by at most this long.
     private static let nameSweepInterval: TimeInterval = 3600
     private static let fileName = "history.sqlite"
@@ -141,6 +166,11 @@ public actor HistoryStore {
                     t_end REAL NOT NULL, app INTEGER NOT NULL, cpu_seconds REAL NOT NULL,
                     disk_bytes REAL NOT NULL, lower_bound INTEGER NOT NULL,
                     PRIMARY KEY(t_end, app)
+                ) WITHOUT ROWID;
+                CREATE TABLE IF NOT EXISTS day_samples(
+                    metric INTEGER NOT NULL, t REAL NOT NULL, minimum REAL NOT NULL, maximum REAL NOT NULL,
+                    total REAL NOT NULL, count INTEGER NOT NULL,
+                    PRIMARY KEY(metric, t)
                 ) WITHOUT ROWID
                 """)
             try connection.execute("PRAGMA user_version=\(Self.schemaVersion)")
@@ -182,7 +212,9 @@ public actor HistoryStore {
                 }
             )
             try insert(ledger)
+            try rollUp(samples)
             try prune(before: now.addingTimeInterval(-Self.retention))
+            try pruneDay(before: now.addingTimeInterval(-Self.dayRetention))
             try enforceSizeCap()
             try sweepNames(now: now)
         }
@@ -208,6 +240,23 @@ public actor HistoryStore {
         try storage {
             guard case .integer(let count)? = try connection.query("SELECT COUNT(*) FROM samples").first?.first else { return 0 }
             return Int(count)
+        }
+    }
+
+    /// Day-tier buckets starting in the window, oldest first.
+    public func rollups(_ metric: HistoryMetric, from start: Date, to end: Date) throws -> [HistoryRollup] {
+        try storage {
+            try connection.query(
+                "SELECT t, minimum, maximum, total, count FROM day_samples WHERE metric = ? AND t BETWEEN ? AND ? ORDER BY t",
+                [.integer(Int64(metric.rawValue)), .real(start.timeIntervalSince1970), .real(end.timeIntervalSince1970)]
+            ).compactMap { row in
+                guard case .real(let time) = row[0], case .real(let minimum) = row[1], case .real(let maximum) = row[2],
+                      case .real(let total) = row[3], case .integer(let count) = row[4], count > 0 else { return nil }
+                return HistoryRollup(
+                    metric: metric, time: Date(timeIntervalSince1970: time), minimum: minimum, maximum: maximum,
+                    mean: total / Double(count), count: Int(count)
+                )
+            }
         }
     }
 
@@ -247,12 +296,38 @@ public actor HistoryStore {
     public func deleteAll() throws {
         try storage {
             try connection.transaction {
-                for table in ["samples", "ledger_entries", "ledger_intervals", "apps"] {
+                for table in ["samples", "ledger_entries", "ledger_intervals", "apps", "day_samples"] {
                     try connection.execute("DELETE FROM \(table)")
                 }
             }
         }
         appIDs.removeAll()
+    }
+
+    /// Fold a batch into 10 s buckets, combining with what earlier batches
+    /// put in the same bucket. Readings without values are left out.
+    private func rollUp(_ samples: [HistorySample]) throws {
+        struct Key: Hashable { let metric: Int; let bucket: Double }
+        var buckets: [Key: (minimum: Double, maximum: Double, total: Double, count: Int64)] = [:]
+        for sample in samples {
+            guard let value = sample.value else { continue }
+            let bucket = (sample.time.timeIntervalSince1970 / Self.dayBucket).rounded(.down) * Self.dayBucket
+            let key = Key(metric: sample.metric.rawValue, bucket: bucket)
+            if let current = buckets[key] {
+                buckets[key] = (min(current.minimum, value), max(current.maximum, value), current.total + value, current.count + 1)
+            } else {
+                buckets[key] = (value, value, value, 1)
+            }
+        }
+        try connection.run("""
+            INSERT INTO day_samples(metric, t, minimum, maximum, total, count) VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(metric, t) DO UPDATE SET
+                minimum = min(minimum, excluded.minimum), maximum = max(maximum, excluded.maximum),
+                total = total + excluded.total, count = count + excluded.count
+            """, rows: buckets.map { key, value in
+                [.integer(Int64(key.metric)), .real(key.bucket), .real(value.minimum), .real(value.maximum),
+                 .real(value.total), .integer(value.count)]
+            })
     }
 
     /// A replaced interval drops its earlier entries, so an app idle in the
@@ -310,6 +385,11 @@ public actor HistoryStore {
         appIDs.removeAll()
     }
 
+    private func pruneDay(before cutoff: Date) throws {
+        try connection.run("DELETE FROM day_samples WHERE t < ?", rows: [[.real(cutoff.timeIntervalSince1970)]])
+    }
+
+    /// The Recent tables only: the Day tier keeps its own, longer retention.
     private func prune(before cutoff: Date) throws {
         let time: [[SQLiteValue]] = [[.real(cutoff.timeIntervalSince1970)]]
         try connection.run("DELETE FROM samples WHERE t < ?", rows: time)
@@ -327,6 +407,7 @@ public actor HistoryStore {
             guard let cutoff = try oldestTenthCutoff() else { return }
             let before = try totalChanges()
             try prune(before: cutoff)
+            try pruneDay(before: cutoff)
             // Too few rows to split into tenths: stop rather than spin.
             guard try totalChanges() > before else { return }
         }
@@ -350,9 +431,12 @@ public actor HistoryStore {
     /// and ledger intervals together, so either alone stays under the cap.
     private func oldestTenthCutoff() throws -> Date? {
         let rows = try connection.query("""
-            SELECT time FROM (SELECT t AS time FROM samples UNION ALL SELECT t_end AS time FROM ledger_intervals)
+            SELECT time FROM (
+                SELECT t AS time FROM samples UNION ALL SELECT t_end AS time FROM ledger_intervals
+                UNION ALL SELECT t AS time FROM day_samples
+            )
             ORDER BY time LIMIT 1 OFFSET (
-                (SELECT COUNT(*) FROM samples) + (SELECT COUNT(*) FROM ledger_intervals)
+                (SELECT COUNT(*) FROM samples) + (SELECT COUNT(*) FROM ledger_intervals) + (SELECT COUNT(*) FROM day_samples)
             ) / 10
             """)
         guard case .real(let time)? = rows.first?.first else { return nil }
