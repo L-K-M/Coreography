@@ -85,8 +85,12 @@ final class HistoryStoreTests: XCTestCase {
 
     func testSizeCapAlsoBoundsLedgerOnlyHistory() async throws {
         let store = try HistoryStore(directory: directory, maximumBytes: 256 * 1024)
-        let intervals = (0..<10_000).map { index in
-            interval(Double(index * 2 - 20_000), Double(index * 2 - 19_998), [entry("App \(index % 50)", 1, 4096)])
+        // Separate inference steps so Xcode can compile this stress fixture.
+        let intervals: [LedgerInterval] = (0..<10_000).map { index in
+            let start = Double(index * 2 - 20_000)
+            let end = Double(index * 2 - 19_998)
+            let app = entry("App \(index % 50)", 1, 4096)
+            return interval(start, end, [app])
         }
         try await store.append([], ledger: intervals, now: now)
         let kept = try await store.ledger(from: .distantPast, to: now)
