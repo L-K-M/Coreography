@@ -3,17 +3,17 @@
 Track actual delivery against the [product plan](plan.md). A stage is
 complete only after its relevant checks and review pass and its PR merges.
 
-## Current slice: on-disk history
+## Current slice: diagnostic context
 
 The native foundation merged in [PR #5](https://github.com/L-K-M/Coreography/pull/5)
 at `aee9494` after two GLM rounds and passing CI. Process monitoring merged
 in [PR #6](https://github.com/L-K-M/Coreography/pull/6) at `65d2377`, also
 after two GLM rounds and passing CI. The network slice in
-[PR #7](https://github.com/L-K-M/Coreography/pull/7) passed native CI at
-`e62fac1` and now integrates the reviewed process fixes. Its latest
-integration checks and GLM review still gate delivery.
-Scoped storage-driver rates and a fourth lane follow in
-[PR #8](https://github.com/L-K-M/Coreography/pull/8); memory composition,
+[PR #7](https://github.com/L-K-M/Coreography/pull/7) merged at `9ae6ca3`;
+storage-driver rates and a fourth lane merged in
+[PR #8](https://github.com/L-K-M/Coreography/pull/8) at `dc3d6bd`.
+Later slices are stacked work awaiting CI, completed review and merge:
+memory composition,
 swap and pressure in [PR #9](https://github.com/L-K-M/Coreography/pull/9);
 app grouping in [PR #10](https://github.com/L-K-M/Coreography/pull/10);
 GPU and thermal-pressure lanes in [PR #11](https://github.com/L-K-M/Coreography/pull/11);
@@ -34,10 +34,22 @@ Ask Coreography in [PR #25](https://github.com/L-K-M/Coreography/pull/25);
 alerts in [PR #26](https://github.com/L-K-M/Coreography/pull/26);
 process change highlighting in [PR #27](https://github.com/L-K-M/Coreography/pull/27);
 the filter grammar in [PR #28](https://github.com/L-K-M/Coreography/pull/28).
-This slice records six hours of system history to disk.
+This slice shares process role notes and current assertion facts with
+diagnostic clients.
 
 Implemented:
 
+- Diagnostic context: the inspector and `get_process_details` share role
+  notes qualified by name and a system executable path. Missing paths and
+  writable `/usr/local` paths get no note; PID 0 identifies `kernel_task`
+  without a path. Quitting guidance names possible interruption, never
+  guarantees safety. Signature/version matching and live maintenance
+  status sources remain pending.
+- `get_sleep_history` and `coreo sleep` include up to 200 current
+  sleep-preventing assertions, their read time, omitted count and explicit
+  unavailable reasons. Names that may contain private paths or document
+  titles are withheld. Process names require observations within 2.5 s;
+  held diagnostic snapshots retain the held assertion sample.
 - Swift 6 package boundaries: drivers, engine, application services and CLI.
 - Public Mach CPU ticks and VM counters, with explicit source failures.
 - Whole-machine CPU share, derived used-memory bytes, bounded sample
@@ -367,8 +379,8 @@ Implemented:
 
 The live buffers hold one hour per monitor. Process history/attribution,
 per-volume disk accounting and per-process network attribution remain outstanding.
-There is no disk store, IOReport power or frequency provider, per-app GPU
-time, helper, MCP or model integration in this slice.
+IOReport power/frequency, per-app GPU time and the privileged helper remain
+outstanding. The store, MCP and model features above await stack delivery.
 
 ## Verification
 
@@ -384,6 +396,7 @@ time, helper, MCP or model integration in this slice.
 | Native network MIB, wide-counter mapping and three-lane UI | Passed at `e62fac1`, including native C fixtures, live CLI and both executable architectures; integrated candidate pending |
 | Native IOKit storage counters and four-lane renderer | Passed [native CI](https://github.com/L-K-M/Coreography/actions/runs/39110306993) at `6434722`: 75 tests, 16 drivers, 32 measured rate fields, no inventory issues; owner checks pending |
 | On-disk history store and recorder | History slice: 148 Swift tests pass on Linux against the real system SQLite (round trip with gaps, duplicates, retention, reopen, permissions, WAL, batching); native CI checks the CLI and file permissions |
+| Diagnostic context | 212 Swift tests pass on Linux; privacy and unsafe-quit regressions failed before the fix. One completed Devin review found the missing kernel note; its PID-0 regression also failed before the fix. Native compilation and current stack review remain pending |
 | Sample | Sample slice: 208 Swift tests pass on Linux (report and failure states through the model); the native tool run and the sheet are owner checks |
 | HUD | HUD slice: App-only, no Swift tests; the panel and its project registration compile only in native CI; staying above full-screen games is an owner check (S6) |
 | Sessions | Session slices: 207 Swift tests pass on Linux (raw-reading summaries with gaps skipped, nearest-rank 95th percentile, top apps, private files newest first, recording and renaming through the model, comparisons of shared metrics aligned at start, redacted JSON and raw CSV exports); UI compile pending |

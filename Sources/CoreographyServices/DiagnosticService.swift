@@ -188,7 +188,7 @@ public actor DiagnosticService {
         }
         let snapshot = DiagnosticSnapshot(
             takenAt: Date(), host: [], network: [], gpu: [], power: [], sensors: [], processes: nil,
-            ledger: AppLedger(capacity: 1), sleep: state
+            ledger: AppLedger(capacity: 1), sleep: state, assertions: await AssertionReader().read()
         )
         return try DiagnosticTools.sleepHistory(snapshot, hours: hours)
     }

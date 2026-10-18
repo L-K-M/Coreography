@@ -1639,7 +1639,7 @@ private struct InspectorView: View {
         if let explanation = inspection.explanation {
             InspectorSection("About") {
                 Text(explanation.summary)
-                Text(InspectorText.quitting(explanation.quitting)).foregroundStyle(.secondary)
+                Text(explanation.quittingNote).foregroundStyle(.secondary)
             }
         }
 
@@ -1752,15 +1752,6 @@ private struct InspectorSection<Content: View>: View {
 
 private enum InspectorText {
     static let fileLimit = 40
-
-    static func quitting(_ effect: QuitEffect) -> String {
-        switch effect {
-        case .restarts: return String(localized: "Quitting is safe: macOS starts it again.")
-        case .interrupts(let what): return String(localized: "Quitting interrupts it: \(what)")
-        case .logsOut: return String(localized: "Quitting it logs you out.")
-        case .notAllowed: return String(localized: "macOS does not allow quitting it.")
-        }
-    }
 
     static func signing(_ detail: CapturedProcessDetail?) -> String {
         guard let detail else { return String(localized: "Signature: reading…") }

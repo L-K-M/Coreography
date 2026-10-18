@@ -49,12 +49,12 @@ enum DiagnosticToolCatalog {
             ),
             Definition(
                 name: "get_process_details",
-                description: "Identity (PID and start time), app and resource readings for one observed process. No paths or arguments.",
+                description: "Identity (PID and start time), app, resource readings and a curated role note for a recognised system process. A role does not establish its current job. No paths or arguments.",
                 properties: ["pid": ["type": "integer"], "snapshot_id": snapshotID], required: ["pid"]
             ),
             Definition(
                 name: "get_sleep_history",
-                description: "Logged sleep, wake and dark-wake records with reasons and battery charge, and sleep periods with battery change over sleep. Reasons are evidence, not proven causes; partialCoverage says when records may be missing.",
+                description: "Logged sleep, wake and dark-wake records with reasons and battery charge, sleep periods with battery change, and current sleep-preventing assertion types with read time, omissions and unavailable reasons. Assertion names are withheld. Reasons are evidence, not proven causes; partialCoverage names missing log coverage.",
                 properties: [
                     "hours": ["type": "integer", "minimum": 1, "maximum": DiagnosticTools.maximumSleepHours],
                     "snapshot_id": snapshotID

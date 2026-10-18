@@ -115,7 +115,68 @@ final class DiagnosticToolsTests: XCTestCase {
         }
     }
 
+    func testSleepToolKeepsAssertionTypesButNotPrivateReasons() throws {
+        let assertion = SleepAssertion(
+            pid: 100, type: "PreventUserIdleSystemSleep", name: "/private/Users/person/report.pdf",
+            since: epoch.addingTimeInterval(-60), effect: .preventsSystemSleep
+        )
+        let snapshot = try sleepSnapshot(assertions: AssertionSnapshot(takenAt: epoch, assertions: [assertion], unavailableReason: nil))
+        let report = try DiagnosticTools.sleepHistory(snapshot)
+        XCTAssertEqual(report.currentAssertions.first?.process, "Worker")
+        XCTAssertEqual(report.currentAssertions.first?.since, epoch.addingTimeInterval(-60))
+        XCTAssertEqual(report.currentAssertions.first?.effect, .preventsSystemSleep)
+        XCTAssertEqual(report.assertionsTakenAt, epoch)
+        let encoded = try DiagnosticToolCatalog.run("get_sleep_history", arguments: [:], snapshot: snapshot)
+        XCTAssertTrue(encoded.contains("PreventUserIdleSystemSleep"))
+        XCTAssertFalse(encoded.contains("report.pdf"), "assertion names may contain private paths or document titles")
+
+        let later = try sleepSnapshot(assertions: AssertionSnapshot(
+            takenAt: epoch.addingTimeInterval(10), assertions: [assertion], unavailableReason: nil
+        ))
+        XCTAssertNil(try DiagnosticTools.sleepHistory(later).currentAssertions.first?.process, "a distant PID observation is not an identity")
+        XCTAssertEqual(try DiagnosticTools.sleepHistory(snapshot).assertionsTakenAt, epoch, "a captured answer stays frozen")
+    }
+
+    func testSleepAssertionsDistinguishMissingFromEmptyAndCapResults() throws {
+        let missing = try DiagnosticTools.sleepHistory(sleepSnapshot(assertions: nil))
+        XCTAssertNotNil(missing.assertionsUnavailableReason)
+        XCTAssertNil(missing.assertionsTakenAt)
+
+        let failed = try DiagnosticTools.sleepHistory(sleepSnapshot(assertions: AssertionSnapshot(
+            takenAt: epoch, assertions: [], unavailableReason: "powerd did not answer"
+        )))
+        XCTAssertEqual(failed.assertionsUnavailableReason, "powerd did not answer")
+
+        let empty = try DiagnosticTools.sleepHistory(sleepSnapshot(assertions: AssertionSnapshot(
+            takenAt: epoch, assertions: [], unavailableReason: nil
+        )))
+        XCTAssertNil(empty.assertionsUnavailableReason)
+        XCTAssertTrue(empty.currentAssertions.isEmpty)
+
+        let preventers = (0..<205).map { index in
+            SleepAssertion(pid: Int32(index + 1), type: "NoDisplaySleepAssertion", name: nil, since: nil, effect: .preventsDisplaySleep)
+        }
+        let background = SleepAssertion(pid: 300, type: "BackgroundTask", name: nil, since: nil, effect: .other)
+        let capped = try DiagnosticTools.sleepHistory(sleepSnapshot(assertions: AssertionSnapshot(
+            takenAt: epoch, assertions: [background] + preventers, unavailableReason: nil
+        )))
+        XCTAssertEqual(capped.currentAssertions.count, 200)
+        XCTAssertEqual(capped.omittedAssertions, 5)
+        XCTAssertTrue(capped.currentAssertions.allSatisfy { $0.effect == .preventsDisplaySleep })
+    }
+
     // MARK: Fixtures
+
+    private func sleepSnapshot(assertions: AssertionSnapshot?) throws -> DiagnosticSnapshot {
+        DiagnosticSnapshot(
+            takenAt: epoch, host: [], network: [], gpu: [], power: [], sensors: [],
+            processes: try processes(at: 0, apps: [("Worker", 0)]), ledger: AppLedger(capacity: 1),
+            sleep: .imported(SleepHistory(
+                importedAt: epoch, coveredFrom: epoch, coveredTo: epoch, coverage: .complete,
+                events: [], periods: []
+            )), assertions: assertions
+        )
+    }
 
     private func makeSnapshot(
         seconds: Int, busyShare: Double, pressure: KernelMemoryPressure, swapping: Bool,

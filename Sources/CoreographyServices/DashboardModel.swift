@@ -624,7 +624,7 @@ public final class DashboardModel {
         DiagnosticSnapshot(
             takenAt: displayedEndTime ?? Date(), host: frames, network: networkFrames, gpu: gpuFrames,
             power: powerFrames, sensors: sensorFrames, processes: processSnapshot, ledger: ledger,
-            sleep: sleepState
+            sleep: sleepState, assertions: assertionSnapshot
         )
     }
 
