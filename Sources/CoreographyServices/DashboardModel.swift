@@ -341,11 +341,41 @@ public final class DashboardModel {
     }
 
     /// Totals for the selected range, from displayed (possibly held) data.
+    /// What a range report depends on. Hovering re-renders the window at
+    /// pointer rate, so the report is rebuilt only when one of these changes.
+    private struct RangeReportInputs: Equatable {
+        let selection: ClosedRange<Date>
+        let ledgerIntervals: Int
+        let ledgerEnd: Date?
+        let frame: UUID?
+        let gpuFrame: UUID?
+        let sensorFrame: UUID?
+    }
+
+    @ObservationIgnored private var rangeReportCache: (inputs: RangeReportInputs, report: RangeReport)?
+    /// How many reports were built; tests check that rereading reuses one.
+    @ObservationIgnored private(set) var rangeReportBuilds = 0
+
     public var rangeReport: RangeReport? {
         guard let selection else { return nil }
-        return RangeReport.make(
+        let inputs = RangeReportInputs(
+            selection: selection, ledgerIntervals: ledger.intervals.count, ledgerEnd: ledger.intervals.last?.end,
+            frame: frames.last?.id, gpuFrame: gpuFrames.last?.id, sensorFrame: sensorFrames.last?.id
+        )
+        if let cache = rangeReportCache, cache.inputs == inputs { return cache.report }
+        let report = RangeReport.make(
             range: selection, ledger: ledger, frames: frames, gpuFrames: gpuFrames, sensorFrames: sensorFrames
         )
+        rangeReportCache = (inputs, report)
+        rangeReportBuilds += 1
+        return report
+    }
+
+    /// Also drops a drag the system cancelled before it ended, whose band
+    /// would otherwise stay on every lane with no panel to clear it.
+    public func clearSelection() {
+        selection = nil
+        draftSelection = nil
     }
 
     /// The selected range as an export document of displayed (possibly held) data.
