@@ -1,5 +1,4 @@
 import Foundation
-import CoreFoundation
 
 /// A read-only Model Context Protocol server over the diagnostic contract.
 ///
@@ -78,40 +77,16 @@ public actor MCPServer {
         }
         do {
             let snapshot = try await resolveSnapshot(arguments)
-            let output: any Encodable
-            switch name {
-            case "get_system_summary":
-                output = DiagnosticTools.summary(snapshot)
-            case "get_top_processes":
-                let metric = try enumArgument(arguments, "metric", default: DiagnosticTools.ActivityMetric.cpu)
-                output = try DiagnosticTools.topApps(
-                    snapshot, metric: metric, range: try range(arguments, snapshot),
-                    limit: try intArgument(arguments, "limit", default: 10), cursor: arguments["cursor"] as? String
-                )
-            case "get_metric_history":
-                guard let metric: DiagnosticTools.HistoryMetric = try enumArgument(arguments, "metric", default: nil) else {
-                    throw DiagnosticError.invalidArgument("metric is required")
-                }
-                output = try DiagnosticTools.history(
-                    snapshot, metric: metric, range: try range(arguments, snapshot),
-                    maximumPoints: try intArgument(arguments, "max_points", default: DiagnosticTools.maximumPoints)
-                )
-            case "get_process_details":
-                let pid = try intArgument(arguments, "pid", default: -1)
-                guard let pid32 = Int32(exactly: pid), let details = DiagnosticTools.processDetails(snapshot, pid: pid32) else {
-                    throw DiagnosticError.invalidArgument("No observed process with that pid")
-                }
-                output = details
-            case "get_sleep_history":
-                try DiagnosticTools.sleepHistory(snapshot)
-            case "get_data_sources":
-                output = DiagnosticTools.dataSources(snapshot)
-            default:
-                return encode(error: .invalidParams("Unknown tool \(name)"), id: id)
-            }
-            return encode(result: try toolResult(output, snapshot: snapshot), id: id)
+            let body = try DiagnosticToolCatalog.run(name, arguments: arguments, snapshot: snapshot)
+            return encode(result: [
+                "content": [["type": "text", "text": body]],
+                "isError": false,
+                "_meta": ["snapshot_id": snapshot.id.uuidString]
+            ], id: id)
+        } catch DiagnosticToolCatalog.Failure.unknownTool(let unknown) {
+            return encode(error: .invalidParams("Unknown tool \(unknown)"), id: id)
         } catch let error as DiagnosticError {
-            return encode(result: toolError(Self.describe(error)), id: id)
+            return encode(result: toolError(DiagnosticToolCatalog.describe(error)), id: id)
         } catch {
             return encode(result: toolError("Tool failed: \(error)"), id: id)
         }
@@ -141,38 +116,6 @@ public actor MCPServer {
         return true
     }
 
-    private func range(_ arguments: [String: Any], _ snapshot: DiagnosticSnapshot) throws -> ClosedRange<Date>? {
-        guard arguments["range_seconds"] != nil else { return nil }
-        let seconds = try intArgument(arguments, "range_seconds", default: 0)
-        guard seconds > 0 else { throw DiagnosticError.invalidArgument("range_seconds must be positive") }
-        return snapshot.takenAt.addingTimeInterval(-Double(seconds))...snapshot.takenAt
-    }
-
-    private func intArgument(_ arguments: [String: Any], _ key: String, default value: Int) throws -> Int {
-        guard let raw = arguments[key] else { return value }
-        guard let number = raw as? NSNumber, CFGetTypeID(number) == CFNumberGetTypeID(),
-              let integer = Int(exactly: number.doubleValue) else {
-            throw DiagnosticError.invalidArgument("\(key) must be an integer")
-        }
-        return integer
-    }
-
-    private func enumArgument<Value: RawRepresentable>(
-        _ arguments: [String: Any], _ key: String, default value: Value?
-    ) throws -> Value? where Value.RawValue == String {
-        guard let raw = arguments[key] else { return value }
-        guard let text = raw as? String, let parsed = Value(rawValue: text) else {
-            throw DiagnosticError.invalidArgument("Unsupported \(key)")
-        }
-        return parsed
-    }
-
-    private func enumArgument<Value: RawRepresentable>(
-        _ arguments: [String: Any], _ key: String, default value: Value
-    ) throws -> Value where Value.RawValue == String {
-        try enumArgument(arguments, key, default: Optional(value)) ?? value
-    }
-
     // MARK: Encoding
 
     private enum RPCError {
@@ -198,18 +141,6 @@ public actor MCPServer {
         }
     }
 
-    private func toolResult(_ output: any Encodable, snapshot: DiagnosticSnapshot) throws -> [String: Any] {
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        encoder.outputFormatting = [.sortedKeys]
-        let body = String(decoding: try encoder.encode(output), as: UTF8.self)
-        return [
-            "content": [["type": "text", "text": body]],
-            "isError": false,
-            "_meta": ["snapshot_id": snapshot.id.uuidString]
-        ]
-    }
-
     private func toolError(_ message: String) -> [String: Any] {
         ["content": [["type": "text", "text": message]], "isError": true]
     }
@@ -229,60 +160,13 @@ public actor MCPServer {
         return String(decoding: data, as: UTF8.self)
     }
 
-    private static func describe(_ error: DiagnosticError) -> String {
-        switch error {
-        case .invalidArgument(let message): message
-        case .rangeTooLarge(let maximum): "Range too large; at most \(maximum) seconds of live history"
-        case .invalidCursor: "Invalid or expired cursor; restart the query without one"
-        case .unavailable(let reason): reason
-        }
-    }
-
     // The six read-only tools from the plan's diagnostic contract.
     static var tools: [[String: Any]] {
-        [
-            tool("get_system_summary",
-                 "CPU, memory pressure, swap, network, GPU, power and thermal readings with units, evidence and fact-only signals.",
-                 properties: ["snapshot_id": stringProperty("Reuse a previous result's snapshot")]),
-            tool("get_top_processes",
-                 "Apps ranked by CPU-seconds or disk bytes over a range, paged, with coverage. Own-user processes only.",
-                 properties: [
-                    "metric": ["type": "string", "enum": ["cpu", "disk"]],
-                    "range_seconds": ["type": "integer", "minimum": 1, "maximum": DiagnosticTools.maximumRangeSeconds],
-                    "limit": ["type": "integer", "minimum": 1, "maximum": DiagnosticTools.maximumRows],
-                    "cursor": stringProperty("nextCursor from a previous page"),
-                    "snapshot_id": stringProperty("Reuse a previous result's snapshot")
-                 ]),
-            tool("get_metric_history",
-                 "A bounded series for one metric; separate segments mean a gap in sampling.",
-                 properties: [
-                    "metric": ["type": "string", "enum": DiagnosticTools.HistoryMetric.allCases.map(\.rawValue)],
-                    "range_seconds": ["type": "integer", "minimum": 1, "maximum": DiagnosticTools.maximumRangeSeconds],
-                    "max_points": ["type": "integer", "minimum": 2, "maximum": DiagnosticTools.maximumPoints],
-                    "snapshot_id": stringProperty("Reuse a previous result's snapshot")
-                 ], required: ["metric"]),
-            tool("get_process_details",
-                 "Identity (PID and start time), app and resource readings for one observed process. No paths or arguments.",
-                 properties: ["pid": ["type": "integer"], "snapshot_id": stringProperty("Reuse a previous result's snapshot")],
-                 required: ["pid"]),
-            tool("get_sleep_history", "Sleep and wake records; currently unavailable.", properties: [:]),
-            tool("get_data_sources",
-                 "Which readings are measured, estimated, restricted or unavailable on this Mac, with provenance.",
-                 properties: ["snapshot_id": stringProperty("Reuse a previous result's snapshot")])
-        ]
-    }
-
-    private static func tool(
-        _ name: String, _ description: String, properties: [String: Any], required: [String] = []
-    ) -> [String: Any] {
-        [
-            "name": name, "description": description,
-            "inputSchema": ["type": "object", "properties": properties, "required": required, "additionalProperties": false],
-            "annotations": ["readOnlyHint": true, "openWorldHint": false]
-        ]
-    }
-
-    private static func stringProperty(_ description: String) -> [String: Any] {
-        ["type": "string", "description": description]
+        DiagnosticToolCatalog.definitions.map { tool in
+            [
+                "name": tool.name, "description": tool.description, "inputSchema": tool.inputSchema,
+                "annotations": ["readOnlyHint": true, "openWorldHint": false]
+            ]
+        }
     }
 }

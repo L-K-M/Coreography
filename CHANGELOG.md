@@ -7,6 +7,8 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
 ## [Unreleased]
 
 ### Added
+- Ask Coreography: plain-language questions answered by Claude through the
+  diagnostic tools, with a Keychain-stored key and listed evidence.
 - `coreo mcp --stdio`: a read-only MCP server for the six diagnostic tools,
   with snapshot reuse, cursors and a call budget.
 - The shared diagnostic contract and `coreo diagnose`: a summary with

@@ -3,7 +3,7 @@
 Track actual delivery against the [product plan](plan.md). A stage is
 complete only after its relevant checks and review pass and its PR merges.
 
-## Current slice: MCP over stdio
+## Current slice: Ask Coreography
 
 The native foundation merged in [PR #5](https://github.com/L-K-M/Coreography/pull/5)
 at `aee9494` after two GLM rounds and passing CI. Process monitoring merged
@@ -28,8 +28,9 @@ shared continuity in [PR #19](https://github.com/L-K-M/Coreography/pull/19);
 process actions in [PR #20](https://github.com/L-K-M/Coreography/pull/20);
 app scope in [PR #21](https://github.com/L-K-M/Coreography/pull/21);
 the menu bar extra in [PR #22](https://github.com/L-K-M/Coreography/pull/22);
-the diagnostic contract in [PR #23](https://github.com/L-K-M/Coreography/pull/23).
-This slice serves those tools to MCP clients over stdio.
+the diagnostic contract in [PR #23](https://github.com/L-K-M/Coreography/pull/23);
+MCP over stdio in [PR #24](https://github.com/L-K-M/Coreography/pull/24).
+This slice adds the optional in-app assistant with a bring-your-own key.
 
 Implemented:
 
@@ -157,6 +158,17 @@ Implemented:
   Interim scope: the plan's bridge to the running app over authenticated
   IPC, per-client approval, revocation and shared budgets remain M5; this
   server trusts the local client that launched it, like any CLI.
+- Ask Coreography: a collapsed panel takes a plain-language question and
+  answers with Claude Opus 5.5 through the same six read-only tools as MCP,
+  against one frozen snapshot, listing the tool calls it read. The
+  Anthropic key is stored only in the login Keychain (this device, when
+  unlocked) from Settings and sent only to the Messages API. Thinking is
+  adaptive; refusals opt into Anthropic's server-side fallback
+  (`fallbacks: "default"`). A refused, truncated or runaway turn never runs
+  a partial tool call; invalid keys, rate limits and overload are named.
+  Monitoring does not wait on the model, and nothing is sent until asked.
+  Both clients now share one tool catalog. S9 still owns model evaluation
+  on recorded fixtures and the on-device option.
 - A thermal lane showing system thermal pressure as a band, from the public
   `com.apple.system.thermalpressurelevel` notify state. Temperatures, fans
   and the hottest-sensor line wait for the sensor provider.
@@ -179,6 +191,7 @@ time, helper, MCP or model integration in this slice.
 | Native process collection, cancellation and CPU units | Passed [native review-fix CI](https://github.com/L-K-M/Coreography/actions/runs/39105964147) at `7df03ec`, including cancellation, saturation and `getrusage` cross-checks |
 | Native network MIB, wide-counter mapping and three-lane UI | Passed at `e62fac1`, including native C fixtures, live CLI and both executable architectures; integrated candidate pending |
 | Native IOKit storage counters and four-lane renderer | Passed [native CI](https://github.com/L-K-M/Coreography/actions/runs/39110306993) at `6434722`: 75 tests, 16 drivers, 32 measured rate fields, no inventory issues; owner checks pending |
+| Ask Coreography | Ask slice: 131 Swift tests pass on Linux with a scripted transport (tool loop echo, batched results, request shape, every failure path, key handling); live provider calls and the UI are owner checks |
 | MCP stdio server | MCP slice: 128 Swift tests pass on Linux (handshake, version negotiation, notifications, catalog, cursor reuse of one snapshot, protocol and tool errors, call budget); native CI smoke drives a real stdio session |
 | Diagnostic contract and `coreo diagnose` | Contract slice: 125 Swift tests pass on Linux (signals, cursor binding, bounds, gaps, no paths, unavailable sleep history); native CI smoke checks units, evidence and that no path leaks |
 | Menu bar extra and launch-time sampling | Menu slice: Swift tests unchanged (121); the menu view and project registration compile only in native CI; owner check for the title, mini lanes and Open Coreography |

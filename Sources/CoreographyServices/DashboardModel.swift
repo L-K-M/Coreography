@@ -13,6 +13,14 @@ public enum DashboardMetric: String, CaseIterable, Identifiable, Sendable {
     public var id: Self { self }
 }
 
+/// Where an Ask Coreography question stands.
+public enum AskState: Sendable {
+    case idle
+    case asking
+    case answered(AskAnswer)
+    case failed(String)
+}
+
 public enum DashboardDisplayMode: Equatable, Sendable {
     case live
     case held
@@ -112,10 +120,14 @@ public final class DashboardModel {
     /// One app scoping every view (plan P8); cleared only by its clear button.
     public var scopedApp: String?
     public private(set) var actionMessage: String?
+    public private(set) var askState: AskState = .idle
+    public private(set) var hasProviderKey = false
     public private(set) var contributorHistory: [ContributorSnapshot] = []
 
     @ObservationIgnored private let monitor: SystemMonitor?
     @ObservationIgnored private let controller: ProcessController
+    @ObservationIgnored private let askService: AskService
+    @ObservationIgnored private var askTask: Task<Void, Never>?
     @ObservationIgnored private let processMonitor: ProcessMonitor?
     @ObservationIgnored private let networkMonitor: NetworkMonitor?
     @ObservationIgnored private let diskMonitor: DiskMonitor?
@@ -139,6 +151,7 @@ public final class DashboardModel {
 
     public init() {
         controller = ProcessController()
+        askService = AskService()
         interval = .seconds(1)
         processInterval = .seconds(2)
         do {
@@ -173,9 +186,11 @@ public final class DashboardModel {
         processMonitor: ProcessMonitor? = nil, processInterval: Duration = .seconds(2),
         networkMonitor: NetworkMonitor? = nil, diskMonitor: DiskMonitor? = nil,
         gpuMonitor: GPUMonitor? = nil, powerMonitor: PowerMonitor? = nil,
-        sensorMonitor: SensorMonitor? = nil, controller: ProcessController = ProcessController()
+        sensorMonitor: SensorMonitor? = nil, controller: ProcessController = ProcessController(),
+        askService: AskService = AskService()
     ) {
         self.controller = controller
+        self.askService = askService
         self.monitor = monitor
         self.interval = interval
         self.processMonitor = processMonitor
@@ -187,7 +202,10 @@ public final class DashboardModel {
         self.sensorMonitor = sensorMonitor
     }
 
-    deinit { worker?.cancel() }
+    deinit {
+        worker?.cancel()
+        askTask?.cancel()
+    }
 
     public var latest: CapturedSnapshot? { frames.last }
 
@@ -338,6 +356,70 @@ public final class DashboardModel {
             takenAt: displayedEndTime ?? Date(), host: frames, network: networkFrames, gpu: gpuFrames,
             power: powerFrames, sensors: sensorFrames, processes: processSnapshot, ledger: ledger
         )
+    }
+
+    public func refreshProviderKey() async {
+        hasProviderKey = await askService.hasKey()
+    }
+
+    /// Store a provider key in the Keychain; returns a message when it fails.
+    public func saveProviderKey(_ key: String) async -> String? {
+        let failure: String?
+        do {
+            try await askService.saveKey(key)
+            failure = nil
+        } catch let error as AskError {
+            failure = error.message
+        } catch {
+            failure = "\(error)"
+        }
+        await refreshProviderKey()
+        return failure
+    }
+
+    public func removeProviderKey() async -> String? {
+        let failure: String?
+        do {
+            try await askService.removeKey()
+            failure = nil
+        } catch let error as AskError {
+            failure = error.message
+        } catch {
+            failure = "\(error)"
+        }
+        await refreshProviderKey()
+        return failure
+    }
+
+    /// Ask about the displayed data; the question is anchored to one snapshot.
+    public func ask(_ question: String) {
+        let trimmed = question.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        askTask?.cancel()
+        askState = .asking
+        let snapshot = diagnosticSnapshot()
+        let service = askService
+        askTask = Task { [weak self] in
+            let state: AskState
+            do {
+                state = .answered(try await service.ask(trimmed, snapshot: snapshot))
+            } catch is CancellationError {
+                return
+            } catch let error as AskError {
+                state = .failed(error.message)
+            } catch {
+                state = .failed("The question failed: \(error.localizedDescription)")
+            }
+            guard !Task.isCancelled else { return }
+            self?.askState = state
+        }
+    }
+
+    /// Stop waiting for an answer; monitoring is unaffected either way.
+    public func cancelAsk() {
+        askTask?.cancel()
+        askTask = nil
+        askState = .idle
     }
 
     /// What quitting this process would do, for confirmation before sending.
