@@ -1269,6 +1269,8 @@ private struct ProcessPane: View {
     @State private var pendingAction: ProcessActionRequest?
 
     var body: some View {
+        let rows = model.visibleProcessRows
+        let heat = HeatScale(rows)
         DisclosureGroup("Processes") {
             VStack(alignment: .leading, spacing: 10) {
                 HStack {
@@ -1305,10 +1307,14 @@ private struct ProcessPane: View {
                     }
                 }
 
-                Table(model.visibleProcessRows, children: \.children) {
+                Table(rows, children: \.children) {
                     TableColumn("Process") { row in
+                        // New processes tint briefly (plan: change highlighting).
+                        let isNew = row.process.map { model.isNewProcess($0.id) } ?? false
                         Text(row.children == nil ? row.name : "\(row.name) (\(row.memberCount))")
-                            .help(ProcessText.grouping(row.groupingMethod))
+                            .padding(.horizontal, 4)
+                            .background(isNew ? Color.accentColor.opacity(0.18) : Color.clear, in: RoundedRectangle(cornerRadius: 3))
+                            .help(isNew ? String(localized: "Started within the last 10 seconds") : ProcessText.grouping(row.groupingMethod))
                             .contextMenu {
                                 Button("Show \(row.appName) in lanes") { model.scopedApp = row.appName }
                                 if let process = row.process {
@@ -1322,16 +1328,20 @@ private struct ProcessPane: View {
                     TableColumn("UID") { Text($0.process?.uid.formatted(.number.grouping(.never)) ?? "") }
                         .width(65)
                     TableColumn("CPU, machine") {
-                        ProcessMetricCell(reading: $0.cpuPercentOfMachine, format: .percent)
+                        ProcessMetricCell(reading: $0.cpuPercentOfMachine, format: .percent,
+                                          heat: heat.cpu($0), hue: .blue)
                     }
                     TableColumn("Footprint") {
-                        ProcessMetricCell(reading: $0.memoryFootprintBytes, format: .bytes)
+                        ProcessMetricCell(reading: $0.memoryFootprintBytes, format: .bytes,
+                                          heat: heat.memory($0), hue: .teal)
                     }
                     TableColumn("Disk read/s") {
-                        ProcessMetricCell(reading: $0.diskReadBytesPerSecond, format: .rate)
+                        ProcessMetricCell(reading: $0.diskReadBytesPerSecond, format: .rate,
+                                          heat: heat.read($0), hue: .blue)
                     }
                     TableColumn("Disk write/s") {
-                        ProcessMetricCell(reading: $0.diskWriteBytesPerSecond, format: .rate)
+                        ProcessMetricCell(reading: $0.diskWriteBytesPerSecond, format: .rate,
+                                          heat: heat.write($0), hue: .orange)
                     }
                 }
                 .frame(height: 260)
@@ -1339,6 +1349,16 @@ private struct ProcessPane: View {
 
                 if let message = model.actionMessage {
                     Text(message).font(.caption)
+                }
+
+                // Ghost rows: the culprit has often already quit (plan: exited rows stay 30 s).
+                let exited = model.exitedProcesses
+                if !exited.isEmpty {
+                    let names = exited.map { "\($0.name) (PID \($0.identity.pid), \($0.appName))" }.joined(separator: " · ")
+                    Text("Exited in the last 30 s: \(names)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .help("Exit status is not available without the helper")
                 }
 
                 Text("CPU uses the whole-machine scale. App totals sum their members; footprint sums can count shared memory twice. Process sampling: 2 s; short-lived processes can be missed.")
@@ -1361,6 +1381,31 @@ private struct ProcessPane: View {
     }
 }
 
+/// Heat for process cells: each value against its column's top visible row.
+private struct HeatScale {
+    private let maxima: [Double]
+
+    init(_ rows: [ProcessRow]) {
+        func top(_ reading: (ProcessRow) -> DashboardReading) -> Double {
+            rows.compactMap { reading($0).numericValue }.max() ?? 0
+        }
+        maxima = [
+            top(\.cpuPercentOfMachine), top(\.memoryFootprintBytes),
+            top(\.diskReadBytesPerSecond), top(\.diskWriteBytesPerSecond)
+        ]
+    }
+
+    func cpu(_ row: ProcessRow) -> Double { share(row.cpuPercentOfMachine, maxima[0]) }
+    func memory(_ row: ProcessRow) -> Double { share(row.memoryFootprintBytes, maxima[1]) }
+    func read(_ row: ProcessRow) -> Double { share(row.diskReadBytesPerSecond, maxima[2]) }
+    func write(_ row: ProcessRow) -> Double { share(row.diskWriteBytesPerSecond, maxima[3]) }
+
+    private func share(_ reading: DashboardReading, _ top: Double) -> Double {
+        guard let value = reading.numericValue, top > 0 else { return 0 }
+        return value / top
+    }
+}
+
 private enum ProcessText {
     static func grouping(_ method: ProcessGroupingMethod?) -> String {
         switch method {
@@ -1376,10 +1421,15 @@ private struct ProcessMetricCell: View {
     enum Format { case percent, bytes, rate, watts }
     let reading: DashboardReading
     let format: Format
+    /// 0-1 share of the column's largest value; shades the cell in its subsystem hue.
+    var heat: Double = 0
+    var hue: Color = .clear
 
     var body: some View {
         Text(label)
             .monospacedDigit()
+            .padding(.horizontal, 4)
+            .background(hue.opacity(min(max(heat, 0), 1) * 0.35), in: RoundedRectangle(cornerRadius: 3))
             .help(reading.reason ?? reading.method ?? [reading.source?.provider, reading.source?.driver, reading.source?.channel]
                 .compactMap { $0 }.joined(separator: " · "))
     }

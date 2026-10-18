@@ -7,6 +7,8 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
 ## [Unreleased]
 
 ### Added
+- Process pane heat-shaded cells, briefly tinted new processes and a
+  30-second list of exited processes.
 - Alerts: critical memory pressure, heavy thermal pressure and low battery
   tint their lanes and drop markers; memory and battery also notify.
 - Ask Coreography: plain-language questions answered by Claude through the
