@@ -10,6 +10,6 @@ private struct CoreographyApp: App {
         Window("Coreography", id: "dashboard") {
             DashboardView(model: dashboard)
         }
-        .defaultSize(width: 1120, height: 760)
+        .defaultSize(width: 1120, height: 900)
     }
 }

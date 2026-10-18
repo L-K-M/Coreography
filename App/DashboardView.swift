@@ -25,6 +25,7 @@ struct DashboardView: View {
                     lane(metric)
                 }
 
+                DiskLane(model: model)
                 NetworkLane(model: model)
 
                 ProcessPane(model: model, filterFocused: $processFilterFocused)
@@ -50,6 +51,22 @@ struct DashboardView: View {
                         TableColumn("Interface") { Text($0.interfaceName ?? "–") }
                         TableColumn("Received/s") { ProcessMetricCell(reading: $0.received, format: .rate) }
                         TableColumn("Sent/s") { ProcessMetricCell(reading: $0.sent, format: .rate) }
+                    }
+                    .frame(height: 150)
+                }
+
+                DisclosureGroup("Disk numeric readings") {
+                    Table(model.diskReadings) {
+                        TableColumn("Time") { Text($0.time, format: .dateTime.hour().minute().second()) }
+                        TableColumn("Device") { Text($0.deviceName ?? $0.status ?? "–") }
+                        TableColumn("Read/s") { row in
+                            if let reading = row.read { ProcessMetricCell(reading: reading, format: .rate) }
+                            else { Text("–") }
+                        }
+                        TableColumn("Written/s") { row in
+                            if let reading = row.written { ProcessMetricCell(reading: reading, format: .rate) }
+                            else { Text("–") }
+                        }
                     }
                     .frame(height: 150)
                 }
@@ -173,7 +190,6 @@ private struct NetworkLane: View {
         let start = end.addingTimeInterval(-Layout.visibleSeconds)
         let received = model.points(for: .networkReceived).filter { $0.time >= start && $0.time <= end }
         let sent = model.points(for: .networkSent).filter { $0.time >= start && $0.time <= end }
-        let maximum = rateCeiling((received + sent).map(\.value).max() ?? 1)
         let receiveReading = model.reading(for: .networkReceived)
         let sendReading = model.reading(for: .networkSent)
 
@@ -207,46 +223,10 @@ private struct NetworkLane: View {
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, minHeight: Layout.graphHeight)
             } else {
-                Chart {
-                    ForEach(received) { point in
-                        LineMark(
-                            x: .value("Time", point.time), y: .value("Received/s", point.value),
-                            series: .value("Segment", "receive-\(point.segment)")
-                        )
-                        .foregroundStyle(Color.blue)
-                    }
-                    ForEach(sent) { point in
-                        LineMark(
-                            x: .value("Time", point.time), y: .value("Sent/s", -point.value),
-                            series: .value("Segment", "send-\(point.segment)")
-                        )
-                        .foregroundStyle(Color.orange)
-                        .lineStyle(StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
-                    }
-                }
-                .chartLegend(.hidden)
-                .chartXScale(domain: start...end)
-                .chartYScale(domain: -maximum...maximum)
-                .chartYAxis {
-                    AxisMarks(position: .trailing, values: [-maximum, 0, maximum]) { value in
-                        AxisGridLine()
-                        AxisValueLabel {
-                            if let number = value.as(Double.self) {
-                                Text(MetricText.rate(abs(number)))
-                                    .frame(width: Layout.axisLabelWidth, alignment: .leading)
-                            }
-                        }
-                    }
-                }
-                .chartXAxis {
-                    AxisMarks(values: .automatic(desiredCount: 4)) {
-                        AxisValueLabel(format: .dateTime.hour().minute().second())
-                    }
-                }
-                .frame(height: Layout.graphHeight)
-                .accessibilityChartDescriptor(NetworkChartAccessibility(
-                    received: received, sent: sent, start: start, end: end, maximum: maximum
-                ))
+                TransferChart(
+                    title: String(localized: "Network"), aboveLabel: String(localized: "Received"),
+                    belowLabel: String(localized: "Sent"), above: received, below: sent, start: start, end: end
+                )
             }
         }
         .padding(Layout.padding)
@@ -273,6 +253,120 @@ private struct NetworkLane: View {
         .help("Primary prefers IPv4, then IPv6. Interfaces are scoped separately.")
     }
 
+}
+
+private struct DiskLane: View {
+    @Bindable var model: DashboardModel
+
+    var body: some View {
+        let end = model.displayedEndTime ?? Date()
+        let start = end.addingTimeInterval(-Layout.visibleSeconds)
+        let read = model.points(for: .diskRead).filter { $0.time >= start && $0.time <= end }
+        let written = model.points(for: .diskWritten).filter { $0.time >= start && $0.time <= end }
+        HStack(alignment: .top, spacing: 24) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Disk").font(.caption.weight(.medium)).foregroundStyle(.secondary)
+                Text("↓ " + MetricText.rate(model.reading(for: .diskRead)?.numericValue))
+                    .font(.system(size: 24, weight: .semibold))
+                Text("↑ " + MetricText.rate(model.reading(for: .diskWritten)?.numericValue))
+                    .font(.system(size: 20, weight: .semibold))
+                devicePicker
+                Text(model.storageSelectionMessage).font(.caption).foregroundStyle(.secondary)
+                if let inventory = model.diskFrames.last,
+                   inventory.enumerationTruncated || !inventory.issues.isEmpty {
+                    Text("Storage inventory is incomplete.").font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            .monospacedDigit()
+            .frame(width: Layout.headerWidth, alignment: .leading)
+            if read.isEmpty && written.isEmpty {
+                Text(model.storageSelectionMessage).foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, minHeight: Layout.graphHeight)
+            } else {
+                TransferChart(
+                    title: String(localized: "Disk"), aboveLabel: String(localized: "Read"),
+                    belowLabel: String(localized: "Written"), above: read, below: written, start: start, end: end
+                )
+            }
+        }
+        .padding(Layout.padding)
+        .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: Layout.cornerRadius))
+        .overlay(RoundedRectangle(cornerRadius: Layout.cornerRadius).strokeBorder(
+            Color(nsColor: .separatorColor), lineWidth: 0.5
+        ))
+    }
+
+    private var devicePicker: some View {
+        let devices = model.diskFrames.last?.devices ?? []
+        return Picker("Storage device", selection: $model.storageScope) {
+            Text("Automatic · one observed device").tag(StorageScope.automatic)
+            ForEach(devices) { device in
+                Text(device.name).tag(StorageScope.device(device.id))
+            }
+            if case .device(let selected) = model.storageScope,
+               !devices.contains(where: { $0.id == selected }) {
+                Text("Selected device · unavailable").tag(StorageScope.device(selected))
+            }
+        }
+        .labelsHidden()
+        .help("Automatic selection requires one observed device and complete inventory. Drivers are not summed.")
+    }
+}
+
+private struct TransferChart: View {
+    let title: String
+    let aboveLabel: String
+    let belowLabel: String
+    let above: [DashboardPoint]
+    let below: [DashboardPoint]
+    let start: Date
+    let end: Date
+
+    var body: some View {
+        let maximum = rateCeiling((above + below).map(\.value).max() ?? 1)
+        Chart {
+            ForEach(above) { point in
+                LineMark(
+                    x: .value("Time", point.time), y: .value(aboveLabel, point.value),
+                    series: .value("Segment", "above-\(point.segment)")
+                )
+                .foregroundStyle(Color.blue)
+            }
+            ForEach(below) { point in
+                LineMark(
+                    x: .value("Time", point.time), y: .value(belowLabel, -point.value),
+                    series: .value("Segment", "below-\(point.segment)")
+                )
+                .foregroundStyle(Color.orange)
+                .lineStyle(StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
+            }
+        }
+        .chartLegend(.hidden)
+        .chartXScale(domain: start...end)
+        .chartYScale(domain: -maximum...maximum)
+        .chartYAxis {
+            AxisMarks(position: .trailing, values: [-maximum, 0, maximum]) { value in
+                AxisGridLine()
+                AxisValueLabel {
+                    if let number = value.as(Double.self) {
+                        Text(MetricText.rate(abs(number)))
+                            .frame(width: Layout.axisLabelWidth, alignment: .leading)
+                    }
+                }
+            }
+        }
+        .chartXAxis {
+            AxisMarks(values: .automatic(desiredCount: 4)) {
+                AxisValueLabel(format: .dateTime.hour().minute().second())
+            }
+        }
+        .frame(height: Layout.graphHeight)
+        .accessibilityChartDescriptor(TransferChartAccessibility(
+            title: title, aboveLabel: aboveLabel, belowLabel: belowLabel,
+            above: above, below: below, start: start, end: end, maximum: maximum
+        ))
+    }
+
     private func rateCeiling(_ value: Double) -> Double {
         guard value.isFinite, value > 0 else { return 1 }
         let magnitude = pow(10, floor(log10(value)))
@@ -283,9 +377,12 @@ private struct NetworkLane: View {
     }
 }
 
-private struct NetworkChartAccessibility: AXChartDescriptorRepresentable {
-    let received: [DashboardPoint]
-    let sent: [DashboardPoint]
+private struct TransferChartAccessibility: AXChartDescriptorRepresentable {
+    let title: String
+    let aboveLabel: String
+    let belowLabel: String
+    let above: [DashboardPoint]
+    let below: [DashboardPoint]
     let start: Date
     let end: Date
     let maximum: Double
@@ -297,12 +394,11 @@ private struct NetworkChartAccessibility: AXChartDescriptorRepresentable {
             gridlinePositions: []
         ) { Date(timeIntervalSinceReferenceDate: $0).formatted(date: .omitted, time: .standard) }
         let y = AXNumericDataAxisDescriptor(
-            title: String(localized: "Bytes per second; receive above, send below"),
+            title: String(localized: "Bytes per second; \(aboveLabel) above, \(belowLabel) below"),
             range: -maximum...maximum, gridlinePositions: [0]
         ) { MetricText.rate(abs($0)) }
         var series: [AXDataSeriesDescriptor] = []
-        for (name, points, sign) in [(String(localized: "Received"), received, 1.0),
-                                    (String(localized: "Sent"), sent, -1.0)] {
+        for (name, points, sign) in [(aboveLabel, above, 1.0), (belowLabel, below, -1.0)] {
             let segments = Dictionary(grouping: points, by: \.segment)
             for segment in segments.keys.sorted() {
                 series.append(AXDataSeriesDescriptor(
@@ -314,8 +410,8 @@ private struct NetworkChartAccessibility: AXChartDescriptorRepresentable {
             }
         }
         return AXChartDescriptor(
-            title: String(localized: "Network"),
-            summary: String(localized: "Selected interface; primary changes and missing samples split the lines."),
+            title: title,
+            summary: String(localized: "Selected source; source changes and missing samples split the lines."),
             xAxis: x, yAxis: y, additionalAxes: [], series: series
         )
     }
@@ -422,7 +518,7 @@ private enum Layout {
     static let visibleSeconds: TimeInterval = 60
     static let headerWidth: CGFloat = 180
     static let axisLabelWidth: CGFloat = 96
-    static let graphHeight: CGFloat = 140
+    static let graphHeight: CGFloat = 120
 }
 
 private enum MetricText {
