@@ -42,7 +42,7 @@ final class ProcessFilterTests: XCTestCase {
     func testListeningAndPortLookupNeedConnectionDataAndMatchTheirProcesses() throws {
         let server = try process(name: "nginx", cpu: 1, uid: 501, path: "/opt/nginx", pid: 80)
         let client = try process(name: "curl", cpu: 1, uid: 501, path: "/usr/bin/curl", pid: 81)
-        let sockets = ProcessSocketFacts(ConnectionSnapshot(
+        let sockets = ProcessFacts(sockets: SocketFacts(ConnectionSnapshot(
             takenAt: Date(), connections: [
                 ConnectionReading(
                     process: server.id, processName: "nginx", descriptor: 3, transport: .tcp, state: .listen,
@@ -54,21 +54,33 @@ final class ProcessFilterTests: XCTestCase {
                 )
             ],
             restrictedProcesses: 0, truncatedProcesses: 0, failedProcesses: 0, unavailableReason: nil
-        ))
+        )))
 
         let listening = ProcessFilter.parse("#listening")
         XCTAssertTrue(listening.usesSockets)
-        XCTAssertTrue(listening.matches(server, isNew: false, sockets: sockets))
-        XCTAssertFalse(listening.matches(client, isNew: false, sockets: sockets))
-        XCTAssertFalse(listening.matches(server, isNew: false, sockets: nil), "without connection data nothing is listening")
+        XCTAssertTrue(listening.matches(server, isNew: false, facts: sockets))
+        XCTAssertFalse(listening.matches(client, isNew: false, facts: sockets))
+        XCTAssertFalse(listening.matches(server, isNew: false), "without connection data nothing is listening")
 
         // Reverse lookup by port, local or remote.
         XCTAssertEqual(ProcessFilter.parse("port:8080").terms, [.port(8080)])
-        XCTAssertTrue(ProcessFilter.parse("port:8080").matches(server, isNew: false, sockets: sockets))
-        XCTAssertTrue(ProcessFilter.parse("port:443").matches(client, isNew: false, sockets: sockets))
-        XCTAssertFalse(ProcessFilter.parse("port:443").matches(server, isNew: false, sockets: sockets))
+        XCTAssertTrue(ProcessFilter.parse("port:8080").matches(server, isNew: false, facts: sockets))
+        XCTAssertTrue(ProcessFilter.parse("port:443").matches(client, isNew: false, facts: sockets))
+        XCTAssertFalse(ProcessFilter.parse("port:443").matches(server, isNew: false, facts: sockets))
         XCTAssertEqual(ProcessFilter.parse("port:http").issues, ["Unreadable port:http; try port:443"])
         XCTAssertEqual(ProcessFilter.parse("port:0").issues, ["Unreadable port:0; try port:443"])
+    }
+
+    func testPreventingSleepMatchesAssertionHoldersOnlyOnceAssertionsAreRead() throws {
+        let player = try process(name: "Music", cpu: 1, uid: 501, path: "/Applications/Music.app/Contents/MacOS/Music", pid: 90)
+        let idle = try process(name: "Notes", cpu: 0, uid: 501, path: "/Applications/Notes.app/Contents/MacOS/Notes", pid: 91)
+        let filter = ProcessFilter.parse("#preventing-sleep")
+        XCTAssertTrue(filter.usesAssertions)
+        XCTAssertTrue(filter.issues.isEmpty)
+        let facts = ProcessFacts(sleepPreventers: [90])
+        XCTAssertTrue(filter.matches(player, isNew: false, facts: facts))
+        XCTAssertFalse(filter.matches(idle, isNew: false, facts: facts))
+        XCTAssertFalse(filter.matches(player, isNew: false), "no assertion data, no match")
     }
 
     func testGroupsShowAllMembersOnlyForAppNameText() throws {

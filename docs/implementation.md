@@ -233,6 +233,14 @@ Implemented:
   app's overlay extends into stored history. Export still covers live
   data only and says so; cursor readouts and contributors over the
   stored part, exporting it, and the 24 h range (the Day tier) remain.
+- Sleep assertions: live power assertions from one public IOKit call to
+  powerd (`IOPMCopyAssertionsByProcess`), read with each process sample.
+  The Power lane names who keeps the Mac or its display awake and for
+  how long, the inspector lists the selected process's assertions, and
+  `#preventing-sleep` filters to their holders. Released assertions are
+  left out; past assertions are not reconstructed (plan). Assertions
+  name a PID only, so they are matched to processes observed at the same
+  moment.
 - Settings: history retention presets (1 h detailed with 1 day
   summarised, the plan's 6 h with 7 days, or 12 h with 14 days), each
   with an estimated disk cost and the measured size beside it, all under
@@ -334,6 +342,7 @@ time, helper, MCP or model integration in this slice.
 | Native network MIB, wide-counter mapping and three-lane UI | Passed at `e62fac1`, including native C fixtures, live CLI and both executable architectures; integrated candidate pending |
 | Native IOKit storage counters and four-lane renderer | Passed [native CI](https://github.com/L-K-M/Coreography/actions/runs/39110306993) at `6434722`: 75 tests, 16 drivers, 32 measured rate fields, no inventory issues; owner checks pending |
 | On-disk history store and recorder | History slice: 148 Swift tests pass on Linux against the real system SQLite (round trip with gaps, duplicates, retention, reopen, permissions, WAL, batching); native CI checks the CLI and file permissions |
+| Sleep assertions | Assertion slice: 198 Swift tests pass on Linux (released and untyped assertions dropped, ages kept, effects classified, the filter token waiting for data); native powerd reads and the UI compile are pending |
 | Settings: retention and data sources | Settings slice: 195 Swift tests pass on Linux (plans applied from the next write, measured size, presets ordered and under the cap, saved choice, tier choice by retention); Settings UI compile pending |
 | Day tier and 24 h range | Day-tier slice: 192 Swift tests pass on Linux against the system SQLite (bucket extremes and means, merging across batches, gaps left out, 7-day retention past the 6-hour one, deletion; spikes and exact means through the 24 h load) |
 | Automatic markers | Marker slice: 190 Swift tests pass on Linux (transitions skipping unknown samples, sleep events since the displayed start, stable identity across rebuilds); UI compile pending |
