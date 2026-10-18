@@ -3,9 +3,8 @@
 > A graph-first, Mac-native replacement for Activity Monitor. This plan
 > builds on the [research](research/README.md); `P1`-`P24` refer to its
 > [pattern catalogue](research/README.md#pattern-catalogue). Drafted
-> 2026-10-17 from four independent proposals (design, power user,
-> architecture, performance enthusiast), merged and checked against the
-> research.
+> 2026-10-17 from three completed independent proposals (design, power
+> user, architecture), merged and checked against the research.
 
 ## Contents
 
@@ -30,11 +29,12 @@
 an hour or a day ago, in one window.**
 
 Coreography shows every major subsystem at once as live graphs on one
-shared time axis. Pointing at any moment names the processes responsible.
+shared time axis. Pointing at a recorded moment names the retained
+contributors where attribution is available.
 The process list is still there, and stronger than Activity Monitor's, but
 it is a pane you summon, not the screen you live in. Every number is
 honest about where it came from. The app looks like Apple shipped it and
-costs less than 1% of one core to run.
+targets under 1% of one core to run.
 
 ## Principles
 
@@ -43,8 +43,10 @@ Each principle comes with a test a reviewer can apply to a screen.
 1. **Graphs are the product** (P1). *Test:* at 1440 x 900, charts cover
    more than 60% of the window and every subsystem is visible without a
    tab switch or a second window.
-2. **Cause beside symptom** (P2, P3). *Test:* from any visible spike,
-   live or past, one gesture reaches the responsible process.
+2. **Cause beside symptom** (P2, P3). *Test:* from any recorded spike
+   where a source, retention and a matching sample interval exist, one
+   gesture reaches the leading recorded contributor; the app does not
+   claim a certain cause for an arbitrary spike.
 3. **One time axis, one selection** (P4, P8). *Test:* moving the cursor in
    one graph moves it in all of them; selecting anything visibly rescopes
    every view; clearing is explicit.
@@ -73,16 +75,19 @@ Monitor. Each row is a flow the design must make short.
 | --- | --- | --- |
 | Why is my Mac slow, hot or loud? | Lanes show which subsystem is saturated; hover names the process; thermal lane shows pressure bands and fans | P2, P3, P12 |
 | What is eating memory, why am I swapping? | Memory lane: composition, pressure band, swap rate; range select ranks processes by growth | P11, P7 |
-| What drained my battery overnight? | Power lane over 12 h with charging bands; range report ranks apps by energy; assertions explain missed sleep | P6, P7 |
+| What drained my battery overnight? | Power lane over 12 h with charging bands; logged sleep, wake and assertion history merged with own samples where coverage exists; per-app energy does not reliably account for sleep | P6, P7 |
 | Why won't my Mac sleep? | Power inspector: sleep assertions by process, with age | P2 |
 | Which app is uploading? | Network lane top contributors; connections tab with endpoints | P2, P9 |
 | What is writing to my SSD? | Disk lane, range report by bytes written, cumulative writes per app per day | P7, P15 |
-| What happened at 14:02 when it froze? | Scrub or go to 14:02; every lane aligned; table re-derived for that instant, including processes that have since exited | P3, P4, P6 |
+| What happened at 14:02 when it froze? | Scrub or go to 14:02; every lane aligned; table rebuilt from retained contributors, including exited processes where their records survive; not a full reconstruction of every process | P3, P4, P6 |
 | Is this game CPU- or GPU-bound, is it throttling? | Performance mode: FPS and frame time, cluster frequency, GPU load, thermal pressure on one axis | P10, P19 |
 | What is this process, can I quit it? | Inspector: identity, parent chain, signing, launchd job, plain-language explanation for known system processes | P23 |
 | Who holds this file or port? | Reverse lookup in the process pane filter | P23 |
 | What starts at login and what does it cost? | Startup tab: items joined to their measured resource use, Apple items hidden by default | P22 |
 | Is my machine big enough? | Memory and CPU history over days: pressure time, swap volume, sustained saturation | P6 |
+| Which browser tab is eating CPU? | Helpers fold under their browser with role labels (`--type=`); per-tab truth lives in the browser's own task manager, and the app says so instead of guessing a tab map | P20 |
+| What is the VM or Docker doing? | VMs and containers appear as ordinary host processes with full host-side cost; the guest interior needs the vendor's API (opt-in, read-only) | P2 |
+| Is a local LLM using the GPU? | GPU lane: per-process GPU time and unified-memory footprint (not a separate VRAM pool); opt-in loopback integrations name loaded models; ANE activity shows as power and daemon presence, which cannot identify a model | P10 |
 
 ## The window
 
@@ -96,8 +101,8 @@ secondary facts, top processes) on its left, and its graph fills the rest
 of the row. Because every graph has the same horizontal extent, one
 vertical cursor crosses all of them, which a grid of differently sized
 cards cannot do. That alignment is what makes "what else was happening at
-that moment" visible without effort, and it is the main thing no
-competitor offers.
+that moment" visible without effort. It is the combined workflow this
+survey found least well served by existing Mac monitors.
 
 ### Regions
 
@@ -141,7 +146,9 @@ competitor offers.
 - **Detail pane** (bottom, collapsed to a one-line summary by default):
   tabs for Processes, Connections, Startup, Sensors and Recordings. It
   slides up to half or three quarters of the window. The collapsed line
-  still answers "is anything running away".
+  still answers "is anything running away" and reports coverage intervals
+  and restricted columns, plus an unattributed share where accounting is
+  compatible and additive.
 - **Inspector** (right, hidden by default): opens when something is
   selected. One inspector, content follows the selection.
 
@@ -184,22 +191,35 @@ decimation keeps minima and maxima, never smooths; hover reads raw samples.
 
 | Lane | Question | Hero | Graph | Detail view (expanded) |
 | --- | --- | --- | --- | --- |
-| CPU | How hard is it working, and who is working it? | Total % | Stacked area, user under system; cluster sub-band with load and frequency per cluster | Per-core heat strip over time grouped by cluster, frequency line, load averages |
+| CPU | How hard is it working, and who is working it? | Total % of the whole machine, 0-100 | Stacked area, user under system; cluster sub-band with load and frequency per cluster | Per-core heat strip over time grouped by cluster, frequency line, load averages; per-process rows default to 100 * delta(cpuTime) / (delta(elapsed) * logical CPU count), with an option switching them to the one-core-equals-100% convention (`top`-style, values can exceed 100%) |
 | Memory | How full and how stressed? | Used of total | Stacked composition (app, wired, compressed, cached) under a capacity line; pressure band on top | Swap in/out rate, compression ratio, page-ins, per-app footprint growth |
-| GPU | Is the GPU busy? | Utilisation % | Area plus GPU memory line | Per-app GPU time, frequency, FPS of the frontmost game |
-| Power | What does this cost? | System watts | Stacked watts by component (CPU, GPU, Neural Engine, DRAM); battery line with charging bands on laptops | Per-app energy, assertions, battery health as nested capacity bars |
+| GPU | Is the GPU busy? | Busy % | Area plus GPU memory line; per-app GPU time (ms/s) is a different scale than device utilisation and is labelled as such | Per-app GPU time, frequency, FPS of the frontmost game |
+| Power | What does this cost? | System watts from one qualified source: measured system draw, or battery draw, or an estimated SoC draw, whichever is known-valid | Component watts (CPU, GPU, Neural Engine, DRAM) from the fallback ladder's labelled estimate rungs, never summing overlapping rails or double-counting, and not forced to equal the system figure; battery line with charging bands on laptops | Per-app modeled energy, assertions, battery health as nested capacity bars |
 | Disk | Is storage the bottleneck? | Read + write rate | Mirrored: reads above, writes below (P9) | Per-volume small multiples, capacity, cumulative writes, SMART health |
 | Network | Where is bandwidth going? | Down + up rate | Mirrored: download above, upload below | Per-interface small multiples, per-app traffic, connections |
-| Thermal | Is it throttling? | Hottest sensor | Hottest-sensor line on thermal pressure bands (P12); fan speed | Sensors grouped by region with Current, Min, Max, Average (P15) |
+| Thermal | Is it throttling? | Hottest sensor, with its identity labelled or a pinned sensor so identity changes do not fake a trend | Hottest-sensor line on thermal pressure bands (P12); fan speed | Sensors grouped by region with Current, Min, Max, Average (P15) |
 
 Battery is part of Power, not its own lane. On a desktop Mac the battery
 elements are absent, not greyed out.
 
+Reading caveats the UI states rather than hides: cluster frequency and
+residency give context about where work likely ran and at what clock,
+not proof of where a given process ran or of compute capacity; a QoS
+label biases scheduling toward a cluster without proving actual core
+placement. Thermal pressure plus a hottest-sensor reading is not proof
+of throttling. Per-process GPU time in ms/s is not automatically
+utilisation percent, and per-app memory and GPU figures are not
+necessarily additive across processes. Per-app energy is each process's
+own `ri_energy_nj` modeled estimate, never a sum of `ri_billed_energy`
+(which is energy billed to a task by others) and not measured battery
+watts; kernel and permission gaps are expected and shown.
+
 ### Time
 
 - **Cursor**: hovering any lane draws one hairline through all lanes and
-  shows a readout chip: time, value, and "top then" (the top processes at
-  that instant, P3). This is the signature interaction.
+  shows a readout chip: time, value, and "top then" (the leading recorded
+  contributors at that instant where a source, retention and a matching
+  sample exist, P3). This is the signature interaction.
 - **Ranges**: 1 min, 10 min, 1 h, 6 h, 24 h pills, plus scroll and pinch
   to pan and zoom further back, as far as history goes.
 - **Range selection** (P7): drag across any lane to select a time window.
@@ -207,11 +227,18 @@ elements are absent, not greyed out.
   shows a range report (top apps per subsystem, totals, percentiles).
   Command-drag a second range to compare two windows.
 - **Live edge**: scrubbing or selecting detaches from live; recording
-  continues. Space pauses sampling for a screenshot of a fault; Command-0
-  returns to now.
+  continues. Space freezes the display while recording continues
+  underneath, for screenshotting a fault; a separate Pause Recording
+  control stops sampling and leaves a labelled gap. Command-0 returns to
+  now.
 - **Markers**: automatic markers for sleep and wake, power source changes,
-  thermal and memory pressure transitions, app launches and crashes, and
-  the user's own process actions; M drops a named marker.
+  thermal and memory pressure transitions, observed process starts and
+  exits, and the user's own process actions; M drops a named marker.
+  Lifecycle markers record first and last observed samples, so processes
+  shorter than the sampling interval can be missed, and exit or crash
+  reasons appear only where the source provides them. A process is marked
+  Not Responding only after the state persists across samples, never on
+  one spike.
 
 ### Selection and scope
 
@@ -222,9 +249,11 @@ volume, an interface, a sensor).
 Selecting an app or process:
 
 1. The toolbar scope pill shows it, with a clear button.
-2. Every lane overlays the app's share of the total as a second series in
-   the lane's hue, and its top-contributor list keeps the app's rank
-   visible.
+2. Every lane whose quantity is attributable overlays the app's share as
+   a second series in the lane's hue, and its top-contributor list keeps
+   the app's rank visible. Thermal, fan, frequency and battery readings
+   stay whole-system context; memory and GPU shares are labelled where
+   they are not strictly additive.
 3. The process pane filters to the app and its helpers.
 4. The inspector fills with the app's detail.
 
@@ -232,13 +261,13 @@ Selection is cleared only by Esc or the clear button.
 
 ### The process pane
 
-The Processes tab in the detail pane is the strongest process table on
-the platform, kept out of the way until wanted.
+The Processes tab keeps detailed process tools out of the way until
+wanted.
 
 - **Grouping**: by app (default, helpers folded under their responsible
   app), as a parent-child tree, flat, or by user.
 - **Columns**: a narrow default set (name, CPU %, memory, energy, disk,
-  network, GPU %, PID, user) and a catalogue of opt-in columns (threads,
+  network, GPU ms/s, PID, user) and a catalogue of opt-in columns (threads,
   wakeups, CPU time, QoS split, instructions, ports, architecture,
   signing, start time). Columns that need the helper show "restricted"
   for other users' processes instead of zeros.
@@ -266,8 +295,9 @@ The other tabs:
   endpoint and traffic, grouped app, then domain, then server.
 - **Startup**: login items, launch agents and daemons, and background
   items, each joined to its measured resource use; Apple-signed items
-  hidden by default. Read-only: Coreography links to System Settings to
-  change them.
+  hidden by default. Read-only and partial where the sources are;
+  Coreography opens the generic System Settings pane to change items
+  unless a verified deep link exists.
 - **Sensors**: every temperature, fan, voltage and power reading in a
   Current, Min, Max, Average table with a reset (P15), grouped by region,
   each with its source and availability.
@@ -345,12 +375,14 @@ allows.
 | --- | --- |
 | Measured | Plain |
 | Estimated | "est." after the value; hover names the method and its known error |
-| Restricted | Lock glyph, "Needs helper", an Install button; the graph frame stays, empty |
+| Restricted (helper-installable) | Lock glyph, "Needs helper", an Install button; the graph frame stays, empty |
+| Restricted (OS-gated or unsupported) | Lock glyph with the reason named; no Install button where only a private entitlement or the OS would lift it |
 | Unavailable | Dashed frame, "Not available on this Mac" and the reason; layout does not jump |
 | Gap | A visible break in the line; hover gives the missing interval |
 | Zero | A flat line at zero with "no activity": a measured zero, distinct from a gap |
 | Collecting | "Collecting..." until the first two samples allow a rate |
-| Paused | Grey ruler, "Paused" chip; navigation still works |
+| Display held | Grey ruler, "Paused" chip; navigation still works; recording continues underneath |
+| Recording paused | Sampling stopped; a labelled gap in every series until resumed |
 
 ### Motion
 
@@ -407,9 +439,14 @@ engine (KDE's compact and full "faces" idea). Nothing is reimplemented.
 
 Apple's Game Overlay (macOS 26) shows no performance numbers. On macOS 27
 the system records frame timing for all Metal layers, and
-`metalperftrace listen --pid` streams it live per process at 1-second
-intervals, which lets Coreography show a game's real frame rate without
-touching the game.
+`metalperftrace listen --pid <pid>` streams it live per process at 1-second
+intervals, which lets Coreography show a game's frame rate without
+touching the game. Each update is an interval summary: it supports a
+labelled aggregate FPS, not raw frame pacing, 1% lows or frame-time
+percentiles. Single-purpose HUDs already exist on this stream
+(zzoko/PerformanceHUD) and on Apple's own HUD (MetalHUDEnabler); the open
+gap is a HUD integrated with the monitoring window's history and
+attribution, not the HUD itself.
 
 ### The HUD
 
@@ -419,14 +456,13 @@ slider, P16):
 ```text
 Level 1  [ 118 fps ]
 
-Level 2  [ 118 fps | frame 8.4 ms | CPU 41% | GPU 87% | 18.2 W | 62 C ]
+Level 2  [ 118 fps (Metal, 1 s agg) | CPU 41% | GPU 87% | 18.2 W est | 62 C ]
 
 Level 3  +--------------------------+     Level 4: Level 3 plus per-cluster
-         | 118 fps   1% low 96      |     load and frequency, memory
-         | frame time  ~~~~~~~~~~~  |     pressure and swap, network,
-         | CPU 41%  P 3.9 GHz       |     battery hours at this draw,
-         | GPU 87%  1.4 GHz         |     thermal pressure, fans
-         | 18.2 W   62 C   nominal  |
+         | 118 fps (Metal, 1 s agg) |     load and frequency, memory
+         | CPU 41%  P 3.9 GHz       |     pressure and swap, network,
+         | GPU 87%  1.4 GHz         |     battery hours at this draw,
+         | 18.2 W   62 C   nominal  |     thermal pressure, fans
          +--------------------------+
 ```
 
@@ -434,31 +470,42 @@ Level 3  +--------------------------+     Level 4: Level 3 plus per-cluster
   text for bright scenes, click-through, and remembered position per
   display.
 - Two shortcuts: toggle the HUD, cycle its density.
-- The FPS source is always named ("Metal, 1 s"), and the value is absent,
-  not zero, when no Metal app is in front.
-- A button switches on Apple's own Metal Performance HUD inside the game
-  (`metalperftrace setup --enable hud`) for frame-by-frame detail that a
-  1-second stream cannot give.
-- Works over full-screen games through the panel's window level and
-  Spaces behaviour (to be proven in spike S6).
+- The FPS source is always named ("Metal, 1 s") and labelled as a
+  1-second aggregate; presented, rendered and generated frames are
+  distinguished where the source exposes them. The value is absent, not
+  zero, when no Metal app is in front.
+- A button switches on Apple's own Metal Performance HUD inside the
+  running game (`metalperftrace setup --enable hud --pid <pid>`) for
+  frame-by-frame detail that a 1-second stream cannot give.
+- Making the panel non-activating without changing the whole app's
+  activation policy is unsolved and belongs to spike S6. Fullscreen
+  support is conditional (native fullscreen,
+  compatibility layers such as CrossOver, and Spaces each behave
+  differently): a test matrix in spike S6 decides which configurations
+  the HUD supports rather than promising blanket coverage.
 
 ### Bottleneck hints
 
 The performance view puts FPS and frame time on the same axis as cluster
-frequency, GPU load, power and thermal pressure. Simple, labelled
-verdicts follow the PresentMon and RTSS idea: "GPU-bound" when GPU load is
-pinned while performance cores idle, "CPU-bound" when the performance
-cluster is saturated at maximum frequency with GPU headroom, "Throttling"
-when thermal pressure rises and frequency steps down. Each verdict shows
-its evidence on hover.
+frequency, GPU load, power and thermal pressure. Labelled hints follow
+the PresentMon and RTSS idea: "looks GPU-bound" when GPU load is pinned
+while performance cores idle, "looks CPU-bound" when the performance
+cluster is saturated at maximum frequency with GPU headroom, "possibly
+throttling" when thermal pressure rises and frequency steps down. Each
+hint shows its evidence on hover; they are heuristics from thresholds,
+not proven verdicts.
 
 ### Sessions and comparisons
 
 Command-R records a named session (P19) at full resolution, including
-per-process detail. On stop, a report shows average, 1% low and 0.1% low
-FPS, frame-time percentiles, per-metric minimum, maximum, average and
-95th percentile, and the top processes. Two sessions compare side by side
-with overlaid graphs, CapFrameX style. Sessions export to CSV and JSON.
+per-process detail. On stop, a report shows average FPS, top observed
+contributors, and per-metric minimum, maximum and average. Per-metric
+95th percentiles require retained raw samples or a validated distribution;
+1% and 0.1% lows and frame-time percentiles require raw frame intervals
+from a bounded `metalperftrace collect` + `overview` recording, gated on spike
+S4 validating that data, and never derived from the 1-second `listen`
+summaries. Two sessions compare side by side with overlaid graphs,
+CapFrameX style. Sessions export to CSV and JSON.
 
 ## History, recordings and alerts
 
@@ -469,17 +516,50 @@ through the menu bar extra). Defaults:
 
 | Tier | Resolution | Kept | Contents |
 | --- | --- | --- | --- |
-| Live | 1 s | 1 h in memory | All series, top contributors per subsystem |
-| Recent | 1 s | 6 h on disk | All series, top 10 contributors per subsystem |
-| Day | 10 s | 7 days | System and per-cluster series (not per core), top contributors |
+| Live | 1 s | 1 h in memory | System series, observed-app ledger and top-N snapshots |
+| Recent | 1 s | 6 h on disk | System series, observed-app ledger and top-10 snapshots per subsystem |
+| Day | 10 s | 7 days | System and per-cluster series, observed-app ledger and top-N snapshots |
 | Month | 1 min | 30 days | System series, per-app daily totals for energy, disk writes and network |
 
-- Downsampled tiers keep minimum, maximum and mean, so spikes survive.
-- Per-process history is stored as top-N snapshots per tick, not as a
-  series per process, which keeps size bounded and survives PID reuse.
-- Retention presets with their disk cost shown, a hard cap, and one-click
-  deletion. History stays on this Mac and is excluded from backups by
-  default.
+- Downsampled tiers keep minimum, maximum and mean, so spikes survive
+  for display. Percentiles over a rolled-up range are computed only from
+  raw samples or a validated mergeable distribution, never from
+  min/max/mean rollups.
+- Attribution history is a bounded per-app cumulative-delta ledger
+  covering every observed process the app's permissions allow, not just
+  the top N: counter deltas per app plus count, duration, resolution
+  and explicit missing intervals. Full-app
+  totals count only observed processes over observed counter intervals,
+  and missing or restricted processes are labelled rather than silently
+  dropped. Coverage is recorded as interval, sample count and duration
+  plus explicit unavailable states, not one scalar share: per-app memory
+  and GPU figures are not additive across processes, and modeled per-app
+  energy is not comparable to measured system watts. A top-N snapshot
+  cannot rebuild the full table, totals or percentiles, so the ledger
+  does the accounting and top-N snapshots are kept only for instant
+  reconstruction. Historical tables show only retained contributors;
+  pinned processes and recorded sessions keep full per-process detail for
+  bounded windows.
+- Sleep and wake history is imported after wake by a bounded background
+  provider. `log show` uses an explicit `--start`/`--end` window and a
+  fixed power-management event predicate; it never scans the whole store
+  without a window. Both log tools and `pmset -g log` have runtime and
+  output-size caps; reaching a cap reports partial coverage and stops the
+  child. Live assertions come from the public API or `pmset -g assertions`
+  while awake, not a reconstruction of past assertions. Sampling stops
+  during sleep rather than through it. Show battery change over
+  sleep separately from observed awake app activity; assertions do not
+  apportion battery drain. Logged wake reasons are evidence, not proven
+  culprits. Retention and detail depend on available logs and permissions.
+  Sampled process starts and ends are never extrapolated across a sleep
+  gap or a reboot.
+- Retention presets with their disk cost shown, a hard storage cap and a
+  hard time cap, and one-click deletion. History stays on this Mac, in a
+  per-user 0700 directory with 0600 files holding the minimum identifiers
+  needed, and is excluded from backups by default. Backup exclusion is
+  not protection: local snapshots and an admin can still read the store,
+  and the UI does not claim otherwise. Exports redact identifiers for
+  sharing.
 
 ### Recordings
 
@@ -504,16 +584,27 @@ hysteresis ("CPU above 90% for 10 s, clear below 70% for 30 s").
 
 - **Inspector depth**: arguments, parent chain, launchd job, signing,
   open files and ports, assertions, threads, wakeups, QoS split.
-- **Sample and spindump** with the report shown in-app and exportable.
+- **Sample and spindump** use allowlisted system tools and validated
+  arguments. Reports open in-app and are exportable; protected targets
+  can remain inaccessible. System diagnostics are separate, explicit
+  background jobs: they can take minutes and create large archives, so
+  show progress, cancellation and disk-use information rather than
+  blocking the window or running them during routine collection.
 - **Signals, suspend and resume, renice**, with identity re-check.
 - **Reverse lookup** of files and ports, system-wide with the helper.
 - **Startup inventory** joined to resource use.
-- **Explanations** for system processes: a curated, offline list of
-  common macOS processes (what it is, why it runs, safe to quit), plus
-  facts read from the process itself (launchd plist, bundle description,
-  signing). Known maintenance work (Spotlight indexing, photo analysis,
-  Time Machine, iCloud sync, software updates) is named as a state with
-  "this will finish on its own" guidance.
+- **Explanations** for system processes: a curated, offline catalogue
+  matched on code signature, path and, where the entry needs it, version,
+  plus facts read from the
+  process itself (launchd plist and scheduling keys, bundle description).
+  An entry describes the process's role; it does not claim its current
+  job, a completion ETA, or a guarantee that quitting is safe right now.
+  Known maintenance work (Spotlight indexing, photo analysis, Time
+  Machine, iCloud sync, software updates) is named as a state with "this
+  will finish on its own" guidance only where a real status source
+  exists: `tmutil status` reports progress, `mdutil -s` reports only
+  whether indexing is enabled. Restricted cells distinguish
+  helper-installable limits from OS-gated or unsupported ones.
 - **Command-line tool** (`coreo`), opt-in: list, top, stats over a time
   range, holders of a file or port, record, export, and `coreo doctor`
   for a data-source report.
@@ -551,8 +642,10 @@ fixtures, benchmarks and tests run the same engine as the window.
   timestamps, an **availability** (measured, estimated with method,
   restricted with reason, unsupported, unavailable) and **provenance**
   (provider, driver, channel, chip profile version).
-- Providers emit cumulative counters; the engine computes rates from the
-  real elapsed time between samples. Counter resets become gaps.
+- Providers emit either cumulative counters or direct gauge samples.
+  Rates come only from counter deltas over the real elapsed time between
+  samples; counter resets become gaps. Gauges such as temperature, memory
+  footprint and frequency are stored as point samples, never differenced.
 - Process identity is PID plus start time everywhere: deltas, history,
   attribution and actions.
 - "Top contributors" is a value type of its own, stored and replayed like
@@ -572,8 +665,10 @@ class.
 | Thermal | Temperatures, fans, thermal pressure | 4 s |
 | Inventory | Battery health, capacity, SMART | 60 s plus events |
 
-- Window hidden: rendering stops and sampling drops to a 10-second
-  record-only cadence, so history stays continuous at low cost.
+- Hidden main window: its rendering stops, but sampling for a visible HUD
+  or menu bar extra keeps its live cadence. Only when nothing visible
+  remains does sampling drop to a 10-second record-only cadence, so
+  history stays continuous at low cost.
 - Low Power Mode on battery: cadences halve, and the app says so.
 - App Nap is respected; missed samples become visible gaps.
 - No subprocesses on the hot path (`ps`, `top`, `nettop`), except the
@@ -590,13 +685,19 @@ after wake and periodically while degraded. For example, CPU and GPU power
 on macOS 27:
 
 ```text
-1. IOReport energy model counters      measured   (frozen on macOS 27 without
-                                                    Apple's private entitlement)
-2. AppleCLPC energy counters           measured   (as macmon 0.9 reads them)
-3. PMP energy histograms               measured   (where present)
+1. IOReport energy model counters      estimated  (may freeze without
+                                                     Apple's private entitlement)
+2. AppleCLPC energy counters           estimated  (as macmon 0.9 reads them)
+3. PMP energy histograms               estimated  (where present)
 4. SMC power rails                     estimated  (community-tested on few chips)
 5. none                                restricted, with the reason shown
 ```
+
+A confirmed frozen source is unusable, not an estimated zero. Try a
+validated fallback; otherwise leave a gap and report the restriction
+or stale-source error. A known entitlement gate is restricted; an
+unexplained source failure is unavailable. An unchanged idle counter
+alone is not proof of freezing.
 
 A Data Sources pane in Settings lists every metric, its active rung,
 provenance and last error, and `coreo doctor` exports the same report for
@@ -605,22 +706,39 @@ bug reports.
 ### Privileged helper
 
 - Optional, installed at the moment of need through `SMAppService` from a
-  restricted cell's Install button, removable in Settings.
+  restricted cell's Install button, removable in Settings. The approval
+  state (pending, approved, needs re-approval, removed) is always visible.
 - A deliberately tiny XPC interface: enrich processes (usage for other
   users' processes), list files and ports of a process, send a signal,
-  spindump. No command execution, no paths to run, no file writes.
+  spindump. The protocol rejects arbitrary commands and executable paths.
+  Diagnostics launch only allowlisted absolute system paths with fixed
+  argument templates and a scrubbed environment, without a shell or PATH
+  search. Templates accept only validated process identities and bounded
+  typed options, never arbitrary caller-supplied argv or output paths.
+  Bound execution time and output; reports return to the app rather than
+  being written to caller-selected paths as root.
 - Every connection is validated against the app's code signature through
   its audit token before the request is read. iStat Menus' two helper
   vulnerabilities are the checklist of what not to do.
+- The helper is not a privilege bypass: it does not lift TCC, SIP or
+  Apple's private entitlements, and task-port-gated fields on
+  SIP-protected or hardened processes stay restricted even with it.
 - Declining costs only the restricted cells; everything else works.
 
 ### Storage
 
-Append-only segment files per series group, fixed-size records, rolled up
-at tier boundaries with minimum, maximum and mean. Attribution is a
-separate log of top-N snapshots with interned process identities. Crash
-recovery truncates to the last valid record (at most a minute lost). No
-database dependency.
+The default candidate is the system SQLite (`sqlite3` ships with macOS,
+so it is not an added dependency): WAL mode, a per-user 0700 directory
+with 0600 files, hard storage and time caps, and crash-safe atomic
+retention. A custom append-only segment store is the fallback if a
+measured storage spike shows SQLite cannot hold the budget. The choice
+is measured, not asserted, and no precise disk costs are claimed ahead of
+it. Rolled-up tiers keep minimum, maximum and mean for display; range
+percentiles require raw samples or a validated mergeable distribution.
+The attribution ledger is a separate per-app cumulative-delta store with
+interned process identities and explicit coverage intervals. A numerical
+unattributed share is shown only for quantities with compatible additive
+system and process accounting.
 
 ### Rendering
 
@@ -632,7 +750,10 @@ database dependency.
 
 Redraw at the slower of the sampling rate and 30 frames per second, with
 the frame-rate range declared to the system. A smooth-scrolling 60 Hz
-option is opt-in and labelled with its cost.
+option is opt-in and labelled with its cost. The custom renderer needs an
+explicit accessibility implementation (chart descriptor and VoiceOver
+summary), which lands in the first milestone alongside the Swift Charts
+surfaces.
 
 ### Concurrency
 
@@ -650,10 +771,14 @@ class, so SwiftUI sees one change per tick.
 | CPU, window hidden, recording | Under 0.3% |
 | Memory footprint | Under 150 MB |
 | Wakeups beyond the sampling rate | Under 5 per second |
-| Launch to first graph | Under 0.8 s |
+| Launch to first paint | Under 0.8 s |
+| First computed rate | Under 2.5 s (needs two samples at the default 1 s tick) |
 
-The engine benchmark runs in CI with recorded fixtures; hardware numbers
-are measured per release and published with it.
+Every target above is unmeasured until spike S2 lands numbers. Self-cost
+covers the whole product: the app, the helper, any subprocess such as
+`metalperftrace` while performance mode runs, and render cost, not just
+the engine. The engine benchmark runs in CI with recorded fixtures;
+hardware numbers are measured per release and published with it.
 
 ### Testing
 
@@ -672,15 +797,26 @@ are measured per release and published with it.
 
 - Packages: drivers, engine (`CoreographyKit`), store, UI; targets: the
   app, the `coreo` tool, the helper.
-- macOS 26 or later, Apple Silicon only (decision 1); macOS 27 features
-  are checked at runtime.
+- macOS 26 or later. Recommendation (decision 1 stays with the owner):
+  keep the repo's `--universal` arm64+x86_64 baseline, gate the
+  Apple-Silicon-only hardware telemetry (clusters, frequency, watts,
+  sensors) at runtime on Intel, and gate macOS 27 features at runtime.
+  "Universal" never labels an arm64-only build.
 - Developer ID signing, hardened runtime, notarized DMG, Sparkle updates.
-  No App Store build: the sandbox denies process listing and the SMC.
+  No App Store build: sandbox restrictions on process introspection and
+  IOKit user clients conflict with the planned feature set. Some process
+  enumeration is permitted; restrictions depend on the API and OS.
 - Repository conventions from `AGENTS.md`: `scripts/build.sh`,
   `scripts/release.sh` with annotated tags, the macOS CI leg, a
   tag-triggered release workflow.
-- One dependency (Sparkle). No telemetry, no analytics; the update check
-  is the only network request.
+- One dependency (Sparkle). No telemetry, no analytics, no external
+  queries about processes or system profiling. The network policy is
+  written down and honest: the Sparkle update check and the update
+  downloads it requests, an optional off-by-default connectivity probe
+  (DNS or ICMP, user-configurable, used only while enabled), and opt-in
+  read-only loopback integrations (local LLM and container runtimes) are
+  the whole list. Chip profiles ship bundled with the app and change only
+  through a signed app release; nothing updates them silently.
 
 ## Scope
 
@@ -689,12 +825,30 @@ are measured per release and published with it.
 1. The window: lanes on a shared time axis, cursor attribution, range
    selection, the collapsed process pane with grouping, heat cells,
    change highlighting, filtering and basic actions, the inspector.
-2. The unprivileged engine: CPU with clusters and frequency, memory,
-   GPU, disk, network interfaces, power with the fallback ladder,
-   thermals, fans, battery.
+   Keyboard-complete navigation, `AXChartDescriptor` on every chart and a
+   table alternative to every graph land in this first milestone, not in
+   a later pass.
+2. The unprivileged engine, in slices: CPU, memory, disk, network
+   interfaces and own-user per-app attribution first; Apple Silicon
+   cluster, frequency, power, thermal, sensor and battery providers join
+   after S1 validates their source mappings and units per chip profile.
 3. One hour of in-memory history and six hours on disk.
 4. Honest states and the self-cost readout.
 5. Keyboard navigation, pause, CSV and JSON export of a range.
+
+Acceptance gates the first slice must pass before widening:
+
+- The per-app ledger includes observed tail apps, not just top
+  contributors, and reports coverage intervals and missing data. A
+  compatible additive metric also reports its unattributed remainder.
+- Every permission path renders its restricted or unavailable state:
+  helper declined, the same-uid wall, a missing sensor or a broken
+  channel.
+- Sleep and counter resets leave visible gaps in live series. Imported
+  sleep history and persistent-store privacy checks belong to M4 after
+  S7/S8; they do not gate the first live window.
+- Charts stay legible at both ends of the glass-opacity slider, in light
+  and dark, with Increase Contrast, and read correctly through VoiceOver.
 
 ### 1.0
 
@@ -712,7 +866,10 @@ are measured per release and published with it.
 
 Per-file disk activity tracing (bounded, helper), desktop widget and
 Control Center control, a process-launch event timeline (needs the
-Endpoint Security entitlement), Prometheus-style export, Wi-Fi details.
+Endpoint Security entitlement), Prometheus-style export, Wi-Fi details,
+and opt-in read-only loopback integrations for local LLM runtimes
+(Ollama, LM Studio) and container engines, where the vendor API reports
+the guest or model detail the OS cannot.
 
 ### Out of scope
 
@@ -725,50 +882,64 @@ themes and skins, cross-platform builds.
 ### Spikes first
 
 Each spike runs on real hardware (an M1 and the newest available chip,
-macOS 27) and ends with a written result in `docs/spikes/`.
+macOS 27) and ends with a written result in `docs/spikes/`. Until a spike
+reports, every hardware-dependent assertion in this plan stays
+unverified.
 
 | Spike | Question | Decides |
 | --- | --- | --- |
-| S1 Power | Which power source is within 10% of `powermetrics` on each chip? | Ladder order and "estimated" labels |
+| S1 Silicon telemetry | Validate power against `powermetrics`, plus cluster/frequency mappings, sensor units and availability per chip; measure errors and counter health | Provider profiles, fallback order and estimate labels |
 | S2 Rendering | Do seven live lanes at 1 s plus a 500-row table stay under 1% CPU on an M1? | Renderer split |
 | S3 Network | Is the private network statistics framework usable without prompts on macOS 27? | Per-app network in MVP or interfaces only |
-| S4 Frame rate | What does `metalperftrace listen --json` emit, what does it cost, does it prompt, does it see games under CrossOver? | HUD frame-rate scope |
+| S4 Frame rate | What does `listen --json` emit and cost, and do bounded `collect` plus `overview --json-include-timeline` captures expose usable raw intervals? Test permissions, multiple layers, CrossOver and presented versus generated frames | Aggregate HUD and raw-frame report scope |
 | S5 Helper | Which columns go blank for root processes without the helper; how does "not responding" get detected? | Default experience without the helper |
 | S6 HUD | Can a non-activating panel float over native full-screen Metal games and across Spaces? | HUD feasibility |
+| S7 Storage and ledger | Do the SQLite store plus the tail-app attribution ledger hold the write budget under retention caps and crash recovery, and do min/max/mean rollups stay honest (no percentiles from rollups)? | Store choice and ledger design |
+| S8 Sleep, logs and permissions | Do `pmset` and `log show` imports cover overnight gaps, and do permission boundaries, backup exclusion and export redaction behave as claimed? | Sleep-history scope and privacy defaults |
 
 ### Milestones
 
 | Milestone | Content | Done when |
 | --- | --- | --- |
-| M0 Foundations | Xcode project and packages, build script, macOS CI leg, `coreo` skeleton, spikes S1-S6 | Spike reports merged; engine builds and tests headless in CI |
+| M0 Foundations | Xcode project and packages, build script, macOS CI leg, `coreo` skeleton, spikes S1-S8 | Spike reports merged; engine builds and tests headless in CI |
 | M1 Engine | Metric model, scheduler, CPU, memory, process, disk and network providers, in-memory store | `coreo` streams honest metrics at 1 s within the tick budget |
 | M2 Silicon | IOReport, SMC and HID drivers, chip profiles, power, frequency, thermal and GPU providers, Data Sources report | Full sensor set on the test chips; virtual machine run shows correct "unavailable" states |
-| M3 Window | Lanes, cursor, process pane, inspector, states, self-cost | The owner uses it instead of Activity Monitor for a week; under 1% CPU |
-| M4 History | Disk store, scrubbing, attribution in time, range reports, markers, export | 24-hour soak clean; "who was on top at 14:02" works; MVP beta ships |
+| M3 Window | Lanes, cursor, process pane, inspector, states, self-cost, accessibility | The owner uses it instead of Activity Monitor for a week; every chart has an AX descriptor and a keyboard/table alternative; self-cost measured end to end (app, helper, subprocess, render) |
+| M4 History | Disk store, scrubbing, attribution in time, range reports, sleep import, markers, export | 24-hour soak clean; retained attribution works; S8-supported sleep import preserves gaps; permissions, retention/deletion and redacted export checks pass; MVP beta ships |
 | M5 Power tools | Helper, other users' processes, files and ports, reverse lookup, sample and spindump, Startup and Connections tabs, filter grammar | Helper passes the security checklist; declining it loses only restricted cells |
-| M6 Ambient and performance | Menu bar extra, HUD, frame rate, recordings and comparison, alerts, explanations | HUD over a full-screen game; session report matches a reference capture |
+| M6 Ambient and performance | Menu bar extra, HUD, frame rate, recordings and comparison, alerts, explanations | HUD over a game in every configuration the S6 matrix cleared; the HUD presents only labelled aggregate FPS from `listen`, never frame pacing, and raw-interval statistics appear only from validated session recordings; session report matches a reference capture |
 | M7 1.0 | Accessibility, localisation, Settings, Sparkle, notarized release, published performance report | Release checklist complete; 1.0 tagged |
 
 ## Risks
 
 | Risk | Mitigation |
 | --- | --- |
-| Apple gates or renames power and sensor channels again | Chip profiles as data, fallback ladders, runtime probes, visible "restricted" states, profile updates without an app release, `coreo doctor` reports |
+| Apple gates or renames power and sensor channels again | Chip profiles as data, fallback ladders, runtime probes, visible "restricted" states, `coreo doctor` reports |
 | `metalperftrace listen` changes or is unsuitable | It is used only in performance mode, behind a capability check; without it the HUD shows everything but frame rate |
 | Private network statistics break | Feature flag; fall back to per-interface totals |
 | Swift Charts cannot hold the budget for live lanes | Live lanes already use a custom layer; Charts only for interactive history |
 | Helper vulnerability | Minimal protocol, audit-token code-signature checks, no command surface, review against the iStat Menus CVEs |
+| Overclaiming attribution | Boundaries stated in the UI: browser tabs need browser cooperation, VM and container interiors need vendor APIs, ANE or daemon presence cannot identify a model or prove inference |
 | Self-cost creep | Published budget, CI benchmark gate, in-app self-cost |
-| History store reveals activity (app names, endpoints) | Local only, excluded from backups, retention controls, one-click purge, redaction in exports |
+| History store reveals activity (app names, endpoints) | Local only, 0700/0600 permissions, minimal identifiers, excluded from backups (which is not admin or snapshot protection and is not sold as such), retention controls, one-click purge, redacted exports |
+| Frozen counters read as idle zero | Capability probes distinguish a legitimate zero from a stuck counter; the distinction is tested per chip profile |
 | Scope creep into control features | Principle 7; rejected at proposal time |
 
 ## Decisions for the owner
 
 These need an answer before or during M0. Each has a recommendation.
 
-1. **Minimum macOS.** Recommend macOS 26 Tahoe on Apple Silicon, with
-   macOS 27 features (frame rate) enabled at runtime. Alternative: macOS
-   27 only, simpler but a smaller audience at launch.
+1. **Minimum macOS and architectures.** Recommend macOS 26 Tahoe built
+   universal (arm64+x86_64) per the repo's `--universal` convention, with
+   Apple-Silicon-only telemetry (clusters, frequency, watts, sensors)
+   gated at runtime on Intel and macOS 27 features (frame rate) gated on
+   OS version. Alternatives: Apple Silicon only, which drops Intel Macs
+   still on macOS 26, or macOS 27 only, a smaller audience at launch.
+   Release verification must exercise runtime gates on Intel/macOS 26
+   and Apple Silicon/macOS 26 and 27, using CI where suitable and physical
+   Macs for hardware-dependent checks. Cross-compiling both slices is
+   not runtime validation. Record missing combinations as unverified;
+   "universal" is never applied to an arm64-only build.
 2. **Licence and price.** The repository is public domain (Unlicense), so
    the default is a free, open-source app. Confirm, or decide on a paid
    or donation model before any code lands.

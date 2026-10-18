@@ -16,7 +16,9 @@
 - iStat encodes two series per card with two colours (user/system,
   read/write, efficiency/performance) and repeats the encoding in a legend.
 - Both tools are fixed in time: Activity Monitor's graphs cover about a
-  minute, iStat's dropdowns about two. Neither lets you scrub back to a spike.
+  minute, iStat's captured dropdowns about two. The captured views offer
+  no way to scrub back to a spike; what other iStat surfaces offer is not
+  proven by these screenshots.
 - Numbers follow the user's locale (`7'167`, `150'623'596`). Coreography
   must format with the system locale, never a hard-coded separator.
 
@@ -124,8 +126,10 @@ Observations:
   over time shows the same data more precisely.
 - Rings carry no history. The GPU card shows four instant values with no
   trend.
-- The dropdown is a fixed-size popover: no resizing, no time range, no
-  scrubbing, no drill-down beyond opening Activity Monitor.
+- The captured dropdown is a fixed-size popover: no resizing, no time
+  range control, no scrubbing, no drill-down beyond opening Activity
+  Monitor. These screenshots show only the dropdown surface; they cannot
+  prove the wider iStat Menus app lacks history, ranges or drill-down.
 - The custom purple theme ignores system appearance. Coreography should
   derive its look from the system (light, dark, accent colour, increased
   contrast) and offer at most a restrained accent choice.
