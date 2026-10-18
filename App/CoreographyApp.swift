@@ -26,5 +26,9 @@ private struct CoreographyApp: App {
             MenuBarLabel(model: dashboard)
         }
         .menuBarExtraStyle(.window)
+
+        Settings {
+            SettingsView(model: dashboard)
+        }
     }
 }

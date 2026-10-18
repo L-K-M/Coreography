@@ -33,6 +33,8 @@ struct DashboardView: View {
                 NetworkLane(model: model)
                 ThermalLane(model: model)
 
+                AskPanel(model: model)
+
                 if let report = model.rangeReport {
                     RangePanel(model: model, report: report)
                 }

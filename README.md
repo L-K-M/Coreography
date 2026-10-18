@@ -45,6 +45,10 @@ an MCP client's server list:
 }
 ```
 
+In the window, Ask Coreography answers plain-language questions with your
+own Anthropic API key, stored in the Keychain from Settings, using the same
+read-only tools.
+
 The server samples in its own process for now; connecting it to the running
 app with per-client approval is planned.
 
