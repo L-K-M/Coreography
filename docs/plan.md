@@ -17,6 +17,7 @@
 - [Performance mode for games and heavy work](#performance-mode-for-games-and-heavy-work)
 - [History, recordings and alerts](#history-recordings-and-alerts)
 - [Power tools](#power-tools)
+- [MCP and natural-language diagnosis](#mcp-and-natural-language-diagnosis)
 - [Architecture](#architecture)
 - [Scope](#scope)
 - [Roadmap](#roadmap)
@@ -613,6 +614,126 @@ hysteresis ("CPU above 90% for 10 s, clear below 70% for 30 s").
   holder of a file or port) for Shortcuts and Spotlight.
 - **Command palette** (Command-Shift-P) for every action by name.
 
+## MCP and natural-language diagnosis
+
+Two clients of the same diagnostic tools:
+
+- **MCP server**: let an external assistant query live readings and
+  recorded history. Coreography needs no model key for this; the client
+  chooses its model and credentials.
+- **Ask Coreography**: an optional, native question field in the existing
+  inspector. Connect a BYO API key to ask questions inside the app. An
+  on-device model can be offered where available; model availability and
+  tool-calling quality must be proven in spike S9.
+
+The graphs remain the main interface. Asking a question opens an answer
+beside the relevant graphs, with links to the processes and time ranges
+used as evidence. Example questions:
+
+- "Why is my Mac slow right now?"
+- "What's using all my memory?"
+- "What changed in the last ten minutes?"
+- "What was running when it froze at 14:02?"
+
+### Shared diagnostic contract
+
+One application service supplies the window, CLI, MCP server and in-app
+assistant. Start with six bounded, typed tools, reusing existing engine
+queries rather than adding another collector:
+
+| Tool | Returns |
+| --- | --- |
+| `get_system_summary` | CPU activity, memory pressure, swap activity, I/O, available power and thermal context |
+| `get_top_processes` | Paged contributors for a named metric and time range, with grouping and coverage |
+| `get_metric_history` | A bounded series at its retained resolution, with gaps |
+| `get_process_details` | Process identity, resource readings and a matching curated explanation |
+| `get_sleep_history` | Available sleep, wake and assertion records for a range |
+| `get_data_sources` | Capabilities, source provenance and unavailable or restricted readings |
+
+Results carry units, source intervals, sample age, availability, coverage
+and stable evidence references. A question anchors its queries to one
+time range and a diagnostic snapshot; each reading still reports its
+actual sampling interval. Follow-up calls cannot silently mix a past
+selection with live values. Process references include PID and start
+time. Server-side limits bound ranges, row counts, output size and query
+work, even if a client requests more. Paged results explicitly report
+remaining data and return a continuation cursor bound to the query,
+snapshot and approved scope. Invalid or expired cursors fail explicitly.
+Requests exceeding range or work budgets return an actionable error;
+partial results are labelled with their coverage, never silently treated
+as complete.
+
+The diagnostic service computes facts and structured signals, such as
+sustained memory pressure with swap activity. The model explains them
+and proposes hypotheses. Render numeric evidence directly from tool
+results, with clickable source references; distinguish observations from
+possible causes and say when data is insufficient. Neither a busy
+process nor simultaneous spikes alone proves why the Mac feels slow.
+
+### MCP access
+
+Start with opt-in local stdio through `coreo mcp --stdio`, connected to
+the running app's diagnostic service over peer-authenticated local IPC.
+Validate the actual peer's user and process identity. A CLI bridge is not
+proof of which external assistant launched it: each client pairing needs
+one-time approval in the app and a scoped, revocable app-issued grant.
+Client-provided names are display metadata, never authentication, and
+cannot reuse another client's approval.
+
+Multiple clients share the sampler and store, with per-session and
+global query-rate, concurrency and work budgets. Settings shows approved
+clients, their scopes and connected sessions, with individual revocation.
+Check grants at request dispatch and result delivery; disabling access
+closes sessions, cancels pending queries and rejects further requests.
+
+The first tool set is read-only. It exposes neither arbitrary SQL, shell
+commands nor process-control actions, and enabling MCP cannot install
+the privileged helper or broaden the approved data-access scope.
+App names and activity may leave the Mac through the external assistant;
+that client's provider and retention settings govern its subsequent use.
+
+### In-app assistant and credentials
+
+Configure a provider and save its key in macOS Keychain. Keep keys out of
+preferences, history, logs, exports and MCP results. Show the selected
+provider, the data-sharing scope and the diagnostic context attached to
+each question. Provider setup authorizes that scope; individual tool
+reads do not need repeated confirmation. Prompts and selected diagnostic
+results go directly to the chosen provider, without a Coreography relay.
+
+Default context is resource metrics, basic app identities and curated
+descriptions. Arguments, environment variables, full paths, file lists
+and network endpoints are excluded from default model context and MCP
+responses. Broader disclosure requires an explicit scope change. Treat
+every process-supplied name or string as data, never as tool instructions.
+
+Start with one BYO provider adapter; add providers only when demand and
+the S9 compatibility tests justify them. Keep model transport, credential
+storage and response parsing behind provider/driver interfaces, separate
+from the metric engine. Calls run only on explicit questions, with
+cancellation, request budgets and visible provider errors. Monitoring
+continues if inference is slow, unavailable or cancelled. Without a
+model, charts, diagnostics, curated explanations and MCP still work.
+
+### Delivery and acceptance
+
+Ship the diagnostic contract and local MCP access with the power-tool
+milestone. Add the optional in-app assistant after that contract passes
+S9, with BYO cloud access first if on-device results are insufficient.
+It is not a gate for the first graph-first beta.
+
+Use recorded fixtures for the two headline questions: memory pressure
+with a known growing app, and a slowdown with competing or insufficient
+signals. Require matching evidence references and correct missing-data
+handling. Exercise MCP initialization, tool discovery, pagination,
+invalid or oversized requests, client disconnect and disable/revocation.
+Reject unapproved clients, forged client names and revoked grants,
+including revocation during a query. Exercise expired cursors and request
+floods against session and global budgets. Check redaction, forged tool
+arguments, hostile process strings, key handling, provider failures and
+cancellation. Measure query and inference overhead separately from idle
+monitoring; neither may block collection or the window.
+
 ## Architecture
 
 ### Layers
@@ -635,6 +756,10 @@ flowchart TB
 The metric engine is a Swift package with no UI dependency. The app and
 the `coreo` command-line tool are both clients of it, so diagnostics,
 fixtures, benchmarks and tests run the same engine as the window.
+The application-layer diagnostic service owns the shared tool contract;
+MCP and Ask Coreography use it rather than accessing drivers or storage
+directly. The Ask service executes validated model tool calls through
+that contract, subject to the same permissions and query limits.
 
 ### Metric model
 
@@ -809,14 +934,14 @@ hardware numbers are measured per release and published with it.
 - Repository conventions from `AGENTS.md`: `scripts/build.sh`,
   `scripts/release.sh` with annotated tags, the macOS CI leg, a
   tag-triggered release workflow.
-- One dependency (Sparkle). No telemetry, no analytics, no external
-  queries about processes or system profiling. The network policy is
-  written down and honest: the Sparkle update check and the update
-  downloads it requests, an optional off-by-default connectivity probe
-  (DNS or ICMP, user-configurable, used only while enabled), and opt-in
-  read-only loopback integrations (local LLM and container runtimes) are
-  the whole list. Chip profiles ship bundled with the app and change only
-  through a signed app release; nothing updates them silently.
+- One planned third-party runtime dependency (Sparkle); model adapters
+  use system networking. No telemetry or analytics. Network activity is
+  the update check and requested downloads, an optional off-by-default
+  connectivity probe, opt-in read-only loopback integrations, and explicit
+  Ask Coreography requests to the chosen provider with the approved
+  context. External MCP clients have their own network policies. Chip
+  profiles ship bundled with the app and change only through a signed app
+  release; nothing updates them silently.
 
 ## Scope
 
@@ -859,7 +984,8 @@ Acceptance gates the first slice must pass before widening:
    recordings with percentiles.
 5. Alerts.
 6. Process explanations and maintenance states.
-7. Command-line tool, URL scheme, App Intents.
+7. Command-line tool, URL scheme, App Intents, shared diagnostic tools and
+   opt-in local MCP access. Optional Ask Coreography follows the S9 gate.
 8. Accessibility pass with audio graphs; localisation infrastructure.
 
 ### Later
@@ -896,6 +1022,7 @@ unverified.
 | S6 HUD | Can a non-activating panel float over native full-screen Metal games and across Spaces? | HUD feasibility |
 | S7 Storage and ledger | Do the SQLite store plus the tail-app attribution ledger hold the write budget under retention caps and crash recovery, and do min/max/mean rollups stay honest (no percentiles from rollups)? | Store choice and ledger design |
 | S8 Sleep, logs and permissions | Do `pmset` and `log show` imports cover overnight gaps, and do permission boundaries, backup exclusion and export redaction behave as claimed? | Sleep-history scope and privacy defaults |
+| S9 Diagnostic clients | Can MCP and one model client answer the two headline questions from the same bounded tool results, preserve evidence and privacy, and cancel without blocking monitoring? Test BYO and available on-device models | MCP contract and optional assistant scope |
 
 ### Milestones
 
@@ -906,8 +1033,8 @@ unverified.
 | M2 Silicon | IOReport, SMC and HID drivers, chip profiles, power, frequency, thermal and GPU providers, Data Sources report | Full sensor set on the test chips; virtual machine run shows correct "unavailable" states |
 | M3 Window | Lanes, cursor, process pane, inspector, states, self-cost, accessibility | The owner uses it instead of Activity Monitor for a week; every chart has an AX descriptor and a keyboard/table alternative; self-cost measured end to end (app, helper, subprocess, render) |
 | M4 History | Disk store, scrubbing, attribution in time, range reports, sleep import, markers, export | 24-hour soak clean; retained attribution works; S8-supported sleep import preserves gaps; permissions, retention/deletion and redacted export checks pass; MVP beta ships |
-| M5 Power tools | Helper, other users' processes, files and ports, reverse lookup, sample and spindump, Startup and Connections tabs, filter grammar | Helper passes the security checklist; declining it loses only restricted cells |
-| M6 Ambient and performance | Menu bar extra, HUD, frame rate, recordings and comparison, alerts, explanations | HUD over a game in every configuration the S6 matrix cleared; the HUD presents only labelled aggregate FPS from `listen`, never frame pacing, and raw-interval statistics appear only from validated session recordings; session report matches a reference capture |
+| M5 Power tools | Helper, other users' processes, files and ports, reverse lookup, sample and spindump, Startup and Connections tabs, filter grammar, diagnostic tools and local MCP | Helper and MCP access tests pass; declining either preserves the unprivileged dashboard; one sampler serves UI and clients |
+| M6 Ambient and performance | Menu bar extra, HUD, frame rate, recordings and comparison, alerts, explanations; optional Ask Coreography after S9 | HUD works in S6-supported configurations; `listen` provides labelled aggregate FPS, with raw-frame statistics only from validated captures; reference captures match; any enabled assistant passes S9 evidence, privacy and cancellation tests |
 | M7 1.0 | Accessibility, localisation, Settings, Sparkle, notarized release, published performance report | Release checklist complete; 1.0 tagged |
 
 ## Risks
@@ -923,6 +1050,8 @@ unverified.
 | Self-cost creep | Published budget, CI benchmark gate, in-app self-cost |
 | History store reveals activity (app names, endpoints) | Local only, 0700/0600 permissions, minimal identifiers, excluded from backups (which is not admin or snapshot protection and is not sold as such), retention controls, one-click purge, redacted exports |
 | Frozen counters read as idle zero | Capability probes distinguish a legitimate zero from a stuck counter; the distinction is tested per chip profile |
+| Model explanations invent causes or expose sensitive context | Structured diagnostic evidence, scoped read-only tools, redaction, Keychain credentials and explicit provider selection; missing evidence stays unknown |
+| Enabled MCP exposes activity or exhausts resources through unapproved clients | Off by default, peer-authenticated IPC, scoped client grants, individual revocation, session and global budgets, visible sessions and one-switch disable |
 | Scope creep into control features | Principle 7; rejected at proposal time |
 
 ## Decisions for the owner
@@ -945,9 +1074,9 @@ These need an answer before or during M0. Each has a recommendation.
    or donation model before any code lands.
 3. **History default.** Recommend recording while the app runs, with
    background recording opt-in through the menu bar extra.
-4. **Process explanations.** Recommend a curated offline list plus facts
-   from the process; no AI assistant in 1.0. An on-device model through
-   Apple's Foundation Models framework could come later if the curated
-   list proves too narrow.
+4. **Natural-language access.** Recommend local MCP first, then an
+   optional BYO-key assistant using the same tools. Evaluate on-device
+   support in S9. Curated process explanations remain the offline
+   baseline; the model adds evidence-backed narrative, not new readings.
 5. **Helper prompt.** Recommend offering it only at the moment of need,
    never at first launch.
