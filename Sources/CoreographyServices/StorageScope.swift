@@ -4,6 +4,8 @@ import CoreographyKit
 public typealias CapturedDisks = DiskSnapshot
 public typealias CapturedStorageID = StorageDeviceID
 public typealias CapturedStorageDevice = DiskDeviceReading
+public typealias CapturedVolumes = VolumeList
+public typealias CapturedVolume = VolumeCapacity
 
 public enum StorageScope: Hashable, Sendable {
     case automatic

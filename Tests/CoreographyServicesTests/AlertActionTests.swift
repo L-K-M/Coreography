@@ -39,7 +39,7 @@ final class AlertActionTests: XCTestCase {
         let model = DashboardModel(
             monitor: try SystemMonitor(driver: Ticking()), interval: .milliseconds(10),
             shortcutRunner: ShortcutLauncher(runner: shortcuts),
-            volumeReader: StartupVolumeMonitor(driver: NearlyFull())
+            volumeReader: VolumeMonitor(driver: NearlyFull())
         )
         let suite = "AlertActionTests.\(UUID())"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
@@ -57,6 +57,7 @@ final class AlertActionTests: XCTestCase {
         let runs = await shortcuts.runs
         XCTAssertEqual(runs, ["Free Up Space"], "one raise runs the Shortcut once")
         XCTAssertEqual(model.actionMessage, "Shortcut Free Up Space for “Startup disk under 10% free” failed: it exited with status 1")
+        XCTAssertEqual(model.volumes?.volumes.map(\.name), ["Macintosh HD"], "the same read lists every volume")
 
         await model.refreshShortcuts()
         XCTAssertEqual(model.availableShortcuts, ["Free Up Space", "Mute"])
@@ -77,6 +78,13 @@ private actor RecordingShortcuts: ShortcutRunning {
 private struct NearlyFull: VolumeCapacityReading {
     func startupVolume() async -> Result<RawVolumeCapacity, VolumeCapacityError> {
         .success(RawVolumeCapacity(totalBytes: 1_000, availableBytes: 50))
+    }
+
+    func mountedVolumes() async -> Result<[RawVolume], VolumeCapacityError> {
+        .success([RawVolume(
+            path: "/", name: "Macintosh HD", kind: .internal, isStartup: true,
+            capacity: RawVolumeCapacity(totalBytes: 1_000, availableBytes: 50)
+        )])
     }
 }
 

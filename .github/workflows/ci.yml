@@ -489,6 +489,26 @@ jobs:
           print(json.dumps({"days": len(days)}))
           PY
 
+      - name: Smoke-test volume capacity
+        run: |
+          set -euo pipefail
+          dist/Coreography.app/Contents/Helpers/coreo volumes --json > "$RUNNER_TEMP/volumes.json"
+          python3 - "$RUNNER_TEMP/volumes.json" <<'PY'
+          import json, os, sys
+          with open(sys.argv[1]) as source:
+              listing = json.load(source)
+          assert listing.get("problem") is None, listing
+          startup = [volume for volume in listing["volumes"] if volume["isStartup"]]
+          assert len(startup) == 1 and startup[0]["path"] == "/", listing
+          for volume in listing["volumes"]:
+              assert 0 <= volume["availableBytes"] <= volume["totalBytes"], volume
+          # The same disk through statvfs; APFS accounting differs, so only the order of magnitude must agree.
+          stat = os.statvfs("/")
+          total = stat.f_frsize * stat.f_blocks
+          assert total / 2 <= startup[0]["totalBytes"] <= total * 2, (startup, total)
+          print(json.dumps(listing["volumes"]))
+          PY
+
       - name: Smoke-test per-process network
         run: |
           set -euo pipefail

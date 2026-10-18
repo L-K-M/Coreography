@@ -15,6 +15,7 @@ private struct Coreo {
            coreo silicon --once --json
            coreo connections --once --json
            coreo traffic --once --json
+           coreo volumes --json
            coreo diagnose --json [--seconds N]
            coreo mcp --stdio [--standalone]
            coreo history --json METRIC [--minutes N]
@@ -33,6 +34,7 @@ private struct Coreo {
     activity and frequency from IOReport over one second (Apple Silicon only).
     connections reports the TCP and UDP sockets of your own processes.
     traffic reports each process's TCP and UDP byte rates over two seconds.
+    volumes reports each visible volume's size and space available for important use.
     diagnose samples for N seconds (3-60, default 5) and reports a summary with
     fact-only signals, top apps by CPU and disk, and data-source availability.
     history prints what the app recorded for METRIC (cpu, memoryUsed, memoryPressure,
@@ -108,6 +110,12 @@ private struct Coreo {
                 }
                 let service = try DiagnosticService()
                 try emit(await service.captureSiliconOnce())
+            case ["volumes", "--json"]:
+                guard DiagnosticService.nativeSamplingSupport == .supported else {
+                    throw CommandError.unsupportedPlatform
+                }
+                let service = try DiagnosticService()
+                try emit(await service.volumes())
             case ["traffic", "--once", "--json"], ["traffic", "--json", "--once"]:
                 guard DiagnosticService.nativeSamplingSupport == .supported else {
                     throw CommandError.unsupportedPlatform
