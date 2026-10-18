@@ -3,7 +3,7 @@
 Track actual delivery against the [product plan](plan.md). A stage is
 complete only after its relevant checks and review pass and its PR merges.
 
-## Current slice: process filter grammar
+## Current slice: on-disk history
 
 The native foundation merged in [PR #5](https://github.com/L-K-M/Coreography/pull/5)
 at `aee9494` after two GLM rounds and passing CI. Process monitoring merged
@@ -32,8 +32,9 @@ the diagnostic contract in [PR #23](https://github.com/L-K-M/Coreography/pull/23
 MCP over stdio in [PR #24](https://github.com/L-K-M/Coreography/pull/24);
 Ask Coreography in [PR #25](https://github.com/L-K-M/Coreography/pull/25);
 alerts in [PR #26](https://github.com/L-K-M/Coreography/pull/26);
-process change highlighting in [PR #27](https://github.com/L-K-M/Coreography/pull/27).
-This slice adds the process filter grammar.
+process change highlighting in [PR #27](https://github.com/L-K-M/Coreography/pull/27);
+the filter grammar in [PR #28](https://github.com/L-K-M/Coreography/pull/28).
+This slice records six hours of system history to disk.
 
 Implemented:
 
@@ -193,6 +194,16 @@ Implemented:
   data (`#listening`, `#not-responding`, `#preventing-sleep`) and
   unreadable terms are named under the field rather than dropped; saved
   filter chips and reverse lookup remain.
+- On-disk history, first part: the app records 17 system series (CPU,
+  memory composition and pressure, swap, thermal, GPU, battery, system
+  power, hottest sensor, primary network, automatic disk) to the system
+  SQLite in WAL mode, in a 0700 directory with a 0600 file excluded from
+  backups. Readings keep their availability, so gaps replay as gaps.
+  Writes batch into one transaction every 30 s; each batch also enforces
+  the 6-hour time cap and a 256 MB size cap. Settings deletes history in
+  one click; `coreo history --json METRIC` reads it, and the CLI never
+  records samples. Replaying stored history in the window, rollups, the app ledger
+  on disk and sleep import remain (S7/S8, M4).
 - A thermal lane showing system thermal pressure as a band, from the public
   `com.apple.system.thermalpressurelevel` notify state. Temperatures, fans
   and the hottest-sensor line wait for the sensor provider.
@@ -215,6 +226,7 @@ time, helper, MCP or model integration in this slice.
 | Native process collection, cancellation and CPU units | Passed [native review-fix CI](https://github.com/L-K-M/Coreography/actions/runs/39105964147) at `7df03ec`, including cancellation, saturation and `getrusage` cross-checks |
 | Native network MIB, wide-counter mapping and three-lane UI | Passed at `e62fac1`, including native C fixtures, live CLI and both executable architectures; integrated candidate pending |
 | Native IOKit storage counters and four-lane renderer | Passed [native CI](https://github.com/L-K-M/Coreography/actions/runs/39110306993) at `6434722`: 75 tests, 16 drivers, 32 measured rate fields, no inventory issues; owner checks pending |
+| On-disk history store and recorder | History slice: 148 Swift tests pass on Linux against the real system SQLite (round trip with gaps, duplicates, retention, reopen, permissions, WAL, batching); native CI checks the CLI and file permissions |
 | Process filter grammar | Filter slice: 143 Swift tests pass on Linux (predicates, units, tokens, reported issues, unknown-is-not-zero, group visibility) |
 | Process heat, new and exited rows | Lifecycle slice: 139 Swift tests pass on Linux (new-row window, ghost expiry, sleep not read as exits); UI compile pending |
 | Alerts | Alerts slice: 137 Swift tests pass on Linux (debounce, hysteresis, unknown readings, cooldown, permission-once delivery, end-to-end tint, marker and notification); native notification permission and banners are owner checks |

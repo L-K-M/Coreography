@@ -13,8 +13,10 @@ let package = Package(
         .target(name: "CoreographySystem", linkerSettings: [
             .linkedFramework("IOKit", .when(platforms: [.macOS]))
         ]),
+        .systemLibrary(name: "CSQLite", path: "Sources/CSQLite"),
         .target(name: "CoreographyDrivers", dependencies: [
-            .target(name: "CoreographySystem", condition: .when(platforms: [.macOS]))
+            .target(name: "CoreographySystem", condition: .when(platforms: [.macOS])),
+            "CSQLite"
         ]),
         .target(name: "CoreographyKit", dependencies: ["CoreographyDrivers"]),
         .target(name: "CoreographyServices", dependencies: ["CoreographyKit"]),

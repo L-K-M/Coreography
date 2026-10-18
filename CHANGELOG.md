@@ -7,6 +7,8 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
 ## [Unreleased]
 
 ### Added
+- Six hours of system history recorded to a private SQLite store, with
+  one-click deletion and `coreo history`.
 - Process filter grammar: predicates such as `cpu:>10` and `mem:>1GB` and
   tokens such as `#apps`, `#mine` and `#new`; unusable terms are named.
 - Process pane heat-shaded cells, briefly tinted new processes and a

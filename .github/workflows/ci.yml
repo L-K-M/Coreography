@@ -364,6 +364,22 @@ jobs:
               server.stdout.close()
           PY
 
+      - name: Smoke-test the on-disk history store
+        run: |
+          set -euo pipefail
+          dist/Coreography.app/Contents/Helpers/coreo history --json cpu --minutes 5 > "$RUNNER_TEMP/history.json"
+          python3 - "$RUNNER_TEMP/history.json" <<'PY'
+          import json, os, stat, sys
+          with open(sys.argv[1]) as source:
+              report = json.load(source)
+          assert report["metric"] == "cpu" and report["storedSamples"] == len(report["samples"])
+          directory = os.path.expanduser("~/Library/Application Support/Coreography/History")
+          assert stat.S_IMODE(os.stat(directory).st_mode) == 0o700, "history directory must be private"
+          database = os.path.join(directory, "history.sqlite")
+          assert stat.S_IMODE(os.stat(database).st_mode) == 0o600, "history file must be private"
+          print(json.dumps({"storedSamples": report["storedSamples"]}))
+          PY
+
       - name: Smoke-test native network counters
         run: |
           set -euo pipefail

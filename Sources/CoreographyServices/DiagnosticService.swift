@@ -23,6 +23,19 @@ public struct DiagnosisReport: Codable, Sendable {
     public let dataSources: [DataSourceStatus]
 }
 
+/// Stored readings for `coreo history`.
+public struct HistoryReport: Codable, Sendable {
+    public struct Sample: Codable, Sendable {
+        public let time: Date
+        public let value: Double?
+        public let availability: MetricAvailability
+    }
+
+    public let metric: String
+    public let storedSamples: Int
+    public let samples: [Sample]
+}
+
 public struct DiagnosticReport: Codable, Sendable {
     public let schemaVersion: Int
     public let buildVersion: String
@@ -130,6 +143,22 @@ public actor DiagnosticService {
             topCPUApps: try DiagnosticTools.topApps(snapshot, metric: .cpu),
             topDiskApps: try DiagnosticTools.topApps(snapshot, metric: .disk),
             dataSources: DiagnosticTools.dataSources(snapshot)
+        )
+    }
+
+    /// Read what the app has recorded; the CLI never writes history.
+    public func history(metric name: String, minutes: Int) async throws -> HistoryReport {
+        guard let metric = HistoryMetric.allCases.first(where: { "\($0)" == name }) else {
+            throw DiagnosticError.invalidArgument("Unknown metric; use one of " + HistoryMetric.allCases.map { "\($0)" }.joined(separator: ", "))
+        }
+        let (recorder, problem) = HistoryRecorder.makeDefault()
+        guard let recorder else { throw DiagnosticError.unavailable(problem ?? "History store unavailable") }
+        let end = Date()
+        let window = TimeInterval(min(max(minutes, 1), Int(HistoryStore.retention / 60)) * 60)
+        let samples = try await recorder.samples(metric, from: end.addingTimeInterval(-window), to: end)
+        return HistoryReport(
+            metric: name, storedSamples: samples.count,
+            samples: samples.map { HistoryReport.Sample(time: $0.time, value: $0.value, availability: $0.availability) }
         )
     }
 
