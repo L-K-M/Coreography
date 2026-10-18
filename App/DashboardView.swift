@@ -656,9 +656,14 @@ private enum PowerText {
         }
         var parts = [String(localized: "Battery \(MetricText.percent(charge))")]
         if let watts = frame.batteryPowerWatts.numericValue {
-            parts.append(watts >= 0
-                ? String(localized: "charging \(MetricText.watts(watts))")
-                : String(localized: "discharging \(MetricText.watts(-watts))"))
+            // The charging flag decides the label; a zero current is neither direction.
+            if frame.isCharging == true {
+                parts.append(String(localized: "charging \(MetricText.watts(watts))"))
+            } else if watts < 0 {
+                parts.append(String(localized: "discharging \(MetricText.watts(-watts))"))
+            } else {
+                parts.append(String(localized: "not charging"))
+            }
         }
         if let minutes = frame.batteryMinutesRemaining.numericValue {
             let duration = Duration.seconds(minutes * 60).formatted(.units(allowed: [.hours, .minutes], width: .abbreviated))
