@@ -21,6 +21,10 @@ struct DashboardView: View {
                 if let inventory = model.latest?.inventory {
                     HStack {
                         Text("\(inventory.logicalCPUCount) logical CPUs")
+                        if model.samplingCadence == .lowPower {
+                            Text("Low Power Mode: sampling every \(model.samplingSeconds.formatted()) s")
+                                .help("Coreography halves its sampling rate while Low Power Mode is on")
+                        }
                         Spacer()
                         SelfCostLine(model: model)
                         Spacer()

@@ -23,6 +23,8 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
   after the store first exceeds it.
 
 ### Added
+- Sampling slows to half rate while Low Power Mode is on, and the window
+  says so.
 - The Disk lane shows each mounted volume's used share and free space;
   `coreo volumes --json` reports the same.
 - Settings > Processes shows per-process CPU as one core = 100 %
