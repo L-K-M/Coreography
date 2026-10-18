@@ -106,6 +106,8 @@ public final class DashboardModel {
     public var timeRange: TimeRange = .minute
     /// A dragged time range; cleared only explicitly (plan: Esc or clear).
     public var selection: ClosedRange<Date>?
+    /// The range while a drag is in progress; reports wait for the drag to end.
+    public var draftSelection: ClosedRange<Date>?
     public private(set) var markers: [TimelineMarker] = []
     public private(set) var actionMessage: String?
     public private(set) var contributorHistory: [ContributorSnapshot] = []
