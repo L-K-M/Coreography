@@ -54,8 +54,10 @@ enum ProcessGroups {
         isNew: (ProcessIdentity) -> Bool = { _ in false }, listening: Set<ProcessIdentity>? = nil
     ) -> [ProcessRow] {
         if grouping == .flat {
+            // A flat row still belongs to its app: scope and the ledger key on it.
+            let apps = snapshot.map(appNames) ?? [:]
             return ProcessList.rows(in: snapshot, matching: filter, sortedBy: sort, isNew: isNew, listening: listening)
-                .map { leaf($0, method: nil, appName: $0.name) }
+                .map { leaf($0, method: nil, appName: apps[$0.id] ?? $0.name) }
         }
 
         let parsed = ProcessFilter.parse(filter)
@@ -83,7 +85,9 @@ enum ProcessGroups {
             let name = names[key] ?? key
             // Free text naming the app shows all its members; predicates test each member.
             let nameMatches = parsed.isEmpty || (parsed.isTextOnly && parsed.matchesName(name))
-            let visible = group.filter { nameMatches || parsed.matches($0.0, isNew: isNew($0.0.id), listening: listening) }
+            let visible = group.filter {
+                nameMatches || parsed.matches($0.0, isNew: isNew($0.0.id), appName: name, listening: listening)
+            }
             guard !visible.isEmpty else { continue }
 
             if group.count == 1, let (process, method) = group.first {
@@ -103,6 +107,18 @@ enum ProcessGroups {
             ))
         }
         return sorted(rows, by: sort)
+    }
+
+    /// Each process's app, as the grouped table names it.
+    static func appNames(_ processes: CapturedProcesses) -> [ProcessIdentity: String] {
+        var names: [ProcessIdentity: String] = [:]
+        for row in rows(in: processes, matching: "", sortedBy: .name, grouping: .app) {
+            if let process = row.process { names[process.id] = row.appName }
+            for child in row.children ?? [] {
+                if let process = child.process { names[process.id] = row.appName }
+            }
+        }
+        return names
     }
 
     /// The responsible process owns a member only if it is observed and not
