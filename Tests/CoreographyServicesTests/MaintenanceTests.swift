@@ -38,6 +38,14 @@ final class MaintenanceTests: XCTestCase {
         XCTAssertEqual(MaintenanceNotes.phaseText("FindingChanges"), "finding changes")
         XCTAssertEqual(MaintenanceNotes.phaseText("HealthCheckCopyHFSMeta"), "health check copy HFS meta")
         XCTAssertEqual(MaintenanceNotes.phaseText("Copying"), "copying")
+        XCTAssertEqual(
+            MaintenanceNotes.timeMachine(.backingUp(BackupProgress(phase: nil, fraction: nil, remainingSeconds: 5_400))),
+            "Time Machine is backing up: about 1.5 h left. It finishes on its own.", "a first backup takes hours, not 90 min"
+        )
+        XCTAssertEqual(
+            MaintenanceNotes.timeMachine(.backingUp(BackupProgress(phase: nil, fraction: nil, remainingSeconds: 7_200))),
+            "Time Machine is backing up: about 2 h left. It finishes on its own."
+        )
         for indexing in [SpotlightIndexing.enabled, .disabled, .unavailable("x")] {
             XCTAssertFalse(MaintenanceNotes.spotlight(indexing).contains("finish"), "mdutil reports no progress")
         }
@@ -75,6 +83,8 @@ final class MaintenanceTests: XCTestCase {
         while model.processSnapshot == nil || model.maintenanceStatus == nil, ContinuousClock.now < deadline {
             try await Task.sleep(for: .milliseconds(5))
         }
+        XCTAssertNotNil(model.processSnapshot, "no process sample within 5 s")
+        XCTAssertNotNil(model.maintenanceStatus, "no maintenance read within 5 s")
         let process = try XCTUnwrap(model.processSnapshot?.processes.first)
         model.selectedProcessRow = ProcessGroups.rowID(process)
         XCTAssertEqual(model.processInspection?.maintenance?.text, "No Time Machine backup is running.")
