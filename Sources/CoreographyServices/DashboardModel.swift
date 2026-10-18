@@ -314,6 +314,17 @@ public final class DashboardModel {
         draftSelection = nil
     }
 
+    /// The selected range as an export document of displayed (possibly held) data.
+    public var rangeExport: RangeExport.Document? {
+        guard let selection else { return nil }
+        let frames = DashboardFrames(
+            host: frames, network: networkFrames, disks: diskFrames,
+            gpu: gpuFrames, power: powerFrames, sensors: sensorFrames
+        )
+        let apps = ledger.totals(in: selection).apps.sorted { $0.cpuSeconds > $1.cpuSeconds }
+        return RangeExport.document(range: selection, model: frames, apps: apps)
+    }
+
     /// Coreography's own process cost, from the latest process sample.
     public var selfCost: SelfCost? {
         SelfCost.measure(in: processSnapshot, logicalCPUCount: latest?.inventory.logicalCPUCount)

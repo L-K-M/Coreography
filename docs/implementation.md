@@ -3,7 +3,7 @@
 Track actual delivery against the [product plan](plan.md). A stage is
 complete only after its relevant checks and review pass and its PR merges.
 
-## Current slice: range selection and the app ledger
+## Current slice: range export
 
 The native foundation merged in [PR #5](https://github.com/L-K-M/Coreography/pull/5)
 at `aee9494` after two GLM rounds and passing CI. Process monitoring merged
@@ -21,8 +21,9 @@ the power lane in [PR #12](https://github.com/L-K-M/Coreography/pull/12);
 the shared cursor in [PR #13](https://github.com/L-K-M/Coreography/pull/13);
 SMC sensors in [PR #14](https://github.com/L-K-M/Coreography/pull/14);
 time ranges in [PR #15](https://github.com/L-K-M/Coreography/pull/15);
-the self-cost readout in [PR #16](https://github.com/L-K-M/Coreography/pull/16).
-This slice adds range selection backed by an in-memory per-app ledger.
+the self-cost readout in [PR #16](https://github.com/L-K-M/Coreography/pull/16);
+range selection in [PR #17](https://github.com/L-K-M/Coreography/pull/17).
+This slice exports a selected range as JSON or CSV.
 
 Implemented:
 
@@ -106,6 +107,11 @@ Implemented:
   interval), so tail apps count, idle apps cost nothing, interrupted
   samples are excluded, and unreadable members mark lower bounds. The
   persistent ledger and its write budget remain S7/M4.
+- Range export from the range panel: JSON keeps every reading in range
+  with availability, provenance and reasons, plus per-app ledger totals;
+  CSV has one row per host sample with paired GPU, sensor and power values
+  within 1.5 s. Missing readings are empty cells, never zero. Export
+  redaction checks remain S8.
 - A thermal lane showing system thermal pressure as a band, from the public
   `com.apple.system.thermalpressurelevel` notify state. Temperatures, fans
   and the hottest-sensor line wait for the sensor provider.
@@ -128,6 +134,7 @@ time, helper, MCP or model integration in this slice.
 | Native process collection, cancellation and CPU units | Passed [native review-fix CI](https://github.com/L-K-M/Coreography/actions/runs/39105964147) at `7df03ec`, including cancellation, saturation and `getrusage` cross-checks |
 | Native network MIB, wide-counter mapping and three-lane UI | Passed at `e62fac1`, including native C fixtures, live CLI and both executable architectures; integrated candidate pending |
 | Native IOKit storage counters and four-lane renderer | Passed [native CI](https://github.com/L-K-M/Coreography/actions/runs/39110306993) at `6434722`: 75 tests, 16 drivers, 32 measured rate fields, no inventory issues; owner checks pending |
+| Range export (JSON, CSV) | Export slice: 117 Swift tests pass on Linux, including range filtering, JSON round trip and empty cells for missing readings; save panel compile pending |
 | Range selection, ledger and range report | Range slice: 115 Swift tests pass on Linux (integration over real intervals, tail apps, interruptions, midpoint inclusion, lower bounds); native compile pending |
 | Time ranges, decimation and one-hour buffers | Range slice: 110 Swift tests pass on Linux, including spike survival and segment isolation; native compile and S2 rendering cost pending |
 | AppleSMC bridge, sensor decoding and thermal line | Sensor slice: 107 Swift tests and the Linux SMC contract pass; the Apple branch compiles against stub headers locally; native CI pending. A VM without AppleSMC shows unsupported sensors; real readings are an owner check |
