@@ -27,6 +27,20 @@ final class ProcessGroupsTests: XCTestCase {
         XCTAssertEqual(daemon.groupingMethod, .standalone)
     }
 
+    func testFlatRowsScopeByTheirAppSoTheLedgerFindsThem() throws {
+        let processes = try snapshot([safari, webContent(responsible: 100), standaloneDaemon])
+        let flat = ProcessGroups.rows(in: processes, matching: "", sortedBy: .cpu, grouping: .flat)
+        let helper = try XCTUnwrap(flat.first { $0.name == "com.apple.WebKit.WebContent" })
+        XCTAssertEqual(helper.appName, "Safari", "the ledger records Safari, not each helper")
+        XCTAssertEqual(flat.first { $0.name == "mds" }?.appName, "mds")
+
+        var ledger = AppLedger(capacity: 4)
+        ledger.record(processes, logicalCPUCount: 4)
+        ledger.record(try snapshot(processes.processes, at: 2), logicalCPUCount: 4)
+        XCTAssertFalse(ledger.series(for: helper.appName).cpu.isEmpty, "scoping from a flat row finds the app's series")
+        XCTAssertGreaterThan(ledger.series(for: helper.appName).cpu.last?.value ?? 0, 0)
+    }
+
     func testNestedHelperBundlesFoldIntoTheOutermostApp() throws {
         let main = try process(pid: 10, name: "Google Chrome", cpu: 1,
                                path: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome")
@@ -160,9 +174,13 @@ final class ProcessGroupsTests: XCTestCase {
         )
     }
 
-    private func snapshot(_ processes: [ObservedProcess]) throws -> CapturedProcesses {
-        ProcessSnapshot(
-            stamp: Self.stamp, collectorPID: 1, enumeration: try .measured(Double(processes.count)),
+    private func snapshot(_ processes: [ObservedProcess], at second: TimeInterval = 0) throws -> CapturedProcesses {
+        let stamp = SampleStamp(
+            clockID: Self.stamp.clockID, monotonicNanoseconds: Self.stamp.monotonicNanoseconds + UInt64(second * 1e9),
+            wallTime: Self.stamp.wallTime.addingTimeInterval(second)
+        )
+        return ProcessSnapshot(
+            stamp: stamp, collectorPID: 1, enumeration: try .measured(Double(processes.count)),
             enumerationTruncated: false, processes: processes, issues: [], continuity: .continuous
         )
     }
