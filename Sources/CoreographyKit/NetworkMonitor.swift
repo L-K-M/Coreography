@@ -15,7 +15,7 @@ public actor NetworkMonitor {
     private var rates: [NetworkInterfaceID: InterfaceRates] = [:]
     private var buffer: SampleBuffer<NetworkSnapshot>
 
-    public init() throws { try self.init(driver: NetworkInterfacesDriver()) }
+    public init() throws { try self.init(driver: NetworkInterfacesDriver(), historyCapacity: LiveHistory.capacity) }
 
     init(
         driver: any NetworkSampleReading, maximumGap: Duration = .seconds(3), historyCapacity: Int = 60

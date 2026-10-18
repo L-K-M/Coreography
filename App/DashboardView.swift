@@ -148,6 +148,15 @@ struct DashboardView: View {
                     .font(.caption)
                     .monospacedDigit()
             }
+            ToolbarItem(placement: .automatic) {
+                Picker("Time range", selection: $model.timeRange) {
+                    ForEach(TimeRange.allCases) { range in
+                        Text(TimeRangeText.label(range)).tag(range)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .help("Visible history; up to one hour is kept in memory")
+            }
             ToolbarItem(placement: .primaryAction) {
                 Button(
                     model.displayMode == .live ? "Hold display" : "Return to live",
@@ -170,8 +179,8 @@ struct DashboardView: View {
             ? MetricText.percentScale
             : Double(model.latest?.inventory.physicalMemoryBytes ?? 1)
         let end = model.displayedEndTime ?? Date()
-        let start = end.addingTimeInterval(-Layout.visibleSeconds)
-        let points = model.points(for: metric).filter { $0.time >= start && $0.time <= end }
+        let start = end.addingTimeInterval(-model.timeRange.seconds)
+        let points = visiblePoints(model.points(for: metric), start, end)
 
         return HStack(alignment: .top, spacing: 24) {
             VStack(alignment: .leading, spacing: 10) {
@@ -250,8 +259,8 @@ private struct MemoryLane: View {
 
     var body: some View {
         let end = model.displayedEndTime ?? Date()
-        let start = end.addingTimeInterval(-Layout.visibleSeconds)
-        let stack = model.memoryStack().filter { $0.time >= start && $0.time <= end }
+        let start = end.addingTimeInterval(-model.timeRange.seconds)
+        let stack = Decimation.stack(model.memoryStack().filter { $0.time >= start && $0.time <= end }, start: start, end: end)
         let pressure = model.memoryPressureSpans().filter { $0.end >= start && $0.start <= end }
         let capacity = Double(max(1, model.latest?.inventory.physicalMemoryBytes ?? 1))
         let used = model.reading(for: .memory)
@@ -436,7 +445,7 @@ private struct GPULane: View {
 
     var body: some View {
         let end = model.displayedEndTime ?? Date()
-        let start = end.addingTimeInterval(-Layout.visibleSeconds)
+        let start = end.addingTimeInterval(-model.timeRange.seconds)
         let series = model.gpuSeries()
         let hasVisiblePoints = series.contains { $0.points.contains { $0.time >= start && $0.time <= end } }
         let latest = model.displayedGPUFrame
@@ -479,7 +488,7 @@ private struct GPULane: View {
     private func chart(_ series: [GPUSeries], start: Date, end: Date) -> some View {
         Chart {
             ForEach(series) { device in
-                ForEach(device.points.filter { $0.time >= start && $0.time <= end }) { point in
+                ForEach(visiblePoints(device.points, start, end)) { point in
                     LineMark(
                         x: .value("Time", point.time), y: .value("Busy", point.value),
                         series: .value("Device", "\(device.id.registryEntryID)-\(point.segment)")
@@ -543,8 +552,7 @@ private struct GPUChartAccessibility: AXChartDescriptorRepresentable {
         ) { MetricText.percent($0) }
         var descriptors: [AXDataSeriesDescriptor] = []
         for device in series {
-            let visible = device.points.filter { $0.time >= start && $0.time <= end }
-            let segments = Dictionary(grouping: visible, by: \.segment)
+            let segments = Dictionary(grouping: visiblePoints(device.points, start, end), by: \.segment)
             for segment in segments.keys.sorted() {
                 descriptors.append(AXDataSeriesDescriptor(
                     name: device.name, isContinuous: true,
@@ -567,8 +575,8 @@ private struct PowerLane: View {
 
     var body: some View {
         let end = model.displayedEndTime ?? Date()
-        let start = end.addingTimeInterval(-Layout.visibleSeconds)
-        let points = model.batteryChargePoints().filter { $0.time >= start && $0.time <= end }
+        let start = end.addingTimeInterval(-model.timeRange.seconds)
+        let points = visiblePoints(model.batteryChargePoints(), start, end)
         let plugged = model.externalPowerSpans().filter { $0.end >= start && $0.start <= end }
         let latest = model.displayedPowerFrame
         let system = model.displayedSystemPower
@@ -735,8 +743,8 @@ private struct PowerChartAccessibility: AXChartDescriptorRepresentable {
         return AXChartDescriptor(
             title: String(localized: "Power"),
             summary: pluggedSpans > 0
-                ? String(localized: "Battery charge over the last minute; the band marks time on external power.")
-                : String(localized: "Battery charge over the last minute, on battery power."),
+                ? String(localized: "Battery charge over the visible range; the band marks time on external power.")
+                : String(localized: "Battery charge over the visible range, on battery power."),
             xAxis: x, yAxis: y, additionalAxes: [], series: series
         )
     }
@@ -747,9 +755,9 @@ private struct ThermalLane: View {
 
     var body: some View {
         let end = model.displayedEndTime ?? Date()
-        let start = end.addingTimeInterval(-Layout.visibleSeconds)
+        let start = end.addingTimeInterval(-model.timeRange.seconds)
         let spans = model.thermalPressureSpans().filter { $0.end >= start && $0.start <= end }
-        let temperatures = model.hottestTemperaturePoints().filter { $0.time >= start && $0.time <= end }
+        let temperatures = visiblePoints(model.hottestTemperaturePoints(), start, end)
         let reading = model.displayedFrame?.thermalPressure
         let sensors = model.displayedSensorFrame
 
@@ -879,7 +887,7 @@ private struct TemperatureChartAccessibility: AXChartDescriptorRepresentable {
         }
         return AXChartDescriptor(
             title: String(localized: "Thermal"),
-            summary: String(localized: "Hottest SMC temperature over the last minute; a change of sensor starts a new line. Pressure alone does not prove throttling."),
+            summary: String(localized: "Hottest SMC temperature over the visible range; a change of sensor starts a new line. Pressure alone does not prove throttling."),
             xAxis: x, yAxis: y, additionalAxes: [], series: series
         )
     }
@@ -958,7 +966,7 @@ private struct ThermalChartAccessibility: AXChartDescriptorRepresentable {
         }
         return AXChartDescriptor(
             title: String(localized: "Thermal pressure"),
-            summary: String(localized: "System thermal pressure level over the last minute; pressure alone does not prove throttling."),
+            summary: String(localized: "System thermal pressure level over the visible range; pressure alone does not prove throttling."),
             xAxis: x, yAxis: y, additionalAxes: [],
             series: [AXDataSeriesDescriptor(name: String(localized: "Thermal pressure"), isContinuous: false, dataPoints: points)]
         )
@@ -970,9 +978,9 @@ private struct NetworkLane: View {
 
     var body: some View {
         let end = model.displayedEndTime ?? Date()
-        let start = end.addingTimeInterval(-Layout.visibleSeconds)
-        let received = model.points(for: .networkReceived).filter { $0.time >= start && $0.time <= end }
-        let sent = model.points(for: .networkSent).filter { $0.time >= start && $0.time <= end }
+        let start = end.addingTimeInterval(-model.timeRange.seconds)
+        let received = visiblePoints(model.points(for: .networkReceived), start, end)
+        let sent = visiblePoints(model.points(for: .networkSent), start, end)
         let receiveReading = model.reading(for: .networkReceived)
         let sendReading = model.reading(for: .networkSent)
 
@@ -1044,9 +1052,9 @@ private struct DiskLane: View {
 
     var body: some View {
         let end = model.displayedEndTime ?? Date()
-        let start = end.addingTimeInterval(-Layout.visibleSeconds)
-        let read = model.points(for: .diskRead).filter { $0.time >= start && $0.time <= end }
-        let written = model.points(for: .diskWritten).filter { $0.time >= start && $0.time <= end }
+        let start = end.addingTimeInterval(-model.timeRange.seconds)
+        let read = visiblePoints(model.points(for: .diskRead), start, end)
+        let written = visiblePoints(model.points(for: .diskWritten), start, end)
         HStack(alignment: .top, spacing: 24) {
             VStack(alignment: .leading, spacing: 8) {
                 Text("Disk").font(.caption.weight(.medium)).foregroundStyle(.secondary)
@@ -1404,6 +1412,21 @@ private struct ContributorLine: View {
     }
 }
 
+/// Keep the visible window's points, decimated to bucket extremes for drawing.
+private func visiblePoints(_ points: [DashboardPoint], _ start: Date, _ end: Date) -> [DashboardPoint] {
+    Decimation.points(points.filter { $0.time >= start && $0.time <= end }, start: start, end: end)
+}
+
+private enum TimeRangeText {
+    static func label(_ range: TimeRange) -> String {
+        switch range {
+        case .minute: return String(localized: "1 min")
+        case .tenMinutes: return String(localized: "10 min")
+        case .hour: return String(localized: "1 h")
+        }
+    }
+}
+
 private enum ToolbarText {
     @MainActor
     static func status(_ model: DashboardModel) -> String {
@@ -1412,14 +1435,14 @@ private enum ToolbarText {
             return String(localized: "Cursor \(cursor.formatted(date: .omitted, time: .standard)) · values at cursor")
         }
         return model.displayMode == .live
-            ? String(localized: "Live · last minute") : String(localized: "Display held · recording continues")
+            ? String(localized: "Live · last \(TimeRangeText.label(model.timeRange))")
+            : String(localized: "Display held · recording continues")
     }
 }
 
 private enum Layout {
     static let padding: CGFloat = 20
     static let cornerRadius: CGFloat = 10
-    static let visibleSeconds: TimeInterval = 60
     static let headerWidth: CGFloat = 180
     static let axisLabelWidth: CGFloat = 96
     static let graphHeight: CGFloat = 120
@@ -1480,7 +1503,7 @@ private struct MetricChartAccessibility: AXChartDescriptorRepresentable {
             )
         }
         return AXChartDescriptor(
-            title: title, summary: String(localized: "Last minute; missing readings leave gaps."),
+            title: title, summary: String(localized: "Visible range; missing readings leave gaps."),
             xAxis: x, yAxis: y, additionalAxes: [], series: series
         )
     }

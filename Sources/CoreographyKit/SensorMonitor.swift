@@ -17,7 +17,7 @@ public actor SensorMonitor {
     private var previousStamp: SampleStamp?
     private var buffer: SampleBuffer<SensorSnapshot>
 
-    public init() throws { try self.init(driver: SensorDriver()) }
+    public init() throws { try self.init(driver: SensorDriver(), historyCapacity: LiveHistory.capacity) }
 
     init(driver: any SensorSampleReading, maximumGap: Duration = .seconds(3), historyCapacity: Int = 60) throws {
         _ = try CounterRateTracker(maxGap: maximumGap)

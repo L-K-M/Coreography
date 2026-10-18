@@ -34,7 +34,7 @@ public actor SystemMonitor {
 
     public init() throws {
         try self.init(
-            driver: HostStatisticsDriver(), historyCapacity: 60,
+            driver: HostStatisticsDriver(), historyCapacity: LiveHistory.capacity,
             maximumGap: .seconds(3)
         )
     }

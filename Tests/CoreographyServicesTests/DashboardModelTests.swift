@@ -65,7 +65,7 @@ final class DashboardModelTests: XCTestCase {
         )
         model.start()
         defer { model.stop() }
-        try await eventually { model.gpuFrames.count >= 4 && model.frames.count >= 4 }
+        try await eventually { model.gpuFrames.count >= 4 && model.frames.count >= 7 }
         model.toggleDisplayHold()
 
         let series = model.gpuSeries()
@@ -76,11 +76,18 @@ final class DashboardModelTests: XCTestCase {
         let discrete = try XCTUnwrap(series.last)
         XCTAssertEqual(Set(discrete.points.map(\.segment)).count, discrete.points.count)
 
+        // Contiguous spans at one level merge; each span covers only frames at its level.
         let spans = model.thermalPressureSpans()
-        XCTAssertEqual(spans.count, model.frames.count - 1)
-        for (span, frame) in zip(spans, model.frames.dropFirst()) {
-            XCTAssertEqual(span.end, frame.stamp.wallTime)
-            XCTAssertEqual(span.level, ThermalPressureLevel(reading: frame.thermalPressure))
+        XCTAssertLessThan(spans.count, model.frames.count - 1)
+        XCTAssertEqual(spans.first?.start, model.frames.first?.stamp.wallTime)
+        XCTAssertEqual(spans.last?.end, model.frames.last?.stamp.wallTime)
+        for (current, next) in zip(spans, spans.dropFirst()) {
+            XCTAssertFalse(current.end == next.start && current.level == next.level)
+        }
+        for span in spans {
+            let covered = model.frames.filter { $0.stamp.wallTime > span.start && $0.stamp.wallTime <= span.end }
+            XCTAssertFalse(covered.isEmpty)
+            XCTAssertTrue(covered.allSatisfy { ThermalPressureLevel(reading: $0.thermalPressure) == span.level })
         }
     }
 

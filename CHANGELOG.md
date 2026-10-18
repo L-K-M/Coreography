@@ -7,6 +7,8 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
 ## [Unreleased]
 
 ### Added
+- One hour of in-memory history with 1 min, 10 min and 1 h ranges and
+  spike-preserving min/max decimation.
 - AppleSMC sensors: hottest temperature line over thermal-pressure bands,
   fan speeds, SMC system power for the power lane, and `coreo sensors`.
 - A shared hover cursor across all lanes with values at the cursor, and

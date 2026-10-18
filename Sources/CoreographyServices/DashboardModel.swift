@@ -103,6 +103,7 @@ public final class DashboardModel {
     public var processGrouping: ProcessGrouping = .app
     /// The shared hover time across all lanes; nil follows the live edge.
     public var cursorTime: Date?
+    public var timeRange: TimeRange = .minute
     public private(set) var contributorHistory: [ContributorSnapshot] = []
 
     @ObservationIgnored private let monitor: SystemMonitor?
@@ -180,7 +181,8 @@ public final class DashboardModel {
     // A cursor reads the nearest sample within these windows, or nothing.
     private static let cursorTolerance: TimeInterval = 1.5
     private static let contributorTolerance: TimeInterval = 2.5
-    private static let contributorCapacity = 32
+    /// One hour of two-second process samples, matching live history.
+    private static let contributorCapacity = 1800
 
     /// Host frame at the cursor, or the latest frame without one.
     public var displayedFrame: CapturedSnapshot? { atCursor(frames, tolerance: Self.cursorTolerance) { $0.stamp.wallTime } }
@@ -470,7 +472,7 @@ public final class DashboardModel {
     }
 
     /// Span consecutive known levels; interruptions and missing levels break the band.
-    private func levelSpans<Level>(
+    private func levelSpans<Level: Equatable>(
         _ level: (CapturedSnapshot) -> Level?
     ) -> [(id: UUID, start: Date, end: Date, level: Level)] {
         var result: [(id: UUID, start: Date, end: Date, level: Level)] = []
@@ -482,7 +484,12 @@ public final class DashboardModel {
                 continue
             }
             if let previousTime {
-                result.append((id: frame.id, start: previousTime, end: frame.stamp.wallTime, level: current))
+                // Contiguous spans at one level merge, so an hour stays a few rectangles.
+                if let last = result.last, last.end == previousTime, last.level == current {
+                    result[result.count - 1].end = frame.stamp.wallTime
+                } else {
+                    result.append((id: frame.id, start: previousTime, end: frame.stamp.wallTime, level: current))
+                }
             }
             previousTime = frame.stamp.wallTime
         }
@@ -535,7 +542,11 @@ public final class DashboardModel {
                 continue
             }
             if source == .externalPower, let previousTime {
-                result.append(ExternalPowerSpan(id: frame.id, start: previousTime, end: frame.stamp.wallTime))
+                if let last = result.last, last.end == previousTime {
+                    result[result.count - 1] = ExternalPowerSpan(id: last.id, start: last.start, end: frame.stamp.wallTime)
+                } else {
+                    result.append(ExternalPowerSpan(id: frame.id, start: previousTime, end: frame.stamp.wallTime))
+                }
             }
             previousTime = frame.stamp.wallTime
         }
