@@ -78,6 +78,17 @@ struct DashboardView: View {
                     .frame(height: 150)
                 }
 
+                DisclosureGroup("Sensor numeric readings") {
+                    Table(Array(model.sensorFrames.suffix(10))) {
+                        TableColumn("Time") { Text($0.stamp.wallTime, format: .dateTime.hour().minute().second()) }
+                        TableColumn("Hottest sensor") { Text($0.hottest?.key ?? "–") }
+                        TableColumn("Temperature") { Text(ThermalText.celsius($0.hottest?.celsius.numericValue)) }
+                        TableColumn("SMC system power") { ProcessMetricCell(reading: $0.systemPowerWatts, format: .watts) }
+                        TableColumn("Fans") { Text($0.fans.map { ThermalText.rpm($0.rpm.numericValue) }.joined(separator: ", ")) }
+                    }
+                    .frame(height: 150)
+                }
+
                 DisclosureGroup("Power numeric readings") {
                     Table(Array(model.powerFrames.suffix(10))) {
                         TableColumn("Time") { Text($0.stamp.wallTime, format: .dateTime.hour().minute().second()) }
@@ -560,17 +571,17 @@ private struct PowerLane: View {
         let points = model.batteryChargePoints().filter { $0.time >= start && $0.time <= end }
         let plugged = model.externalPowerSpans().filter { $0.end >= start && $0.start <= end }
         let latest = model.displayedPowerFrame
+        let system = model.displayedSystemPower
 
         HStack(alignment: .top, spacing: 24) {
             VStack(alignment: .leading, spacing: 6) {
                 Text("Power").font(.caption.weight(.medium)).foregroundStyle(.secondary)
-                Text(MetricText.watts(latest?.systemPowerWatts.numericValue))
+                Text(MetricText.watts(system?.numericValue) + (system?.availability == .estimated ? " est." : ""))
                     .font(.system(size: 30, weight: .semibold))
-                Text(latest?.systemPowerWatts.numericValue == nil ? "System draw" : "System draw, from battery")
-                    .font(.caption)
+                Text(PowerText.systemSource(system)).font(.caption)
                 Text(PowerText.battery(latest)).font(.caption)
                 Text(PowerText.adapterAndHealth(latest)).font(.caption).foregroundStyle(.secondary)
-                Text(latest?.systemPowerWatts.reason ?? latest?.systemPowerWatts.method ?? "")
+                Text(system?.reason ?? system?.method ?? "")
                     .font(.caption).foregroundStyle(.secondary)
             }
             .monospacedDigit()
@@ -645,6 +656,14 @@ private enum PowerStyle {
 }
 
 private enum PowerText {
+    static func systemSource(_ reading: DashboardReading?) -> String {
+        guard reading?.numericValue != nil else { return String(localized: "System draw") }
+        switch reading?.source?.channel {
+        case "PSTR", "PDTR": return String(localized: "System draw, SMC power rail")
+        default: return String(localized: "System draw, from battery")
+        }
+    }
+
     static func source(_ frame: CapturedPower) -> String {
         switch frame.powerSource {
         case .externalPower: return String(localized: "Adapter")
@@ -730,19 +749,31 @@ private struct ThermalLane: View {
         let end = model.displayedEndTime ?? Date()
         let start = end.addingTimeInterval(-Layout.visibleSeconds)
         let spans = model.thermalPressureSpans().filter { $0.end >= start && $0.start <= end }
+        let temperatures = model.hottestTemperaturePoints().filter { $0.time >= start && $0.time <= end }
         let reading = model.displayedFrame?.thermalPressure
+        let sensors = model.displayedSensorFrame
 
         HStack(alignment: .top, spacing: 24) {
             VStack(alignment: .leading, spacing: 6) {
                 Text("Thermal").font(.caption.weight(.medium)).foregroundStyle(.secondary)
-                Text(ThermalText.level(reading)).font(.system(size: 30, weight: .semibold))
-                Text("System thermal pressure").font(.caption)
-                Text(reading?.reason ?? String(localized: "Temperatures and fans are not collected yet"))
-                    .font(.caption).foregroundStyle(.secondary)
+                Text(ThermalText.celsius(sensors?.hottest?.celsius.numericValue))
+                    .font(.system(size: 30, weight: .semibold))
+                Text(ThermalText.hottest(sensors)).font(.caption)
+                Text("Pressure " + ThermalText.level(reading)).font(.caption)
+                ForEach(sensors?.fans ?? []) { fan in
+                    Text("Fan \(fan.id + 1) \(ThermalText.rpm(fan.rpm.numericValue))")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                if let reason = sensors?.source.reason ?? reading?.reason {
+                    Text(reason).font(.caption).foregroundStyle(.secondary)
+                }
             }
+            .monospacedDigit()
             .frame(width: Layout.headerWidth, alignment: .leading)
 
-            if spans.isEmpty {
+            if !temperatures.isEmpty {
+                temperatureChart(temperatures, spans: spans, start: start, end: end)
+            } else if spans.isEmpty {
                 Text(reading?.reason ?? String(localized: "Collecting samples…"))
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, minHeight: Layout.bandHeight)
@@ -779,7 +810,101 @@ private struct ThermalLane: View {
     }
 }
 
+private extension ThermalLane {
+    // The hottest-sensor line over full-height pressure bands (plan P12).
+    func temperatureChart(
+        _ points: [DashboardPoint], spans: [ThermalPressureSpan], start: Date, end: Date
+    ) -> some View {
+        Chart {
+            ForEach(spans) { span in
+                RectangleMark(
+                    xStart: .value("Start", max(span.start, start)), xEnd: .value("End", span.end),
+                    yStart: .value("Bottom", 0), yEnd: .value("Top", ThermalText.celsiusCeiling)
+                )
+                .foregroundStyle(ThermalText.color(span.level).opacity(0.3))
+            }
+            ForEach(points) { point in
+                LineMark(
+                    x: .value("Time", point.time), y: .value("Hottest", point.value),
+                    series: .value("Segment", point.segment)
+                )
+                .foregroundStyle(Color.primary.opacity(0.8))
+                .interpolationMethod(.linear)
+            }
+            CursorRule(time: model.cursorTime, range: start...end)
+        }
+        .chartCursor(model)
+        .chartLegend(.hidden)
+        .chartXScale(domain: start...end)
+        .chartYScale(domain: 0...ThermalText.celsiusCeiling)
+        .chartYAxis {
+            AxisMarks(position: .trailing, values: [0, 50, 100]) { value in
+                AxisGridLine()
+                AxisValueLabel {
+                    if let number = value.as(Double.self) {
+                        Text(ThermalText.celsius(number)).frame(width: Layout.axisLabelWidth, alignment: .leading)
+                    }
+                }
+            }
+        }
+        .chartXAxis {
+            AxisMarks(values: .automatic(desiredCount: 4)) {
+                AxisValueLabel(format: .dateTime.hour().minute().second())
+            }
+        }
+        .frame(height: Layout.graphHeight)
+        .accessibilityChartDescriptor(TemperatureChartAccessibility(points: points, start: start, end: end))
+    }
+}
+
+private struct TemperatureChartAccessibility: AXChartDescriptorRepresentable {
+    let points: [DashboardPoint]
+    let start: Date
+    let end: Date
+
+    func makeChartDescriptor() -> AXChartDescriptor {
+        let x = AXNumericDataAxisDescriptor(
+            title: String(localized: "Time"),
+            range: start.timeIntervalSinceReferenceDate...end.timeIntervalSinceReferenceDate,
+            gridlinePositions: []
+        ) { Date(timeIntervalSinceReferenceDate: $0).formatted(date: .omitted, time: .standard) }
+        let y = AXNumericDataAxisDescriptor(
+            title: String(localized: "Hottest sensor"), range: 0...ThermalText.celsiusCeiling, gridlinePositions: []
+        ) { ThermalText.celsius($0) }
+        let segments = Dictionary(grouping: points, by: \.segment)
+        let series = segments.keys.sorted().map { segment in
+            AXDataSeriesDescriptor(name: String(localized: "Hottest sensor"), isContinuous: true, dataPoints:
+                (segments[segment] ?? []).map { AXDataPoint(x: $0.time.timeIntervalSinceReferenceDate, y: $0.value) }
+            )
+        }
+        return AXChartDescriptor(
+            title: String(localized: "Thermal"),
+            summary: String(localized: "Hottest SMC temperature over the last minute; a change of sensor starts a new line. Pressure alone does not prove throttling."),
+            xAxis: x, yAxis: y, additionalAxes: [], series: series
+        )
+    }
+}
+
 private enum ThermalText {
+    /// Matches the sensor plausibility ceiling, so no shown reading is clipped.
+    static let celsiusCeiling = 130.0
+
+    static func celsius(_ value: Double?) -> String {
+        guard let value, value.isFinite else { return "–" }
+        return value.formatted(.number.precision(.fractionLength(0))) + " °C"
+    }
+
+    static func rpm(_ value: Double?) -> String {
+        guard let value, value.isFinite else { return "–" }
+        return value.formatted(.number.precision(.fractionLength(0))) + " rpm"
+    }
+
+    static func hottest(_ sensors: CapturedSensors?) -> String {
+        guard let hottest = sensors?.hottest else { return String(localized: "Hottest sensor") }
+        let region = hottest.region.map { " · " + $0 } ?? ""
+        return String(localized: "Hottest: \(hottest.key)\(region)")
+    }
+
     static func level(_ reading: DashboardReading?) -> String {
         guard let reading else { return "–" }
         guard let level = CapturedThermalPressure(reading: reading) else {

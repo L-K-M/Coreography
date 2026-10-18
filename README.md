@@ -16,6 +16,9 @@ The memory lane stacks app, wired, compressed and cached memory under the
 physical-memory line, with a kernel pressure band above it. Its header and
 numeric table add swap use, swap and page-in rates, and compression ratio.
 
+The thermal lane plots the hottest SMC temperature over the pressure
+bands and shows fan speeds; the power lane prefers the SMC system rail.
+
 The GPU lane plots each GPU's driver-reported busy percentage and shows
 memory in use. The power lane plots battery charge with an external-power
 band, battery watts, time estimate and health; system draw is shown while
@@ -78,6 +81,7 @@ swift run coreo network --once --json   # macOS only; per-interface byte rates
 swift run coreo disks --once --json     # macOS only; per-storage-driver rates
 swift run coreo gpu --once --json       # macOS only; per-GPU utilization
 swift run coreo power --once --json     # macOS only; battery and adapter
+swift run coreo sensors --once --json   # macOS only; SMC temperatures, fans, power
 python3 tools/tests/test_buildscripts.py
 shellcheck scripts/*.sh
 python3 tools/doccheck/checkdocs.py .
