@@ -21,9 +21,8 @@ struct DashboardView: View {
                     .foregroundStyle(.secondary)
                 }
 
-                ForEach([DashboardMetric.cpu, .memory]) { metric in
-                    lane(metric)
-                }
+                lane(.cpu)
+                MemoryLane(model: model)
 
                 DiskLane(model: model)
                 NetworkLane(model: model)
@@ -41,6 +40,22 @@ struct DashboardView: View {
                         TableColumn("Used memory, estimated") { frame in
                             Text(MetricText.bytes(frame.memoryUsedBytes.numericValue))
                         }
+                    }
+                    .frame(height: 150)
+                }
+
+                DisclosureGroup("Memory numeric readings") {
+                    Table(Array(model.frames.suffix(10))) {
+                        TableColumn("Time") { Text($0.stamp.wallTime, format: .dateTime.hour().minute().second()) }
+                        TableColumn("Used") { ProcessMetricCell(reading: $0.memoryUsedBytes, format: .bytes) }
+                        TableColumn("App") { ProcessMetricCell(reading: $0.memory.appBytes, format: .bytes) }
+                        TableColumn("Wired") { ProcessMetricCell(reading: $0.memory.wiredBytes, format: .bytes) }
+                        TableColumn("Compressed") { ProcessMetricCell(reading: $0.memory.compressedBytes, format: .bytes) }
+                        TableColumn("Cached files") { ProcessMetricCell(reading: $0.memory.cachedBytes, format: .bytes) }
+                        TableColumn("Swap used") { ProcessMetricCell(reading: $0.memory.swapUsedBytes, format: .bytes) }
+                        TableColumn("Swap in/s") { ProcessMetricCell(reading: $0.memory.swapInBytesPerSecond, format: .rate) }
+                        TableColumn("Swap out/s") { ProcessMetricCell(reading: $0.memory.swapOutBytesPerSecond, format: .rate) }
+                        TableColumn("Pressure") { Text(MemoryText.pressure($0.memory.pressure)) }
                     }
                     .frame(height: 150)
                 }
@@ -79,7 +94,7 @@ struct DashboardView: View {
                     }
                 }
 
-                Text("Memory is a VM composition estimate, not memory pressure. Missing readings leave gaps.")
+                Text("Used memory is app, wired and compressed memory, estimated from VM page counts. Missing readings leave gaps.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -179,6 +194,189 @@ struct DashboardView: View {
         .overlay(RoundedRectangle(cornerRadius: Layout.cornerRadius).strokeBorder(
             Color(nsColor: .separatorColor), lineWidth: 0.5
         ))
+    }
+}
+
+private struct MemoryLane: View {
+    @Bindable var model: DashboardModel
+
+    var body: some View {
+        let end = model.displayedEndTime ?? Date()
+        let start = end.addingTimeInterval(-Layout.visibleSeconds)
+        let stack = model.memoryStack().filter { $0.time >= start && $0.time <= end }
+        let pressure = model.memoryPressureSpans().filter { $0.end >= start && $0.start <= end }
+        let capacity = Double(max(1, model.latest?.inventory.physicalMemoryBytes ?? 1))
+        let used = model.reading(for: .memory)
+        let detail = model.latest?.memory
+
+        HStack(alignment: .top, spacing: 24) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Memory").font(.caption.weight(.medium)).foregroundStyle(.secondary)
+                Text(MetricText.bytes(used?.numericValue))
+                    .font(.system(size: 30, weight: .semibold))
+                Text("of \(MetricText.bytes(capacity)) used, estimated").font(.caption)
+                HStack(spacing: 4) {
+                    Circle().fill(MemoryStyle.color(detail?.pressureLevel)).frame(width: 7, height: 7)
+                    Text("Pressure " + MemoryText.pressure(detail?.pressure))
+                }
+                .font(.caption)
+                Text("Swap \(MetricText.bytes(detail?.swapUsedBytes.numericValue)) of \(MetricText.bytes(detail?.swapTotalBytes.numericValue))")
+                    .font(.caption)
+                Text("Swap in \(MetricText.rate(detail?.swapInBytesPerSecond.numericValue)) · out \(MetricText.rate(detail?.swapOutBytesPerSecond.numericValue))")
+                    .font(.caption).foregroundStyle(.secondary)
+                Text("Page-ins \(MetricText.rate(detail?.pageInBytesPerSecond.numericValue)) · compression \(MemoryText.ratio(detail?.compressionRatio.numericValue))")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            .monospacedDigit()
+            .frame(width: Layout.headerWidth, alignment: .leading)
+
+            if stack.isEmpty {
+                Text(used?.reason ?? String(localized: "Collecting samples…"))
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, minHeight: Layout.graphHeight)
+            } else {
+                chart(stack: stack, pressure: pressure, capacity: capacity, start: start, end: end)
+            }
+        }
+        .padding(Layout.padding)
+        .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: Layout.cornerRadius))
+        .overlay(RoundedRectangle(cornerRadius: Layout.cornerRadius).strokeBorder(
+            Color(nsColor: .separatorColor), lineWidth: 0.5
+        ))
+    }
+
+    // Layers stack under a dashed capacity line; the pressure band sits above it.
+    private func chart(
+        stack: [MemoryStackPoint], pressure: [MemoryPressureSpan],
+        capacity: Double, start: Date, end: Date
+    ) -> some View {
+        Chart {
+            ForEach(stack) { point in
+                AreaMark(
+                    x: .value("Time", point.time),
+                    yStart: .value("Lower", point.lower), yEnd: .value("Upper", point.upper),
+                    series: .value("Layer", "\(point.category.rawValue)-\(point.segment)")
+                )
+                .foregroundStyle(MemoryStyle.color(point.category))
+                .interpolationMethod(.linear)
+            }
+            RuleMark(y: .value("Physical memory", capacity))
+                .foregroundStyle(Color.secondary)
+                .lineStyle(StrokeStyle(lineWidth: 1, dash: [3, 3]))
+            ForEach(pressure) { span in
+                RectangleMark(
+                    xStart: .value("Start", max(span.start, start)), xEnd: .value("End", span.end),
+                    yStart: .value("Band", capacity * MemoryStyle.bandBottom),
+                    yEnd: .value("Band", capacity * MemoryStyle.bandTop)
+                )
+                .foregroundStyle(MemoryStyle.color(span.level))
+            }
+        }
+        .chartLegend(.hidden)
+        .chartXScale(domain: start...end)
+        .chartYScale(domain: 0...(capacity * MemoryStyle.bandTop))
+        .chartYAxis {
+            AxisMarks(position: .trailing, values: [0, capacity / 2, capacity]) { value in
+                AxisGridLine()
+                AxisValueLabel {
+                    if let number = value.as(Double.self) {
+                        Text(MetricText.bytes(number))
+                            .frame(width: Layout.axisLabelWidth, alignment: .leading)
+                    }
+                }
+            }
+        }
+        .chartXAxis {
+            AxisMarks(values: .automatic(desiredCount: 4)) {
+                AxisValueLabel(format: .dateTime.hour().minute().second())
+            }
+        }
+        .frame(height: Layout.graphHeight)
+        .accessibilityChartDescriptor(MemoryChartAccessibility(
+            stack: stack, pressure: model.latest?.memory.pressure,
+            start: start, end: end, capacity: capacity
+        ))
+    }
+}
+
+private enum MemoryStyle {
+    // The band occupies the top of the plot, clear of the capacity line.
+    static let bandBottom = 1.04
+    static let bandTop = 1.1
+
+    static func color(_ category: MemoryCategory) -> Color {
+        switch category {
+        case .app: return .blue
+        case .wired: return .indigo
+        case .compressed: return .teal
+        case .cached: return .gray.opacity(0.35)
+        }
+    }
+
+    static func color(_ level: CapturedMemoryPressure?) -> Color {
+        switch level {
+        case .normal: return .gray.opacity(0.35)
+        case .warning: return .yellow
+        case .critical: return .red
+        case nil: return .clear
+        }
+    }
+}
+
+private enum MemoryText {
+    static func pressure(_ reading: DashboardReading?) -> String {
+        guard let reading else { return "–" }
+        switch CapturedMemoryPressure(reading: reading) {
+        case .normal: return String(localized: "normal")
+        case .warning: return String(localized: "warning")
+        case .critical: return String(localized: "critical")
+        case nil:
+            return reading.availability == .restricted
+                ? String(localized: "restricted") : String(localized: "unavailable")
+        }
+    }
+
+    static func ratio(_ value: Double?) -> String {
+        guard let value, value.isFinite else { return "–" }
+        return value.formatted(.number.precision(.fractionLength(1))) + "×"
+    }
+}
+
+private struct MemoryChartAccessibility: AXChartDescriptorRepresentable {
+    let stack: [MemoryStackPoint]
+    let pressure: DashboardReading?
+    let start: Date
+    let end: Date
+    let capacity: Double
+
+    func makeChartDescriptor() -> AXChartDescriptor {
+        let x = AXNumericDataAxisDescriptor(
+            title: String(localized: "Time"),
+            range: start.timeIntervalSinceReferenceDate...end.timeIntervalSinceReferenceDate,
+            gridlinePositions: []
+        ) { Date(timeIntervalSinceReferenceDate: $0).formatted(date: .omitted, time: .standard) }
+        let y = AXNumericDataAxisDescriptor(
+            title: String(localized: "Bytes"), range: 0...capacity, gridlinePositions: [capacity]
+        ) { MetricText.bytes($0) }
+
+        // Each layer reads as its own bytes, not its stacked position.
+        var series: [AXDataSeriesDescriptor] = []
+        for category in MemoryCategory.allCases {
+            let segments = Dictionary(grouping: stack.filter { $0.category == category }, by: \.segment)
+            for segment in segments.keys.sorted() {
+                series.append(AXDataSeriesDescriptor(
+                    name: category.rawValue.capitalized, isContinuous: true,
+                    dataPoints: (segments[segment] ?? []).map {
+                        AXDataPoint(x: $0.time.timeIntervalSinceReferenceDate, y: $0.value)
+                    }
+                ))
+            }
+        }
+        return AXChartDescriptor(
+            title: String(localized: "Memory"),
+            summary: String(localized: "App, wired, compressed and cached memory; pressure \(MemoryText.pressure(pressure)). Missing readings leave gaps."),
+            xAxis: x, yAxis: y, additionalAxes: [], series: series
+        )
     }
 }
 

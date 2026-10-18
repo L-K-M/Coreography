@@ -7,6 +7,9 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
 ## [Unreleased]
 
 ### Added
+- Memory composition (app, wired, compressed, cached), swap use, swap and
+  page-in rates, compression ratio and kernel pressure, with a stacked
+  memory lane, pressure band and numeric table.
 - Per-storage-driver disk rates, explicit device scope, a disk lane and
   JSON inventory; shared transfer-chart accessibility and native-scan executor.
 - A scoped network lane, interface selection and JSON capture using

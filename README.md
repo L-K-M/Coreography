@@ -12,6 +12,10 @@ memory, shows a minute of aligned graphs, and includes a numeric table
 and the `coreo` diagnostic CLI. Holding the display keeps collection
 running. Missing readings leave gaps instead of invented zeros.
 
+The memory lane stacks app, wired, compressed and cached memory under the
+physical-memory line, with a kernel pressure band above it. Its header and
+numeric table add swap use, swap and page-in rates, and compression ratio.
+
 The process pane adds PID/start-time-safe CPU share, physical footprint
 and disk read/write rates, with filtering, sorting and explicit restricted
 or unreadable coverage. It refreshes every two seconds using public libproc
@@ -56,7 +60,7 @@ native sampling as unsupported; it does not manufacture Mac telemetry.
 
 ```sh
 swift run coreo doctor
-swift run coreo snapshot --once --json  # macOS only
+swift run coreo snapshot --once --json  # macOS only; CPU and memory detail
 swift run coreo processes --once --json # macOS only; two-second baseline
 swift run coreo network --once --json   # macOS only; per-interface byte rates
 swift run coreo disks --once --json     # macOS only; per-storage-driver rates

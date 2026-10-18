@@ -380,6 +380,19 @@ class TestReleaseSmoke(unittest.TestCase):
             "cpuPercentOfMachine": {"availability": "measured", "numericValue": 25},
             "memoryUsedBytes": {"availability": "estimated", "numericValue": 4096},
             "inventory": {"physicalMemoryBytes": 8192},
+            "memory": {
+                "appBytes": {"availability": "estimated", "numericValue": 2048},
+                "wiredBytes": {"availability": "measured", "numericValue": 1024},
+                "compressedBytes": {"availability": "measured", "numericValue": 1024},
+                "cachedBytes": {"availability": "estimated", "numericValue": 512},
+                "compressionRatio": {"availability": "measured", "numericValue": 2.5},
+                "swapUsedBytes": {"availability": "measured", "numericValue": 0},
+                "swapTotalBytes": {"availability": "measured", "numericValue": 0},
+                "pageInBytesPerSecond": {"availability": "measured", "numericValue": 0},
+                "swapInBytesPerSecond": {"availability": "measured", "numericValue": 0},
+                "swapOutBytesPerSecond": {"availability": "measured", "numericValue": 0},
+                "pressure": {"availability": "measured", "numericValue": 1},
+            },
         }
 
     def test_release_gate_accepts_valid_native_measurements(self):
@@ -398,6 +411,28 @@ class TestReleaseSmoke(unittest.TestCase):
                 snapshot = self.snapshot()
                 snapshot[key]["numericValue"] = value
                 self.assertNotEqual(self.run_smoke(snapshot).returncode, 0)
+
+    def test_release_gate_rejects_invalid_memory_detail(self):
+        cases = (
+            ("appBytes", {"availability": "estimated", "numericValue": 1024}),
+            ("pressure", {"availability": "measured", "numericValue": 4}),
+            ("swapUsedBytes", {"availability": "measured", "numericValue": 1}),
+            ("swapInBytesPerSecond", {"availability": "collecting"}),
+            ("compressionRatio", {"availability": "unavailable", "reason": "Fixture"}),
+        )
+        for key, value in cases:
+            with self.subTest(key=key):
+                snapshot = self.snapshot()
+                snapshot["memory"][key] = value
+                self.assertNotEqual(self.run_smoke(snapshot).returncode, 0)
+
+    def test_release_gate_accepts_empty_compressor_without_ratio(self):
+        snapshot = self.snapshot()
+        memory = snapshot["memory"]
+        memory["compressedBytes"]["numericValue"] = 0
+        memory["appBytes"]["numericValue"] = 3072
+        memory["compressionRatio"] = {"availability": "unavailable", "reason": "Compressor is empty"}
+        self.assertEqual(self.run_smoke(snapshot).returncode, 0)
 
 
 if __name__ == "__main__":

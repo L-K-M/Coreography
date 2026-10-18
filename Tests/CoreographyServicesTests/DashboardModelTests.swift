@@ -29,6 +29,34 @@ final class DashboardModelTests: XCTestCase {
         XCTAssertEqual(model.displayMode, .live)
     }
 
+    func testMemoryStackSumsLayersAndPressureSpansFollowSamples() async throws {
+        let driver = IncreasingHostDriver()
+        let monitor = try SystemMonitor(driver: driver)
+        let model = DashboardModel(monitor: monitor, interval: .milliseconds(10))
+        model.start()
+        defer { model.stop() }
+        try await eventually { model.frames.count >= 3 }
+        model.toggleDisplayHold()
+
+        // 15 resident pages - 1 file-backed = 14 used: 9 app, 2 wired, 3 compressed.
+        let page = 4096.0
+        let first = model.frames[0]
+        let layers = model.memoryStack().filter { $0.time == first.stamp.wallTime }
+        XCTAssertEqual(layers.map(\.category), [.app, .wired, .compressed, .cached])
+        XCTAssertEqual(layers.map(\.lower), [0, 9 * page, 11 * page, 14 * page])
+        XCTAssertEqual(layers.map(\.upper), [9 * page, 11 * page, 14 * page, 15 * page])
+        XCTAssertEqual(first.memoryUsedBytes.numericValue, 14 * page)
+
+        let spans = model.memoryPressureSpans()
+        XCTAssertEqual(spans.count, model.frames.count - 1)
+        for (span, pair) in zip(spans, zip(model.frames, model.frames.dropFirst())) {
+            XCTAssertEqual(span.start, pair.0.stamp.wallTime)
+            XCTAssertEqual(span.end, pair.1.stamp.wallTime)
+            XCTAssertEqual(span.level, pair.1.memory.pressureLevel)
+        }
+        XCTAssertTrue(spans.contains { $0.level == .warning })
+    }
+
     func testMemorySeriesDoesNotBridgeSamplingGaps() async throws {
         let driver = IncreasingHostDriver()
         let monitor = try SystemMonitor(driver: driver)
@@ -321,9 +349,12 @@ private actor IncreasingHostDriver: HostSampleReading {
             )),
             memory: .success(MemoryPages(
                 active: 10, inactive: 0, speculative: 0,
-                wired: 0, compressed: 0, purgeable: 0,
-                fileBacked: 0, pageSizeBytes: 4096
-            ))
+                wired: 2, compressed: 3, compressorContents: 6, purgeable: 0,
+                fileBacked: 1, pageIns: readCount, swapIns: 0, swapOuts: 0,
+                pageSizeBytes: 4096
+            )),
+            swap: .success(SwapUsage(totalBytes: 8192, usedBytes: 4096)),
+            memoryPressure: readCount.isMultiple(of: 2) ? .success(.warning) : .success(.normal)
         )
     }
 }

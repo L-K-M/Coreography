@@ -14,6 +14,7 @@ public struct SystemSnapshot: Codable, Equatable, Identifiable, Sendable {
     public let inventory: SystemInventory
     public let cpuPercentOfMachine: MetricReading
     public let memoryUsedBytes: MetricReading
+    public let memory: MemoryDetail
     public let cpuSource: String
     public let memorySource: String
     public let continuity: SamplingContinuity
@@ -21,13 +22,14 @@ public struct SystemSnapshot: Codable, Equatable, Identifiable, Sendable {
     init(
         stamp: SampleStamp, inventory: SystemInventory,
         cpuPercentOfMachine: MetricReading, memoryUsedBytes: MetricReading,
-        continuity: SamplingContinuity
+        memory: MemoryDetail, continuity: SamplingContinuity
     ) {
         self.id = UUID()
         self.stamp = stamp
         self.inventory = inventory
         self.cpuPercentOfMachine = cpuPercentOfMachine
         self.memoryUsedBytes = memoryUsedBytes
+        self.memory = memory
         self.cpuSource = "Mach CPU tick counters; percent of the whole machine"
         self.memorySource = "Mach VM composition; bytes; excludes cached files"
         self.continuity = continuity

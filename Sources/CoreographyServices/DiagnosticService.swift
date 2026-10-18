@@ -3,6 +3,7 @@ import CoreographyKit
 
 public typealias CapturedSnapshot = SystemSnapshot
 public typealias DashboardReading = MetricReading
+public typealias CapturedMemoryPressure = MemoryPressureLevel
 
 public enum NativeSamplingSupport: String, Codable, Sendable {
     case supported
