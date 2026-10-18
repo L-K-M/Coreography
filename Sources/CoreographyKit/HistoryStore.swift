@@ -162,8 +162,9 @@ public actor HistoryStore {
         do {
             try storage { try write(samples, ledger: ledger, now: now) }
         } catch {
-            // Interned ids from a rolled-back batch were never stored.
+            // Interned ids and a name sweep from a rolled-back batch never happened.
             appIDs.removeAll()
+            lastNameSweep = nil
             throw error
         }
     }
@@ -304,8 +305,8 @@ public actor HistoryStore {
     /// no identifier longer than its retention plus the sweep interval.
     private func sweepNames(now: Date) throws {
         if let lastNameSweep, now.timeIntervalSince(lastNameSweep) < Self.nameSweepInterval { return }
-        lastNameSweep = now
         try connection.execute("DELETE FROM apps WHERE id NOT IN (SELECT app FROM ledger_entries)")
+        lastNameSweep = now
         appIDs.removeAll()
     }
 
@@ -345,11 +346,15 @@ public actor HistoryStore {
         return value
     }
 
-    /// The time before which the oldest tenth of samples lies.
+    /// The time before which the oldest tenth of stored rows lies, samples
+    /// and ledger intervals together, so either alone stays under the cap.
     private func oldestTenthCutoff() throws -> Date? {
-        let rows = try connection.query(
-            "SELECT t FROM samples ORDER BY t LIMIT 1 OFFSET (SELECT COUNT(*) / 10 FROM samples)"
-        )
+        let rows = try connection.query("""
+            SELECT time FROM (SELECT t AS time FROM samples UNION ALL SELECT t_end AS time FROM ledger_intervals)
+            ORDER BY time LIMIT 1 OFFSET (
+                (SELECT COUNT(*) FROM samples) + (SELECT COUNT(*) FROM ledger_intervals)
+            ) / 10
+            """)
         guard case .real(let time)? = rows.first?.first else { return nil }
         return Date(timeIntervalSince1970: time)
     }

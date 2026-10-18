@@ -83,6 +83,17 @@ final class HistoryStoreTests: XCTestCase {
         XCTAssertEqual(reinterned.flatMap(\.entries).map(\.app), ["New App"])
     }
 
+    func testSizeCapAlsoBoundsLedgerOnlyHistory() async throws {
+        let store = try HistoryStore(directory: directory, maximumBytes: 256 * 1024)
+        let intervals = (0..<10_000).map { index in
+            interval(Double(index * 2 - 20_000), Double(index * 2 - 19_998), [entry("App \(index % 50)", 1, 4096)])
+        }
+        try await store.append([], ledger: intervals, now: now)
+        let kept = try await store.ledger(from: .distantPast, to: now)
+        XCTAssertLessThan(kept.count, intervals.count, "the cap applies when only the ledger holds data")
+        XCTAssertEqual(kept.last?.end, intervals.last?.end, "newest intervals stay")
+    }
+
     func testRetentionDropsSamplesOlderThanSixHours() async throws {
         let store = try HistoryStore(directory: directory)
         try await store.append([sample(.cpu, -HistoryStore.retention - 5, 1), sample(.cpu, -60, 2)], now: now)

@@ -85,6 +85,28 @@ final class HistoryRecorderTests: XCTestCase {
         )
     }
 
+    func testRecordsTakenBeforeDeletionNeverReachTheStore() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("coreo-delete-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = try HistoryStore(directory: directory)
+        let recorder = HistoryRecorder(store: store)
+
+        try await recorder.deleteAll(now: epoch.addingTimeInterval(10))
+        // Tasks created before the click may land after it; their readings are deleted history.
+        await recorder.record([sample(5)], at: epoch.addingTimeInterval(5))
+        await recorder.recordLedger(LedgerInterval(
+            start: epoch.addingTimeInterval(3), end: epoch.addingTimeInterval(5), cores: 1,
+            entries: [LedgerEntry(app: "Old", cpuSeconds: 1, diskBytes: 0, isLowerBound: false)]
+        ))
+        await recorder.record([sample(11)], at: epoch.addingTimeInterval(11))
+        await recorder.flush(now: epoch.addingTimeInterval(11))
+
+        let samples = try await store.samples(.cpu, from: .distantPast, to: .distantFuture).map(\.value)
+        XCTAssertEqual(samples, [11])
+        let ledger = try await store.ledger(from: .distantPast, to: .distantFuture)
+        XCTAssertTrue(ledger.isEmpty)
+    }
+
     func testASourceChangeIsRecordedAsAGapSoStoredLinesBreak() {
         var sources = RecordedSources()
         XCTAssertFalse(sources.changed(\.sensor, to: "Tp01"), "the first source is not a change")
