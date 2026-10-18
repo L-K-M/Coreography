@@ -3,7 +3,7 @@
 Track actual delivery against the [product plan](plan.md). A stage is
 complete only after its relevant checks and review pass and its PR merges.
 
-## Current slice: GPU and thermal pressure
+## Current slice: power and battery
 
 The native foundation merged in [PR #5](https://github.com/L-K-M/Coreography/pull/5)
 at `aee9494` after two GLM rounds and passing CI. Process monitoring merged
@@ -15,8 +15,9 @@ integration checks and GLM review still gate delivery.
 Scoped storage-driver rates and a fourth lane follow in
 [PR #8](https://github.com/L-K-M/Coreography/pull/8); memory composition,
 swap and pressure in [PR #9](https://github.com/L-K-M/Coreography/pull/9);
-app grouping in [PR #10](https://github.com/L-K-M/Coreography/pull/10).
-This slice adds the GPU lane and a thermal-pressure lane.
+app grouping in [PR #10](https://github.com/L-K-M/Coreography/pull/10);
+GPU and thermal-pressure lanes in [PR #11](https://github.com/L-K-M/Coreography/pull/11).
+This slice adds the power lane from public battery and adapter sources.
 
 Implemented:
 
@@ -65,6 +66,10 @@ Implemented:
 - A GPU lane from each IOAccelerator's published `PerformanceStatistics`:
   busy, renderer and tiler percentages and memory in use, one line per GPU,
   with a numeric table and `coreo gpu --once --json`.
+- A power lane: battery charge with an external-power band, battery
+  charge/discharge watts from the gas gauge, time estimate, health, cycles
+  and adapter rating. System draw is shown only on battery, where the
+  battery's discharge supplies the whole Mac; `coreo power --once --json`.
 - A thermal lane showing system thermal pressure as a band, from the public
   `com.apple.system.thermalpressurelevel` notify state. Temperatures, fans
   and the hottest-sensor line wait for the sensor provider.
@@ -72,8 +77,8 @@ Implemented:
 This is not the seven-lane product yet. The live buffer currently holds
 60 host, network, disk and GPU frames. Process history/attribution,
 per-volume disk accounting and per-process network attribution remain outstanding.
-There is no disk store, power or sensor provider, per-app GPU time, helper,
-MCP or model integration in this slice.
+There is no disk store, SMC power or sensor provider, per-app GPU time,
+helper, MCP or model integration in this slice.
 
 ## Verification
 
@@ -88,6 +93,7 @@ MCP or model integration in this slice.
 | Native process collection, cancellation and CPU units | Passed [native review-fix CI](https://github.com/L-K-M/Coreography/actions/runs/39105964147) at `7df03ec`, including cancellation, saturation and `getrusage` cross-checks |
 | Native network MIB, wide-counter mapping and three-lane UI | Passed at `e62fac1`, including native C fixtures, live CLI and both executable architectures; integrated candidate pending |
 | Native IOKit storage counters and four-lane renderer | Passed [native CI](https://github.com/L-K-M/Coreography/actions/runs/39110306993) at `6434722`: 75 tests, 16 drivers, 32 measured rate fields, no inventory issues; owner checks pending |
+| Native IOKit power sources and seven-lane UI | Power slice: 99 Swift tests pass on Linux; native CI pending. A virtual runner has no battery, so its smoke checks explicit unsupported states; battery accuracy is an owner check |
 | Native GPU statistics, thermal notify state and six-lane UI | GPU slice: 93 Swift tests, 34 tooling tests and the Linux thermal C contract pass; native CI pending. The C bridge asserts the level constants against the SDK at compile time |
 | Native executable paths, responsibility lookup and grouped table | App-grouping slice: 87 Swift tests and the Linux C contract pass; native CI records how many processes resolved a responsible PID |
 | Native swap/pressure sysctls, memory composition and stacked lane | Passed [native CI](https://github.com/L-K-M/Coreography/actions/runs/39112973077) at `1274ff0`: 83 tests including real sysctl reads, and the snapshot gate's composition sum |
@@ -177,6 +183,22 @@ The [libproc wrapper](https://github.com/apple-oss-distributions/xnu/blob/f6217f
 calls `__proc_info` directly, and
 [proc_get_rusage](https://github.com/apple-oss-distributions/xnu/blob/f6217f891ac0bb64f3d375211650a4c1ff8ca1ea/bsd/kern/kern_resource.c)
 copies the gathered record without a hidden nanosecond conversion.
+
+## Power sources
+
+Battery charge, power source, charging state and time estimates come from
+the public `IOPSCopyPowerSourcesInfo` descriptions (keys from IOPSKeys.h);
+`-1` while macOS calculates and `0` when not applicable become absent
+estimates, never zero minutes. The adapter rating comes from
+`IOPSCopyExternalPowerAdapterDetails`. `AppleSmartBattery` registry
+properties give gas-gauge millivolts and signed milliamps, cycle count,
+design and full-charge capacity; their product is battery power, positive
+while charging.
+
+Only while unplugged does battery discharge equal system draw. On
+external power the charge rate is not system draw, so the hero reading is
+unavailable until the SMC system-power provider (`PSTR`/`PDTR`) lands.
+Macs without a battery show unsupported battery readings, not zeros.
 
 ## GPU and thermal sources
 

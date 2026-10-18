@@ -84,6 +84,23 @@ final class DashboardModelTests: XCTestCase {
         }
     }
 
+    func testBatteryHistoryAndExternalPowerBandsFollowThePowerSource() async throws {
+        let model = DashboardModel(
+            monitor: try SystemMonitor(driver: IncreasingHostDriver()), interval: .milliseconds(10),
+            powerMonitor: try PowerMonitor(driver: AlternatingPowerDriver())
+        )
+        model.start()
+        defer { model.stop() }
+        try await eventually { model.powerFrames.count >= 5 }
+        model.toggleDisplayHold()
+
+        let frames = model.powerFrames
+        XCTAssertEqual(model.batteryChargePoints().map(\.value), frames.map { $0.batteryChargePercent.numericValue! })
+        let pluggedEnds = Set(frames.dropFirst().filter { $0.powerSource == .externalPower }.map(\.stamp.wallTime))
+        XCTAssertEqual(Set(model.externalPowerSpans().map(\.end)), pluggedEnds)
+        XCTAssertFalse(pluggedEnds.isEmpty)
+    }
+
     func testMemorySeriesDoesNotBridgeSamplingGaps() async throws {
         let driver = IncreasingHostDriver()
         let monitor = try SystemMonitor(driver: driver)
@@ -352,6 +369,26 @@ private actor IncreasingProcessDriver: ProcessSampleReading {
                     physicalFootprintBytes: readCount, diskReadBytes: readCount, diskWriteBytes: 0
                 ))
             )]))
+        )
+    }
+}
+
+private actor AlternatingPowerDriver: PowerSampleReading {
+    private let clock = UUID()
+    private var readCount: UInt64 = 0
+
+    func read() async -> RawPowerSnapshot {
+        readCount += 1
+        let plugged = readCount.isMultiple(of: 2)
+        return RawPowerSnapshot(
+            clockID: clock, monotonicNanoseconds: readCount * 1_000_000_000,
+            wallTime: Date(timeIntervalSince1970: 1_700_000_000 + Double(readCount)),
+            battery: .success(BatteryState(
+                chargePercent: Double(50 + readCount), powerSource: plugged ? .externalPower : .battery,
+                isCharging: plugged, minutesToEmpty: nil, minutesToFull: nil
+            )),
+            gauge: .failure(.unavailable(reason: "Fixture")),
+            adapterWatts: .failure(.unavailable(reason: "Fixture"))
         )
     }
 }

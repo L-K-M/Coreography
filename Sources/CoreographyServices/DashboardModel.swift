@@ -63,6 +63,13 @@ public struct ThermalPressureSpan: Identifiable, Sendable {
     public let level: ThermalPressureLevel
 }
 
+/// Time on external power between two consecutive samples.
+public struct ExternalPowerSpan: Identifiable, Sendable {
+    public let id: UUID
+    public let start: Date
+    public let end: Date
+}
+
 public struct GPUTableReading: Identifiable, Sendable {
     public let id: String
     public let time: Date
@@ -89,6 +96,7 @@ public final class DashboardModel {
     public private(set) var diskFrames: [CapturedDisks] = []
     public var storageScope: StorageScope = .automatic
     public private(set) var gpuFrames: [CapturedGPU] = []
+    public private(set) var powerFrames: [CapturedPower] = []
     public var processFilter = ""
     public var processSort: ProcessSort = .cpu
     public var processGrouping: ProcessGrouping = .app
@@ -98,6 +106,7 @@ public final class DashboardModel {
     @ObservationIgnored private let networkMonitor: NetworkMonitor?
     @ObservationIgnored private let diskMonitor: DiskMonitor?
     @ObservationIgnored private let gpuMonitor: GPUMonitor?
+    @ObservationIgnored private let powerMonitor: PowerMonitor?
     @ObservationIgnored private let interval: Duration
     @ObservationIgnored private let processInterval: Duration
     @ObservationIgnored private var worker: Task<Void, Never>?
@@ -107,6 +116,7 @@ public final class DashboardModel {
     @ObservationIgnored private var liveNetworkFrames: [CapturedNetwork] = []
     @ObservationIgnored private var liveDiskFrames: [CapturedDisks] = []
     @ObservationIgnored private var liveGPUFrames: [CapturedGPU] = []
+    @ObservationIgnored private var livePowerFrames: [CapturedPower] = []
 
     public init() {
         interval = .seconds(1)
@@ -117,17 +127,20 @@ public final class DashboardModel {
             let network = try NetworkMonitor()
             let disk = try DiskMonitor()
             let gpu = try GPUMonitor()
+            let power = try PowerMonitor()
             monitor = system
             processMonitor = processes
             networkMonitor = network
             diskMonitor = disk
             gpuMonitor = gpu
+            powerMonitor = power
         } catch {
             monitor = nil
             processMonitor = nil
             networkMonitor = nil
             diskMonitor = nil
             gpuMonitor = nil
+            powerMonitor = nil
             collectionError = "Cannot initialize monitoring: \(error)"
         }
     }
@@ -136,7 +149,7 @@ public final class DashboardModel {
         monitor: SystemMonitor, interval: Duration,
         processMonitor: ProcessMonitor? = nil, processInterval: Duration = .seconds(2),
         networkMonitor: NetworkMonitor? = nil, diskMonitor: DiskMonitor? = nil,
-        gpuMonitor: GPUMonitor? = nil
+        gpuMonitor: GPUMonitor? = nil, powerMonitor: PowerMonitor? = nil
     ) {
         self.monitor = monitor
         self.interval = interval
@@ -145,6 +158,7 @@ public final class DashboardModel {
         self.networkMonitor = networkMonitor
         self.diskMonitor = diskMonitor
         self.gpuMonitor = gpuMonitor
+        self.powerMonitor = powerMonitor
     }
 
     deinit { worker?.cancel() }
@@ -154,7 +168,8 @@ public final class DashboardModel {
     public var displayedEndTime: Date? {
         [
             latest?.stamp.wallTime, networkFrames.last?.stamp.wallTime,
-            diskFrames.last?.stamp.wallTime, gpuFrames.last?.stamp.wallTime
+            diskFrames.last?.stamp.wallTime, gpuFrames.last?.stamp.wallTime,
+            powerFrames.last?.stamp.wallTime
         ].compactMap { $0 }.max()
     }
 
@@ -223,6 +238,7 @@ public final class DashboardModel {
         let networkMonitor = networkMonitor
         let diskMonitor = diskMonitor
         let gpuMonitor = gpuMonitor
+        let powerMonitor = powerMonitor
 
         worker = Task { [weak self] in
             defer {
@@ -233,6 +249,7 @@ public final class DashboardModel {
             await networkMonitor?.reset()
             await diskMonitor?.reset()
             await gpuMonitor?.reset()
+            await powerMonitor?.reset()
             var nextProcessSample = ContinuousClock.now
             while !Task.isCancelled {
                 do {
@@ -253,6 +270,11 @@ public final class DashboardModel {
                         _ = try await gpuMonitor.sample()
                         gpus = await gpuMonitor.history()
                     }
+                    var power: [CapturedPower]?
+                    if let powerMonitor {
+                        _ = try await powerMonitor.sample()
+                        power = await powerMonitor.history()
+                    }
                     var processes: CapturedProcesses?
                     if let processMonitor, ContinuousClock.now >= nextProcessSample {
                         processes = try await processMonitor.sample()
@@ -264,12 +286,14 @@ public final class DashboardModel {
                     if let network { self.liveNetworkFrames = network }
                     if let disks { self.liveDiskFrames = disks }
                     if let gpus { self.liveGPUFrames = gpus }
+                    if let power { self.livePowerFrames = power }
                     if self.displayMode == .live {
                         self.frames = history
                         if let processes { self.processSnapshot = processes }
                         if let network { self.networkFrames = network }
                         if let disks { self.diskFrames = disks }
                         if let gpus { self.gpuFrames = gpus }
+                        if let power { self.powerFrames = power }
                     }
                     try await Task.sleep(for: self.interval)
                 } catch is CancellationError {
@@ -300,6 +324,7 @@ public final class DashboardModel {
         networkFrames = liveNetworkFrames
         diskFrames = liveDiskFrames
         gpuFrames = liveGPUFrames
+        powerFrames = livePowerFrames
     }
 
     public func reading(for metric: DashboardMetric) -> DashboardReading? {
@@ -392,6 +417,39 @@ public final class DashboardModel {
             }
             if let previousTime {
                 result.append((id: frame.id, start: previousTime, end: frame.stamp.wallTime, level: current))
+            }
+            previousTime = frame.stamp.wallTime
+        }
+        return result
+    }
+
+    /// Battery charge history; a missing reading or interruption splits the line.
+    public func batteryChargePoints() -> [DashboardPoint] {
+        var result: [DashboardPoint] = []
+        var segment = 0
+        for frame in powerFrames {
+            if frame.continuity == .interrupted { segment += 1 }
+            guard let value = frame.batteryChargePercent.numericValue else {
+                segment += 1
+                continue
+            }
+            result.append(DashboardPoint(id: frame.id, time: frame.stamp.wallTime, value: value, segment: segment))
+        }
+        return result
+    }
+
+    /// Spans ending at samples taken on external power; unknown sources break the band.
+    public func externalPowerSpans() -> [ExternalPowerSpan] {
+        var result: [ExternalPowerSpan] = []
+        var previousTime: Date?
+        for frame in powerFrames {
+            if frame.continuity == .interrupted { previousTime = nil }
+            guard let source = frame.powerSource else {
+                previousTime = nil
+                continue
+            }
+            if source == .externalPower, let previousTime {
+                result.append(ExternalPowerSpan(id: frame.id, start: previousTime, end: frame.stamp.wallTime))
             }
             previousTime = frame.stamp.wallTime
         }

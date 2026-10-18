@@ -10,6 +10,7 @@ private struct Coreo {
            coreo network --once --json
            coreo disks --once --json
            coreo gpu --once --json
+           coreo power --once --json
            coreo --version
 
     doctor reports source availability. snapshot waits for a CPU baseline.
@@ -17,6 +18,7 @@ private struct Coreo {
     network reports full-width per-interface byte rates and primary-interface coverage.
     disks reports per-storage-driver rates and collection coverage.
     gpu reports each GPU's driver-published utilization and memory in use.
+    power reports battery, adapter and (on battery) system draw.
     Native host sampling requires macOS 26 or later.
     """
 
@@ -61,6 +63,12 @@ private struct Coreo {
                 }
                 let service = try DiagnosticService()
                 try emit(await service.captureGPUOnce())
+            case ["power", "--once", "--json"], ["power", "--json", "--once"]:
+                guard DiagnosticService.nativeSamplingSupport == .supported else {
+                    throw CommandError.unsupportedPlatform
+                }
+                let service = try DiagnosticService()
+                try emit(await service.capturePowerOnce())
             default:
                 throw CommandError.invalidArguments
             }

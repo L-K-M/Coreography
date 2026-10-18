@@ -7,6 +7,9 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
 ## [Unreleased]
 
 ### Added
+- Power lane: battery charge, external-power band, gas-gauge watts, time
+  estimate, health, cycles, adapter rating and on-battery system draw;
+  `coreo power`.
 - GPU lane with per-GPU busy, renderer and tiler percentages and memory in
   use, `coreo gpu`, and a thermal-pressure lane from the public notify key.
 - App grouping in the process pane: helpers fold under their responsible

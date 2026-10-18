@@ -17,7 +17,9 @@ physical-memory line, with a kernel pressure band above it. Its header and
 numeric table add swap use, swap and page-in rates, and compression ratio.
 
 The GPU lane plots each GPU's driver-reported busy percentage and shows
-memory in use. The thermal lane shows system thermal pressure as a band;
+memory in use. The power lane plots battery charge with an external-power
+band, battery watts, time estimate and health; system draw is shown while
+running on battery. The thermal lane shows system thermal pressure as a band;
 temperatures and fans come with the sensor provider.
 
 The process pane adds PID/start-time-safe CPU share, physical footprint
@@ -71,6 +73,7 @@ swift run coreo processes --once --json # macOS only; two-second baseline
 swift run coreo network --once --json   # macOS only; per-interface byte rates
 swift run coreo disks --once --json     # macOS only; per-storage-driver rates
 swift run coreo gpu --once --json       # macOS only; per-GPU utilization
+swift run coreo power --once --json     # macOS only; battery and adapter
 python3 tools/tests/test_buildscripts.py
 shellcheck scripts/*.sh
 python3 tools/doccheck/checkdocs.py .
