@@ -1,6 +1,7 @@
 import SwiftUI
 import Charts
 import Accessibility
+import UniformTypeIdentifiers
 import CoreographyServices
 
 @MainActor
@@ -1345,14 +1346,22 @@ private struct ProcessMetricCell: View {
 private struct RangePanel: View {
     let model: DashboardModel
     let report: RangeReport
+    @State private var exportFile: ExportFile?
+    @State private var exportType: UTType = .json
+    @State private var exportError: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Text(RangeText.span(report.requested)).font(.headline)
                 Spacer()
+                Button("Export JSON…") { export(as: .json) }
+                Button("Export CSV…") { export(as: .commaSeparatedText) }
                 Button("Clear selection") { model.selection = nil }
                     .keyboardShortcut(.cancelAction)
+            }
+            if let exportError {
+                Text(exportError).font(.caption).foregroundStyle(.red)
             }
             Text(RangeText.lanes(report)).font(.callout)
             Text(RangeText.apps(String(localized: "Top CPU"), report.topCPUApps) { RangeText.cpuSeconds($0.cpuSeconds) })
@@ -1362,11 +1371,46 @@ private struct RangePanel: View {
             Text(RangeText.coverage(report)).font(.caption).foregroundStyle(.secondary)
         }
         .monospacedDigit()
+        .fileExporter(
+            isPresented: Binding(get: { exportFile != nil }, set: { if !$0 { exportFile = nil } }),
+            document: exportFile, contentType: exportType, defaultFilename: "Coreography range"
+        ) { result in
+            if case .failure(let error) = result { exportError = error.localizedDescription }
+        }
         .padding(Layout.padding)
         .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: Layout.cornerRadius))
         .overlay(RoundedRectangle(cornerRadius: Layout.cornerRadius).strokeBorder(
             Color(nsColor: .separatorColor), lineWidth: 0.5
         ))
+    }
+}
+
+private extension RangePanel {
+    /// Build the file from displayed data; failures are shown, not swallowed.
+    func export(as type: UTType) {
+        guard let document = model.rangeExport else { return }
+        do {
+            let data = type == .json ? try RangeExport.json(document) : Data(RangeExport.csv(document).utf8)
+            exportError = nil
+            exportType = type
+            exportFile = ExportFile(data: data)
+        } catch {
+            exportError = String(localized: "Export failed: \(error.localizedDescription)")
+        }
+    }
+}
+
+/// Already-encoded export bytes handed to the save panel.
+private struct ExportFile: FileDocument {
+    static let readableContentTypes: [UTType] = [.json, .commaSeparatedText]
+    let data: Data
+
+    init(data: Data) { self.data = data }
+
+    init(configuration: ReadConfiguration) throws { throw CocoaError(.featureUnsupported) }
+
+    func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
+        FileWrapper(regularFileWithContents: data)
     }
 }
 

@@ -7,6 +7,7 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
 ## [Unreleased]
 
 ### Added
+- JSON and CSV export of a selected range; missing readings stay empty.
 - Range selection across all lanes with a range report backed by an
   in-memory per-app ledger of CPU-seconds and disk bytes.
 - Self-cost readout: Coreography's own CPU and footprint beside the

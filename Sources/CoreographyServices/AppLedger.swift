@@ -2,7 +2,7 @@ import Foundation
 import CoreographyKit
 
 /// One app's activity over a selected range.
-public struct AppRangeTotal: Identifiable, Sendable {
+public struct AppRangeTotal: Identifiable, Codable, Sendable {
     public var id: String { name }
     public let name: String
     public let cpuSeconds: Double
