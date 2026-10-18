@@ -45,16 +45,18 @@ struct DashboardView: View {
                     Text("Connections").tag(DetailPane.connections)
                     Text("Startup").tag(DetailPane.startup)
                     Text("Sensors").tag(DetailPane.sensors)
+                    Text("Sessions").tag(DetailPane.sessions)
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
-                .frame(width: 440)
+                .frame(width: 520)
 
                 switch model.detailPane {
                 case .processes: ProcessPane(model: model, filterFocused: $processFilterFocused)
                 case .connections: ConnectionsPane(model: model)
                 case .startup: StartupPane(model: model)
                 case .sensors: SensorsPane(model: model)
+                case .sessions: SessionsPane(model: model)
                 }
 
                 DisclosureGroup("Numeric readings") {
@@ -175,6 +177,19 @@ struct DashboardView: View {
             ToolbarItem(placement: .primaryAction) {
                 Button("Inspector", systemImage: "sidebar.right") { model.inspectorShown.toggle() }
                     .help("Show or hide the inspector")
+            }
+            ToolbarItem(placement: .primaryAction) {
+                // Command-R records a session (plan P19); stopping saves its report.
+                if model.recordingName == nil {
+                    Button("Record", systemImage: "record.circle") { model.startRecording() }
+                        .keyboardShortcut("r", modifiers: .command)
+                        .help("Record a session at full resolution")
+                } else {
+                    Button("Stop", systemImage: "stop.circle.fill") { Task { await model.stopRecording() } }
+                        .keyboardShortcut("r", modifiers: .command)
+                        .foregroundStyle(.red)
+                        .help("Stop and save \(model.recordingName ?? "")")
+                }
             }
             ToolbarItem(placement: .principal) {
                 Text(ToolbarText.status(model))
@@ -1845,6 +1860,64 @@ private enum StartupText {
             notes.append(String(localized: "\(inventory.unreadableDefinitions) definitions could not be read"))
         }
         return notes
+    }
+}
+
+/// Recorded sessions with their reports (plan P19): minimum, mean, 95th
+/// percentile from raw readings, maximum, and the top apps.
+private struct SessionsPane: View {
+    let model: DashboardModel
+
+    var body: some View {
+        DisclosureGroup("Sessions") {
+            VStack(alignment: .leading, spacing: 12) {
+                if let name = model.recordingName, let start = model.recordingStart {
+                    Text("Recording \(name) since \(start.formatted(date: .omitted, time: .standard))")
+                        .foregroundStyle(.red)
+                }
+                if model.sessions.isEmpty {
+                    Text("No sessions yet. Command-R starts one.").foregroundStyle(.secondary)
+                }
+                ForEach(model.sessions) { session in
+                    DisclosureGroup {
+                        Table(session.summaries) {
+                            TableColumn("Metric") { Text($0.metric) }
+                            TableColumn("Min") { Text(SessionText.value($0.minimum, $0.unit)) }
+                            TableColumn("Mean") { Text(SessionText.value($0.mean, $0.unit)) }
+                            TableColumn("95th") { Text(SessionText.value($0.percentile95, $0.unit)) }
+                            TableColumn("Max") { Text(SessionText.value($0.maximum, $0.unit)) }
+                            TableColumn("Samples") { Text("\($0.samples)") }
+                        }
+                        .frame(height: 220)
+                        Text(RangeText.apps(String(localized: "Top CPU"), session.topApps) { RangeText.cpuSeconds($0.cpuSeconds) })
+                            .font(.callout)
+                        Button("Delete", role: .destructive) { Task { await model.deleteSession(session.id) } }
+                    } label: {
+                        Text(SessionText.title(session))
+                    }
+                }
+            }
+        }
+        .monospacedDigit()
+        .task { await model.refreshSessions() }
+    }
+}
+
+private enum SessionText {
+    static func title(_ session: RecordedSession) -> String {
+        let duration = Duration.seconds(session.end.timeIntervalSince(session.start))
+            .formatted(.units(allowed: [.hours, .minutes, .seconds], width: .abbreviated))
+        return "\(session.name) · \(session.start.formatted(date: .abbreviated, time: .shortened)) · \(duration)"
+    }
+
+    /// Values in their recorded unit: bytes and rates readable, percentages and temperatures to one decimal.
+    static func value(_ value: Double, _ unit: SessionUnit) -> String {
+        switch unit {
+        case .bytes: return MetricText.bytes(value)
+        case .bytesPerSecond: return MetricText.bytes(value) + "/s"
+        case .percentOfMachine, .percent, .watts, .celsius:
+            return value.formatted(.number.precision(.fractionLength(1))) + " " + unit.rawValue
+        }
     }
 }
 

@@ -233,6 +233,14 @@ Implemented:
   app's overlay extends into stored history. Export still covers live
   data only and says so; cursor readouts and contributors over the
   stored part, exporting it, and the 24 h range (the Day tier) remain.
+- Sessions, first part: Command-R records a session at full
+  resolution, kept apart from the live hour so long sessions lose
+  nothing; stopping saves a report with minimum, mean, maximum and a
+  95th percentile taken from every raw reading (never from rollups), and
+  top apps from every ledger interval recorded. Sessions are private
+  files beside history (0700 folder, 0600 files, excluded from backups)
+  and the Sessions tab lists them. Comparing two sessions, export and
+  renaming remain.
 - Reverse lookup by file: `file:~/Downloads` or `file:report.pdf` keeps
   the processes with an open file whose path contains it, from open
   files read through libproc only while the filter asks, inside the
@@ -363,6 +371,7 @@ time, helper, MCP or model integration in this slice.
 | Native network MIB, wide-counter mapping and three-lane UI | Passed at `e62fac1`, including native C fixtures, live CLI and both executable architectures; integrated candidate pending |
 | Native IOKit storage counters and four-lane renderer | Passed [native CI](https://github.com/L-K-M/Coreography/actions/runs/39110306993) at `6434722`: 75 tests, 16 drivers, 32 measured rate fields, no inventory issues; owner checks pending |
 | On-disk history store and recorder | History slice: 148 Swift tests pass on Linux against the real system SQLite (round trip with gaps, duplicates, retention, reopen, permissions, WAL, batching); native CI checks the CLI and file permissions |
+| Sessions | Session slice: 206 Swift tests pass on Linux (raw-reading summaries with gaps skipped, nearest-rank 95th percentile, top apps, private files newest first, recording through the model); UI compile pending |
 | File reverse lookup | File slice: 203 Swift tests and the Linux C contract pass (paths by process, restricted, exited and truncated processes counted, home expansion, name matching, no match without data); the native contract finds this process's own temporary file and refuses a wrong start time; UI compile pending |
 | Wakeups | Wakeup slice: 201 Swift tests and the Linux C contract pass (rates over each process's own interval, collecting first, the budget beyond sampling); the native smoke requires a measured own wakeup rate; UI compile pending |
 | More process actions | Actions slice: 201 Swift tests and the Linux C contract pass (identity-checked signals and renice, refusals, administrator message, copy text and JSON); the native contract stops, continues and renices a forked child and refuses a wrong start time; UI compile pending |
