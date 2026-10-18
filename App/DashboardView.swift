@@ -2007,7 +2007,7 @@ private struct RangePanel: View {
                 }
                 .disabled(document == nil)
                 .help(RangeText.exportScope(document, requested: report.requested))
-                Button("Clear selection") { model.selection = nil }
+                Button("Clear selection") { model.clearSelection() }
                     .keyboardShortcut(.cancelAction)
             }
             if let exportError {
@@ -2125,7 +2125,9 @@ private enum RangeText {
         guard let covered = report.covered else {
             return String(localized: "No process samples fall in this range.")
         }
-        return String(localized: "\(report.activeAppCount) active apps; process samples cover \(span(covered)). Own-user processes only; \"est.\" marks lower bounds.")
+        let from = covered.lowerBound.formatted(date: .omitted, time: .standard)
+        let to = covered.upperBound.formatted(date: .omitted, time: .standard)
+        return String(localized: "\(report.activeAppCount) active apps; process samples cover \(from)–\(to). Own-user processes only; \"est.\" marks lower bounds.")
     }
 }
 
@@ -2201,34 +2203,52 @@ private extension View {
     func chartCursor(_ model: DashboardModel) -> some View {
         chartOverlay { proxy in
             GeometryReader { geometry in
-                Rectangle()
-                    .fill(.clear)
-                    .contentShape(Rectangle())
-                    .onContinuousHover { phase in
-                        switch phase {
-                        case .active(let location):
-                            guard let plot = proxy.plotFrame else { return }
-                            let x = location.x - geometry[plot].origin.x
-                            // The axis margin maps to no date; keep the cursor rather than flicker to live.
-                            if let time = proxy.value(atX: x, as: Date.self) { model.cursorTime = time }
-                        case .ended:
-                            model.cursorTime = nil
-                        }
-                    }
-                    // Dragging across any lane selects one range for all of them (plan P7).
-                    .gesture(DragGesture(minimumDistance: 4).onChanged { drag in
-                        guard let plot = proxy.plotFrame else { return }
-                        let origin = geometry[plot].origin.x
-                        guard let first = proxy.value(atX: drag.startLocation.x - origin, as: Date.self),
-                              let second = proxy.value(atX: drag.location.x - origin, as: Date.self) else { return }
-                        model.draftSelection = min(first, second)...max(first, second)
-                    }.onEnded { _ in
-                        // Commit once, so the range report is computed per drag, not per frame.
-                        if let draft = model.draftSelection { model.selection = draft }
-                        model.draftSelection = nil
-                    })
+                ChartInteraction(model: model, proxy: proxy, geometry: geometry)
             }
         }
+    }
+}
+
+/// Hover and drag over one plot. A drag the system cancels never reaches
+/// onEnded; the gesture state resets anyway, which drops its draft.
+private struct ChartInteraction: View {
+    let model: DashboardModel
+    let proxy: ChartProxy
+    let geometry: GeometryProxy
+    @GestureState private var dragging = false
+
+    var body: some View {
+        Rectangle()
+            .fill(.clear)
+            .contentShape(Rectangle())
+            .onContinuousHover { phase in
+                switch phase {
+                case .active(let location):
+                    guard let plot = proxy.plotFrame else { return }
+                    let x = location.x - geometry[plot].origin.x
+                    // The axis margin maps to no date; keep the cursor rather than flicker to live.
+                    if let time = proxy.value(atX: x, as: Date.self) { model.cursorTime = time }
+                case .ended:
+                    model.cursorTime = nil
+                }
+            }
+            // Dragging across any lane selects one range for all of them (plan P7).
+            .gesture(DragGesture(minimumDistance: 4).updating($dragging) { _, state, _ in
+                state = true
+            }.onChanged { drag in
+                guard let plot = proxy.plotFrame else { return }
+                let origin = geometry[plot].origin.x
+                guard let first = proxy.value(atX: drag.startLocation.x - origin, as: Date.self),
+                      let second = proxy.value(atX: drag.location.x - origin, as: Date.self) else { return }
+                model.draftSelection = min(first, second)...max(first, second)
+            }.onEnded { _ in
+                // Commit once, so the range report is computed per drag, not per frame.
+                if let draft = model.draftSelection { model.selection = draft }
+                model.draftSelection = nil
+            })
+            .onChange(of: dragging) { _, active in
+                if !active { model.draftSelection = nil }
+            }
     }
 }
 
