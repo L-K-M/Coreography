@@ -176,14 +176,27 @@ test_sockets(void)
     coreo_socket_sample sockets[64];
     int32_t count = 0;
     int32_t truncated = 0;
+    struct sockaddr_in6 address6;
+    socklen_t length6 = sizeof(address6);
     int listener = socket(AF_INET, SOCK_STREAM, 0);
     int datagram = socket(AF_INET, SOCK_DGRAM, 0);
+    int listener6 = socket(AF_INET6, SOCK_STREAM, 0);
     uint16_t tcp_port;
     uint16_t udp_port;
+    uint16_t tcp6_port;
     int found_tcp = 0;
     int found_udp = 0;
+    int found_tcp6 = 0;
 
-    assert(listener >= 0 && datagram >= 0);
+    assert(listener >= 0 && datagram >= 0 && listener6 >= 0);
+    memset(&address6, 0, sizeof(address6));
+    address6.sin6_family = AF_INET6;
+    address6.sin6_addr = in6addr_loopback;
+    assert(bind(listener6, (struct sockaddr *)&address6, sizeof(address6)) == 0);
+    assert(listen(listener6, 4) == 0);
+    assert(getsockname(listener6, (struct sockaddr *)&address6, &length6) == 0);
+    tcp6_port = ntohs(address6.sin6_port);
+
     memset(&address, 0, sizeof(address));
     address.sin_family = AF_INET;
     address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
@@ -211,8 +224,14 @@ test_sockets(void)
             assert(sockets[i].tcp_state == COREO_TCP_STATE_NONE);
             found_udp = 1;
         }
+        if (sockets[i].kind == COREO_SOCKET_TCP && sockets[i].local_port == tcp6_port) {
+            assert(sockets[i].tcp_state == COREO_TCP_STATE_LISTEN);
+            assert(sockets[i].ip_version == 6);
+            assert(memcmp(sockets[i].local_address, &in6addr_loopback, 16) == 0);
+            found_tcp6 = 1;
+        }
     }
-    assert(found_tcp && found_udp);
+    assert(found_tcp && found_udp && found_tcp6);
 
     assert(coreo_process_sockets(getpid(), self.start_seconds + 1, self.start_microseconds,
                                  sockets, 64, &count, &truncated) == EAGAIN);
@@ -223,6 +242,7 @@ test_sockets(void)
 
     close(listener);
     close(datagram);
+    close(listener6);
 }
 
 #else
