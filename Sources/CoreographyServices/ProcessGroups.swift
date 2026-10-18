@@ -54,8 +54,10 @@ enum ProcessGroups {
         isNew: (ProcessIdentity) -> Bool = { _ in false }, facts: ProcessFacts = ProcessFacts()
     ) -> [ProcessRow] {
         if grouping == .flat {
+            // A flat row still belongs to its app: scope and the ledger key on it.
+            let apps = snapshot.map(appNames) ?? [:]
             return ProcessList.rows(in: snapshot, matching: filter, sortedBy: sort, isNew: isNew, facts: facts)
-                .map { leaf($0, method: nil, appName: $0.name) }
+                .map { leaf($0, method: nil, appName: apps[$0.id] ?? $0.name) }
         }
 
         let parsed = ProcessFilter.parse(filter)
@@ -83,7 +85,9 @@ enum ProcessGroups {
             let name = names[key] ?? key
             // Free text naming the app shows all its members; predicates test each member.
             let nameMatches = parsed.isEmpty || (parsed.isTextOnly && parsed.matchesName(name))
-            let visible = group.filter { nameMatches || parsed.matches($0.0, isNew: isNew($0.0.id), facts: facts) }
+            let visible = group.filter {
+                nameMatches || parsed.matches($0.0, isNew: isNew($0.0.id), appName: name, facts: facts)
+            }
             guard !visible.isEmpty else { continue }
 
             if group.count == 1, let (process, method) = group.first {
@@ -105,8 +109,6 @@ enum ProcessGroups {
         return sorted(rows, by: sort)
     }
 
-    /// The responsible process owns a member only if it is observed and not
-    /// younger; a later start means its PID was reused.
     /// Each process's app, as the grouped table names it.
     static func appNames(_ processes: CapturedProcesses) -> [ProcessIdentity: String] {
         var names: [ProcessIdentity: String] = [:]
@@ -119,6 +121,8 @@ enum ProcessGroups {
         return names
     }
 
+    /// The responsible process owns a member only if it is observed and not
+    /// younger; a later start means its PID was reused.
     private static func owner(
         of process: ObservedProcess, in byPID: [Int32: ObservedProcess]
     ) -> (ObservedProcess, ProcessGroupingMethod) {
