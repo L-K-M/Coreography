@@ -53,6 +53,12 @@ public struct KeychainCredentialStore: CredentialStoring {
         guard updated == errSecItemNotFound else { throw CredentialStoreError.keychain(status: updated) }
         let attributes = baseQuery().merging(values) { _, new in new }
         let status = SecItemAdd(attributes as CFDictionary, nil)
+        if status == errSecDuplicateItem {
+            // Another writer, such as a second copy of the app, added it between the update and the add.
+            let retried = SecItemUpdate(baseQuery() as CFDictionary, values as CFDictionary)
+            guard retried == errSecSuccess else { throw CredentialStoreError.keychain(status: retried) }
+            return
+        }
         guard status == errSecSuccess else { throw CredentialStoreError.keychain(status: status) }
         #else
         throw CredentialStoreError.unsupportedPlatform
