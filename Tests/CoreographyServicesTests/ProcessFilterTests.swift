@@ -113,15 +113,41 @@ final class ProcessFilterTests: XCTestCase {
         XCTAssertEqual(busy.first?.children?.map(\.name), ["Safari Helper"])
     }
 
+    func testAppTextWithPredicatesKeepsMembersNamedOtherwise() throws {
+        let stamp = SampleStamp(clockID: UUID(), monotonicNanoseconds: 1, wallTime: Date())
+        let host = try process(name: "Safari", cpu: 1, uid: 501, path: "/Applications/Safari.app/Contents/MacOS/Safari", pid: 10)
+        let content = try process(name: "com.apple.WebKit.WebContent", cpu: 45, uid: 501, path: nil, pid: 11, responsible: 10)
+        let snapshot = ProcessSnapshot(
+            stamp: stamp, collectorPID: 1, enumeration: try .measured(2), enumerationTruncated: false,
+            processes: [host, content], issues: [], continuity: .continuous
+        )
+        let busy = ProcessGroups.rows(in: snapshot, matching: "safari cpu:>10", sortedBy: .cpu, grouping: .app)
+        XCTAssertEqual(busy.first?.children?.map(\.name), ["com.apple.WebKit.WebContent"], "the app's name counts for its members")
+        XCTAssertTrue(ProcessGroups.rows(in: snapshot, matching: "chrome cpu:>10", sortedBy: .cpu, grouping: .app).isEmpty)
+    }
+
+    func testNonFiniteBoundsAreReportedNotApplied() {
+        let filter = ProcessFilter.parse("cpu:>nan mem:>=inf disk:1e400")
+        XCTAssertTrue(filter.terms.isEmpty)
+        XCTAssertEqual(filter.issues.count, 3)
+    }
+
+    func testUsrLocalIsThirdParty() throws {
+        let brew = try process(name: "brew", cpu: 1, uid: 501, path: "/usr/local/bin/brew")
+        let system = try process(name: "xpcproxy", cpu: 1, uid: 0, path: "/usr/libexec/xpcproxy")
+        XCTAssertTrue(ProcessFilter.parse("#third-party").matches(brew, isNew: false))
+        XCTAssertFalse(ProcessFilter.parse("#third-party").matches(system, isNew: false))
+    }
+
     private func process(
-        name: String, cpu: Double?, uid: UInt32, path: String?, pid: Int32 = 7
+        name: String, cpu: Double?, uid: UInt32, path: String?, pid: Int32 = 7, responsible: Int32? = nil
     ) throws -> ObservedProcess {
         ProcessReading(
             id: try ProcessIdentity(pid: pid, startSeconds: 1, startMicroseconds: 0), parentPID: 1, uid: uid, name: name,
             stamp: SampleStamp(clockID: UUID(), monotonicNanoseconds: 1, wallTime: Date()),
             cpuPercentOfMachine: try cpu.map { try .measured($0) } ?? .restricted(reason: "EPERM"),
             memoryFootprintBytes: try .measured(1e9), diskReadBytesPerSecond: try .measured(0),
-            diskWriteBytesPerSecond: try .measured(0), executablePath: path, responsiblePID: nil
+            diskWriteBytesPerSecond: try .measured(0), executablePath: path, responsiblePID: responsible
         )
     }
 }
