@@ -245,7 +245,7 @@ struct DashboardView: View {
                         .lineStyle(StrokeStyle(lineWidth: 1.5, dash: [4, 2]))
                     }
                     CursorRule(time: model.cursorTime, range: start...end)
-                    SelectionBand(selection: model.selection, range: start...end)
+                    SelectionBand(selection: model.draftSelection ?? model.selection, range: start...end)
                     MarkerRules(markers: model.markers, range: start...end)
                 }
                 .chartCursor(model)
@@ -359,7 +359,7 @@ private struct MemoryLane: View {
                 .foregroundStyle(MemoryStyle.color(span.level))
             }
             CursorRule(time: model.cursorTime, range: start...end)
-            SelectionBand(selection: model.selection, range: start...end)
+            SelectionBand(selection: model.draftSelection ?? model.selection, range: start...end)
             MarkerRules(markers: model.markers, range: start...end)
         }
         .chartCursor(model)
@@ -529,7 +529,7 @@ private struct GPULane: View {
                 }
             }
             CursorRule(time: model.cursorTime, range: start...end)
-            SelectionBand(selection: model.selection, range: start...end)
+            SelectionBand(selection: model.draftSelection ?? model.selection, range: start...end)
             MarkerRules(markers: model.markers, range: start...end)
         }
         .chartCursor(model)
@@ -664,7 +664,7 @@ private struct PowerLane: View {
                 .interpolationMethod(.linear)
             }
             CursorRule(time: model.cursorTime, range: start...end)
-            SelectionBand(selection: model.selection, range: start...end)
+            SelectionBand(selection: model.draftSelection ?? model.selection, range: start...end)
             MarkerRules(markers: model.markers, range: start...end)
         }
         .chartCursor(model)
@@ -830,7 +830,7 @@ private struct ThermalLane: View {
                         .foregroundStyle(ThermalText.color(span.level))
                     }
                     CursorRule(time: model.cursorTime, range: start...end)
-                    SelectionBand(selection: model.selection, range: start...end)
+                    SelectionBand(selection: model.draftSelection ?? model.selection, range: start...end)
                     MarkerRules(markers: model.markers, range: start...end)
                 }
                 .chartCursor(model)
@@ -877,7 +877,7 @@ private extension ThermalLane {
                 .interpolationMethod(.linear)
             }
             CursorRule(time: model.cursorTime, range: start...end)
-            SelectionBand(selection: model.selection, range: start...end)
+            SelectionBand(selection: model.draftSelection ?? model.selection, range: start...end)
             MarkerRules(markers: model.markers, range: start...end)
         }
         .chartCursor(model)
@@ -1179,7 +1179,7 @@ private struct TransferChart: View {
                 .lineStyle(StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
             }
             CursorRule(time: model.cursorTime, range: start...end)
-            SelectionBand(selection: model.selection, range: start...end)
+            SelectionBand(selection: model.draftSelection ?? model.selection, range: start...end)
             MarkerRules(markers: model.markers, range: start...end)
         }
         .chartCursor(model)
@@ -1585,7 +1585,11 @@ private extension View {
                         let origin = geometry[plot].origin.x
                         guard let first = proxy.value(atX: drag.startLocation.x - origin, as: Date.self),
                               let second = proxy.value(atX: drag.location.x - origin, as: Date.self) else { return }
-                        model.selection = min(first, second)...max(first, second)
+                        model.draftSelection = min(first, second)...max(first, second)
+                    }.onEnded { _ in
+                        // Commit once, so the range report is computed per drag, not per frame.
+                        if let draft = model.draftSelection { model.selection = draft }
+                        model.draftSelection = nil
                     })
             }
         }
@@ -1649,6 +1653,9 @@ private struct SelfCostLine: View {
                 .monospacedDigit()
                 .foregroundStyle(cost.cpuOverBudget || cost.footprintOverBudget ? Color.orange : Color.secondary)
                 .help("Coreography's own process, from the latest process sample. Wakeups are not measured yet.")
+        } else if let processes = model.processSnapshot {
+            // A process sample without our own row is a failure to report, not a wait.
+            Text("Self-cost: unavailable · \(processes.enumeration.reason ?? String(localized: "own process not observed"))")
         } else {
             Text("Self-cost: collecting…")
         }
