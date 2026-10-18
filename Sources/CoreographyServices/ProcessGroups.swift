@@ -129,6 +129,9 @@ enum ProcessGroups {
         let ownerStart = (owner.id.startSeconds, owner.id.startMicroseconds)
         let processStart = (process.id.startSeconds, process.id.startMicroseconds)
         guard ownerStart <= processStart else { return (process, standalone) }
+
+        // A shared owner such as launchd must not merge unrelated apps.
+        guard appBundle(of: owner) != nil else { return (process, standalone) }
         return (owner, .responsibleProcess)
     }
 
