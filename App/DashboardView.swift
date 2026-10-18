@@ -237,7 +237,7 @@ struct DashboardView: View {
                     // The scoped app's share, as a second series in the lane's hue (plan P8).
                     ForEach(scoped ?? []) { point in
                         LineMark(
-                            x: .value("Time", point.time), y: .value("Scoped app", point.value),
+                            x: .value("Time", point.time), y: .value(title, point.value),
                             series: .value("Segment", "scoped-\(point.segment)")
                         )
                         .foregroundStyle(Color.blue.opacity(0.6))
