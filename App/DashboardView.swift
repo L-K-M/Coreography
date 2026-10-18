@@ -24,6 +24,7 @@ struct DashboardView: View {
                 lane(.cpu)
                 MemoryLane(model: model)
                 GPULane(model: model)
+                PowerLane(model: model)
 
                 DiskLane(model: model)
                 NetworkLane(model: model)
@@ -73,6 +74,18 @@ struct DashboardView: View {
                         TableColumn("Renderer") { ProcessMetricCell(reading: $0.device.rendererPercent, format: .percent) }
                         TableColumn("Tiler") { ProcessMetricCell(reading: $0.device.tilerPercent, format: .percent) }
                         TableColumn("Memory in use") { ProcessMetricCell(reading: $0.device.inUseMemoryBytes, format: .bytes) }
+                    }
+                    .frame(height: 150)
+                }
+
+                DisclosureGroup("Power numeric readings") {
+                    Table(Array(model.powerFrames.suffix(10))) {
+                        TableColumn("Time") { Text($0.stamp.wallTime, format: .dateTime.hour().minute().second()) }
+                        TableColumn("Source") { Text(PowerText.source($0)) }
+                        TableColumn("System draw") { ProcessMetricCell(reading: $0.systemPowerWatts, format: .watts) }
+                        TableColumn("Battery") { ProcessMetricCell(reading: $0.batteryChargePercent, format: .percent) }
+                        TableColumn("Battery power") { ProcessMetricCell(reading: $0.batteryPowerWatts, format: .watts) }
+                        TableColumn("Adapter rating") { ProcessMetricCell(reading: $0.adapterRatingWatts, format: .watts) }
                     }
                     .frame(height: 150)
                 }
@@ -523,6 +536,176 @@ private struct GPUChartAccessibility: AXChartDescriptorRepresentable {
     }
 }
 
+private struct PowerLane: View {
+    @Bindable var model: DashboardModel
+
+    var body: some View {
+        let end = model.displayedEndTime ?? Date()
+        let start = end.addingTimeInterval(-Layout.visibleSeconds)
+        let points = model.batteryChargePoints().filter { $0.time >= start && $0.time <= end }
+        let plugged = model.externalPowerSpans().filter { $0.end >= start && $0.start <= end }
+        let latest = model.powerFrames.last
+
+        HStack(alignment: .top, spacing: 24) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Power").font(.caption.weight(.medium)).foregroundStyle(.secondary)
+                Text(MetricText.watts(latest?.systemPowerWatts.numericValue))
+                    .font(.system(size: 30, weight: .semibold))
+                Text(latest?.systemPowerWatts.numericValue == nil ? "System draw" : "System draw, from battery")
+                    .font(.caption)
+                Text(PowerText.battery(latest)).font(.caption)
+                Text(PowerText.adapterAndHealth(latest)).font(.caption).foregroundStyle(.secondary)
+                Text(latest?.systemPowerWatts.reason ?? latest?.systemPowerWatts.method ?? "")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            .monospacedDigit()
+            .frame(width: Layout.headerWidth, alignment: .leading)
+
+            if points.isEmpty {
+                Text(latest?.batteryChargePercent.reason ?? String(localized: "Collecting samples…"))
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, minHeight: Layout.graphHeight)
+            } else {
+                chart(points: points, plugged: plugged, start: start, end: end)
+            }
+        }
+        .padding(Layout.padding)
+        .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: Layout.cornerRadius))
+        .overlay(RoundedRectangle(cornerRadius: Layout.cornerRadius).strokeBorder(
+            Color(nsColor: .separatorColor), lineWidth: 0.5
+        ))
+    }
+
+    // Battery charge on a fixed 0-100% scale; a grey band above marks external power.
+    private func chart(
+        points: [DashboardPoint], plugged: [ExternalPowerSpan], start: Date, end: Date
+    ) -> some View {
+        Chart {
+            ForEach(plugged) { span in
+                RectangleMark(
+                    xStart: .value("Start", max(span.start, start)), xEnd: .value("End", span.end),
+                    yStart: .value("Band", PowerStyle.bandBottom), yEnd: .value("Band", PowerStyle.bandTop)
+                )
+                .foregroundStyle(Color.gray.opacity(0.35))
+            }
+            ForEach(points) { point in
+                LineMark(
+                    x: .value("Time", point.time), y: .value("Battery", point.value),
+                    series: .value("Segment", point.segment)
+                )
+                .foregroundStyle(Color.green)
+                .interpolationMethod(.linear)
+            }
+        }
+        .chartLegend(.hidden)
+        .chartXScale(domain: start...end)
+        .chartYScale(domain: 0...PowerStyle.bandTop)
+        .chartYAxis {
+            AxisMarks(position: .trailing, values: [0, MetricText.percentScale / 2, MetricText.percentScale]) { value in
+                AxisGridLine()
+                AxisValueLabel {
+                    if let number = value.as(Double.self) {
+                        Text(MetricText.percent(number)).frame(width: Layout.axisLabelWidth, alignment: .leading)
+                    }
+                }
+            }
+        }
+        .chartXAxis {
+            AxisMarks(values: .automatic(desiredCount: 4)) {
+                AxisValueLabel(format: .dateTime.hour().minute().second())
+            }
+        }
+        .frame(height: Layout.graphHeight)
+        .accessibilityChartDescriptor(PowerChartAccessibility(
+            points: points, pluggedSpans: plugged.count, start: start, end: end
+        ))
+    }
+}
+
+private enum PowerStyle {
+    static let bandBottom = 104.0
+    static let bandTop = 110.0
+}
+
+private enum PowerText {
+    static func source(_ frame: CapturedPower) -> String {
+        switch frame.powerSource {
+        case .externalPower: return String(localized: "Adapter")
+        case .battery: return String(localized: "Battery")
+        case nil: return "–"
+        }
+    }
+
+    static func battery(_ frame: CapturedPower?) -> String {
+        guard let frame, let charge = frame.batteryChargePercent.numericValue else {
+            return frame?.batteryChargePercent.reason ?? ""
+        }
+        var parts = [String(localized: "Battery \(MetricText.percent(charge))")]
+        if let watts = frame.batteryPowerWatts.numericValue {
+            // The charging flag decides the label; a zero current is neither direction.
+            if frame.isCharging == true {
+                parts.append(String(localized: "charging \(MetricText.watts(watts))"))
+            } else if watts < 0 {
+                parts.append(String(localized: "discharging \(MetricText.watts(-watts))"))
+            } else {
+                parts.append(String(localized: "not charging"))
+            }
+        }
+        if let minutes = frame.batteryMinutesRemaining.numericValue {
+            let duration = Duration.seconds(minutes * 60).formatted(.units(allowed: [.hours, .minutes], width: .abbreviated))
+            parts.append(frame.isCharging == true
+                ? String(localized: "full in \(duration)") : String(localized: "\(duration) left"))
+        }
+        return parts.joined(separator: " · ")
+    }
+
+    static func adapterAndHealth(_ frame: CapturedPower?) -> String {
+        guard let frame else { return "" }
+        var parts: [String] = []
+        if let watts = frame.adapterRatingWatts.numericValue {
+            parts.append(String(localized: "\(MetricText.watts(watts)) adapter"))
+        }
+        if let health = frame.batteryHealthPercent.numericValue {
+            parts.append(String(localized: "health \(MetricText.percent(health)) est."))
+        }
+        if let cycles = frame.batteryCycleCount.numericValue {
+            parts.append(String(localized: "\(Int(cycles)) cycles"))
+        }
+        return parts.joined(separator: " · ")
+    }
+}
+
+private struct PowerChartAccessibility: AXChartDescriptorRepresentable {
+    let points: [DashboardPoint]
+    let pluggedSpans: Int
+    let start: Date
+    let end: Date
+
+    func makeChartDescriptor() -> AXChartDescriptor {
+        let x = AXNumericDataAxisDescriptor(
+            title: String(localized: "Time"),
+            range: start.timeIntervalSinceReferenceDate...end.timeIntervalSinceReferenceDate,
+            gridlinePositions: []
+        ) { Date(timeIntervalSinceReferenceDate: $0).formatted(date: .omitted, time: .standard) }
+        let y = AXNumericDataAxisDescriptor(
+            title: String(localized: "Battery charge"), range: 0...MetricText.percentScale, gridlinePositions: []
+        ) { MetricText.percent($0) }
+        let segments = Dictionary(grouping: points, by: \.segment)
+        let series = segments.keys.sorted().map { segment in
+            AXDataSeriesDescriptor(name: String(localized: "Battery charge"), isContinuous: true, dataPoints:
+                (segments[segment] ?? []).map { AXDataPoint(x: $0.time.timeIntervalSinceReferenceDate, y: $0.value) }
+            )
+        }
+        return AXChartDescriptor(
+            title: String(localized: "Power"),
+            summary: pluggedSpans > 0
+                ? String(localized: "Battery charge over the last minute; the band marks time on external power.")
+                : String(localized: "Battery charge over the last minute, on battery power."),
+            xAxis: x, yAxis: y, additionalAxes: [], series: series
+        )
+    }
+}
+
 private struct ThermalLane: View {
     @Bindable var model: DashboardModel
 
@@ -958,7 +1141,7 @@ private enum ProcessText {
 }
 
 private struct ProcessMetricCell: View {
-    enum Format { case percent, bytes, rate }
+    enum Format { case percent, bytes, rate, watts }
     let reading: DashboardReading
     let format: Format
 
@@ -984,6 +1167,7 @@ private struct ProcessMetricCell: View {
         case .percent: return MetricText.percent(value) + suffix
         case .bytes: return MetricText.bytes(value) + suffix
         case .rate: return MetricText.bytes(value) + "/s" + suffix
+        case .watts: return MetricText.watts(value) + suffix
         }
     }
 }
@@ -1011,6 +1195,11 @@ private enum MetricText {
     static func bytes(_ value: Double?) -> String {
         guard let value, value.isFinite, value >= 0, value < Double(Int64.max) else { return "–" }
         return Int64(value).formatted(.byteCount(style: .file))
+    }
+
+    static func watts(_ value: Double?) -> String {
+        guard let value, value.isFinite else { return "–" }
+        return value.formatted(.number.precision(.fractionLength(1))) + " W"
     }
 
     static func rate(_ value: Double?) -> String {

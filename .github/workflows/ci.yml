@@ -208,6 +208,31 @@ jobs:
               print("No IOAccelerator is exposed; GPU accuracy is unverified on this runner.")
           PY
 
+      - name: Smoke-test native power sources
+        run: |
+          set -euo pipefail
+          dist/Coreography.app/Contents/Helpers/coreo power --once --json > "$RUNNER_TEMP/power.json"
+          python3 - "$RUNNER_TEMP/power.json" <<'PY'
+          import json, math, sys
+          with open(sys.argv[1]) as source:
+              power = json.load(source)
+          numeric = ("measured", "estimated")
+          states = numeric + ("unavailable", "unsupported", "restricted")
+          for key in ("systemPowerWatts", "batteryChargePercent", "batteryPowerWatts", "adapterRatingWatts"):
+              reading = power[key]
+              assert reading["availability"] in states, key
+              if reading["availability"] in numeric:
+                  assert math.isfinite(reading["numericValue"]), key
+              else:
+                  assert "numericValue" not in reading and reading.get("reason"), key
+          charge = power["batteryChargePercent"]
+          if charge["availability"] == "measured":
+              assert 0 <= charge["numericValue"] <= 100
+          system = power["systemPowerWatts"]
+          assert system["availability"] != "estimated" or system["numericValue"] > 0
+          print(json.dumps({key: power[key]["availability"] for key in ("systemPowerWatts", "batteryChargePercent", "adapterRatingWatts")}))
+          PY
+
       - name: Smoke-test native network counters
         run: |
           set -euo pipefail
