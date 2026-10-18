@@ -388,8 +388,8 @@ public final class DashboardModel {
     /// live data. Stored history is not exported yet, so the document starts
     /// where live data does; nil when the whole selection predates it.
     public var rangeExport: RangeExport.Document? {
-        guard let selection else { return nil }
-        let start = max(selection.lowerBound, frames.first?.stamp.wallTime ?? selection.lowerBound)
+        guard let selection, let liveStart = frames.first?.stamp.wallTime else { return nil }
+        let start = max(selection.lowerBound, liveStart)
         guard start <= selection.upperBound else { return nil }
         let live = start...selection.upperBound
         let frames = DashboardFrames(
