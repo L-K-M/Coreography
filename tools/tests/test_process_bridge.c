@@ -43,7 +43,6 @@ test_invalid_args(void)
     assert(coreo_process_list(pids, INT32_MAX / 4 + 1,
                               &count, &truncated) == EINVAL);
 
-    assert(coreo_process_read(0, &sample) == EINVAL);
     assert(coreo_process_read(-7, &sample) == EINVAL);
     assert(coreo_process_read(1, NULL) == EINVAL);
 }
@@ -72,6 +71,10 @@ test_platform(void)
     assert(sample.start_seconds > 0);
     assert(sample.name[0] != '\0');
     assert(strlen(sample.name) < sizeof(sample.name));
+
+    /* kernel_task must reach libproc rather than a fabricated argument error. */
+    rc = coreo_process_read(0, &sample);
+    assert(rc == 0 || rc == EPERM || rc == EACCES);
 
     /* Cross-check Mach-timebase conversion against getrusage's microseconds.
        A missing conversion is about 42x wrong on current Apple Silicon. */
@@ -132,6 +135,10 @@ test_platform(void)
     assert(sample.disk_read_bytes == 0);
     assert(sample.disk_write_bytes == 0);
     assert(sample.name[0] == '\0');
+
+    /* PID 0 names kernel_task on macOS; it is a valid identity, not EINVAL. */
+    assert(coreo_process_read(0, &sample) == ENOTSUP);
+    assert(sample.usage_error == ENOTSUP);
 }
 
 #endif

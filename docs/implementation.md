@@ -33,7 +33,7 @@ GPU/power/thermal provider, helper, MCP or model integration in this slice.
 
 | Check | Status |
 | --- | --- |
-| Portable Swift tests | 46 passed locally on Linux |
+| Portable Swift tests | 47 passed locally on Linux, including PID 0 and process display hold |
 | `coreo doctor` on Linux | Reports unsupported native sampling with no numeric Mac readings |
 | Build-script regression tests | 30 local tests; includes actual release-step rejection, fixture isolation and exact archive selection |
 | Xcode/macOS compilation and live CPU/memory smoke | Passed [native CI](https://github.com/L-K-M/Coreography/actions/runs/39093205075) at `18120ff`; review-fix checks tracked on PR #5 |
@@ -103,6 +103,11 @@ and [recount metrics](https://github.com/apple-oss-distributions/xnu/blob/f6217f
 
 ## Review decisions carried forward
 
+- Process slice independent review: accept PID 0 as kernel_task and let
+  libproc return its real reading or permission failure. The old positive-
+  only guard fabricated an `EINVAL` before making the named syscall.
+  Reproduced the C contract failure before fixing the guard on both
+  platforms; native CI also checks kernel_task's actual result.
 - Foundation review round 1: strengthen the release smoke test to reject
   unavailable, non-finite or out-of-range values using the same validator
   as CI. Exercise archive-mutating tests in the output-isolation guard.

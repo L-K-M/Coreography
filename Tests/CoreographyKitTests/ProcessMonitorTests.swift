@@ -148,6 +148,14 @@ final class ProcessMonitorTests: XCTestCase {
         XCTAssertEqual(result.processes.count, 120)
     }
 
+    func testKernelTaskIsAValidProcessIdentity() async throws {
+        let result = try await makeMonitor([
+            fixture(time: 1, rows: [row(pid: 0, time: 1)])
+        ]).sample()
+        XCTAssertEqual(result.processes.first?.id.pid, 0)
+        XCTAssertTrue(result.issues.isEmpty)
+    }
+
     func testNativeDriverReportsOwnIdentityOrExplicitUnsupportedState() async throws {
         let raw = await ProcessStatisticsDriver().read()
         #if os(macOS)

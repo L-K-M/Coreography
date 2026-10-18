@@ -106,7 +106,7 @@ coreo_process_read(int32_t pid, coreo_process_sample *sample)
     struct rusage_info_v2 usage;
     int32_t err;
 
-    if (pid <= 0 || sample == NULL) {
+    if (pid < 0 || sample == NULL) {
         return EINVAL;
     }
     memset(sample, 0, sizeof(*sample));
@@ -194,7 +194,7 @@ coreo_process_list(int32_t *pids, int32_t capacity,
 int32_t
 coreo_process_read(int32_t pid, coreo_process_sample *sample)
 {
-    if (pid <= 0 || sample == NULL) {
+    if (pid < 0 || sample == NULL) {
         return EINVAL;
     }
     memset(sample, 0, sizeof(*sample));

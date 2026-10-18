@@ -24,7 +24,8 @@ typedef struct {
 int32_t coreo_process_list(int32_t *pids, int32_t capacity,
                            int32_t *count, int32_t *truncated);
 
-/* Read identity before and after usage; a changed or vanished identity
+/* Nonnegative PIDs include kernel_task (0); report its actual OS restriction.
+   Read identity before and after usage; a changed or vanished identity
    returns EAGAIN. On success, usage_error is 0 and the usage fields hold
    cumulative CPU nanoseconds and byte counters; a nonzero usage_error
    (e.g. EPERM, ESRCH, EOVERFLOW) leaves those fields zero. name is always
