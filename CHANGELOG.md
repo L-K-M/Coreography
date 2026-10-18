@@ -13,6 +13,9 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
   after the store first exceeds it.
 
 ### Added
+- Save Recording… keeps a selected range as a `.coreotrace` file that
+  opens back in Coreography (Command-O, Finder or the Dock) for replay,
+  range reports and comparison; redacted by default.
 - The inspector shows the selected process's thread count and its CPU
   and footprint since it was selected.
 - Settings > Menu bar shows up to three readings (CPU, memory, GPU,
