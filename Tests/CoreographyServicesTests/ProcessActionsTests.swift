@@ -19,6 +19,9 @@ final class ProcessActionsTests: XCTestCase {
         let force = ProcessActions.request(for: child, mode: .forced, in: snapshot)
         XCTAssertFalse(force.endsSession)
         XCTAssertEqual(force.consequences, ["The process ends immediately without a chance to save."])
+
+        let unknown = ProcessActions.request(for: child, mode: .forced, in: nil)
+        XCTAssertEqual(unknown.consequences.last, "Child processes, if any, may also exit.")
     }
 
     func testRequestsTargetTheExactIdentityAndMarkOnlySuccess() async throws {

@@ -1308,7 +1308,7 @@ private struct ProcessPane: View {
                             .contextMenu {
                                 Button("Show \(row.appName) in lanes") { model.scopedApp = row.appName }
                                 if let process = row.process {
-                                    Button("Quit") { pendingAction = model.actionRequest(for: process, mode: .graceful) }
+                                    Button("Quit…") { pendingAction = model.actionRequest(for: process, mode: .graceful) }
                                     Button("Force Quit…") { pendingAction = model.actionRequest(for: process, mode: .forced) }
                                 }
                             }
