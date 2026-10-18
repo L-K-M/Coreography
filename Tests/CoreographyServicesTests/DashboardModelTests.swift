@@ -101,6 +101,27 @@ final class DashboardModelTests: XCTestCase {
         XCTAssertFalse(pluggedEnds.isEmpty)
     }
 
+    func testCursorReadsTheNearestSampleOrNothingAndNilFollowsLive() async throws {
+        let model = DashboardModel(monitor: try SystemMonitor(driver: IncreasingHostDriver()), interval: .milliseconds(10))
+        model.start()
+        defer { model.stop() }
+        try await eventually { model.frames.count >= 4 }
+        model.toggleDisplayHold()
+
+        let target = model.frames[2]
+        model.cursorTime = target.stamp.wallTime.addingTimeInterval(0.4)
+        XCTAssertEqual(model.displayedFrame?.id, target.id)
+        XCTAssertEqual(model.reading(for: .cpu), target.cpuPercentOfMachine)
+
+        // Beyond the tolerance there is no sample; never the nearest far one.
+        model.cursorTime = model.frames.last!.stamp.wallTime.addingTimeInterval(30)
+        XCTAssertNil(model.displayedFrame)
+        XCTAssertNil(model.reading(for: .memory))
+
+        model.cursorTime = nil
+        XCTAssertEqual(model.displayedFrame?.id, model.frames.last?.id)
+    }
+
     func testMemorySeriesDoesNotBridgeSamplingGaps() async throws {
         let driver = IncreasingHostDriver()
         let monitor = try SystemMonitor(driver: driver)

@@ -3,7 +3,7 @@
 Track actual delivery against the [product plan](plan.md). A stage is
 complete only after its relevant checks and review pass and its PR merges.
 
-## Current slice: power and battery
+## Current slice: shared cursor and top contributors
 
 The native foundation merged in [PR #5](https://github.com/L-K-M/Coreography/pull/5)
 at `aee9494` after two GLM rounds and passing CI. Process monitoring merged
@@ -16,8 +16,9 @@ Scoped storage-driver rates and a fourth lane follow in
 [PR #8](https://github.com/L-K-M/Coreography/pull/8); memory composition,
 swap and pressure in [PR #9](https://github.com/L-K-M/Coreography/pull/9);
 app grouping in [PR #10](https://github.com/L-K-M/Coreography/pull/10);
-GPU and thermal-pressure lanes in [PR #11](https://github.com/L-K-M/Coreography/pull/11).
-This slice adds the power lane from public battery and adapter sources.
+GPU and thermal-pressure lanes in [PR #11](https://github.com/L-K-M/Coreography/pull/11);
+the power lane in [PR #12](https://github.com/L-K-M/Coreography/pull/12).
+This slice adds the shared time cursor and per-lane top contributors.
 
 Implemented:
 
@@ -70,6 +71,13 @@ Implemented:
   charge/discharge watts from the gas gauge, time estimate, health, cycles
   and adapter rating. System draw is shown only on battery, where the
   battery's discharge supplies the whole Mac; `coreo power --once --json`.
+- One shared cursor: hovering any lane draws a hairline through all seven
+  lanes, and every header shows the sample nearest that time, or nothing
+  when no sample lies within 1.5 s. The toolbar names the cursor time.
+- Top contributors: each process sample records the three leading apps
+  for CPU, memory footprint and disk I/O (own-user processes grouped by
+  app). CPU, memory and disk headers show them live or, under the cursor,
+  from the process sample within 2.5 s ("Top at …"), never a distant one.
 - A thermal lane showing system thermal pressure as a band, from the public
   `com.apple.system.thermalpressurelevel` notify state. Temperatures, fans
   and the hottest-sensor line wait for the sensor provider.
@@ -93,6 +101,7 @@ helper, MCP or model integration in this slice.
 | Native process collection, cancellation and CPU units | Passed [native review-fix CI](https://github.com/L-K-M/Coreography/actions/runs/39105964147) at `7df03ec`, including cancellation, saturation and `getrusage` cross-checks |
 | Native network MIB, wide-counter mapping and three-lane UI | Passed at `e62fac1`, including native C fixtures, live CLI and both executable architectures; integrated candidate pending |
 | Native IOKit storage counters and four-lane renderer | Passed [native CI](https://github.com/L-K-M/Coreography/actions/runs/39110306993) at `6434722`: 75 tests, 16 drivers, 32 measured rate fields, no inventory issues; owner checks pending |
+| Shared cursor, hover tracking and contributor lines | Cursor slice: 101 Swift tests pass on Linux; native compile pending. Hover behavior is an owner check |
 | Native IOKit power sources and seven-lane UI | Power slice: 99 Swift tests pass on Linux; native CI pending. A virtual runner has no battery, so its smoke checks explicit unsupported states; battery accuracy is an owner check |
 | Native GPU statistics, thermal notify state and six-lane UI | GPU slice: 93 Swift tests, 34 tooling tests and the Linux thermal C contract pass; native CI pending. The C bridge asserts the level constants against the SDK at compile time |
 | Native executable paths, responsibility lookup and grouped table | App-grouping slice: 88 Swift tests pass on Linux, including a fail-first regression for bundle-less owners combining unrelated apps; current native CI pending |

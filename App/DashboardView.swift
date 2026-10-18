@@ -133,9 +133,9 @@ struct DashboardView: View {
         .frame(minWidth: 900, minHeight: 600)
         .toolbar {
             ToolbarItem(placement: .principal) {
-                Text(model.collectionError != nil ? "Collection stopped" :
-                     model.displayMode == .live ? "Live · last minute" : "Display held · recording continues")
+                Text(ToolbarText.status(model))
                     .font(.caption)
+                    .monospacedDigit()
             }
             ToolbarItem(placement: .primaryAction) {
                 Button(
@@ -175,6 +175,9 @@ struct DashboardView: View {
                 Text(reading?.reason ?? reading?.method ?? "")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                if metric == .cpu {
+                    ContributorLine(model: model, subsystem: .cpu)
+                }
             }
             .frame(width: Layout.headerWidth, alignment: .leading)
 
@@ -184,15 +187,19 @@ struct DashboardView: View {
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, minHeight: Layout.graphHeight)
             } else {
-                Chart(points) { point in
-                    LineMark(
-                        x: .value("Time", point.time),
-                        y: .value(title, point.value),
-                        series: .value("Segment", point.segment)
-                    )
-                    .foregroundStyle(metric == .cpu ? Color.blue : Color.teal)
-                    .interpolationMethod(.linear)
+                Chart {
+                    ForEach(points) { point in
+                        LineMark(
+                            x: .value("Time", point.time),
+                            y: .value(title, point.value),
+                            series: .value("Segment", point.segment)
+                        )
+                        .foregroundStyle(metric == .cpu ? Color.blue : Color.teal)
+                        .interpolationMethod(.linear)
+                    }
+                    CursorRule(time: model.cursorTime, range: start...end)
                 }
+                .chartCursor(model)
                 .chartLegend(.hidden)
                 .chartXScale(domain: start...end)
                 .chartYScale(domain: 0...max(1, maximum))
@@ -237,7 +244,7 @@ private struct MemoryLane: View {
         let pressure = model.memoryPressureSpans().filter { $0.end >= start && $0.start <= end }
         let capacity = Double(max(1, model.latest?.inventory.physicalMemoryBytes ?? 1))
         let used = model.reading(for: .memory)
-        let detail = model.latest?.memory
+        let detail = model.displayedFrame?.memory
 
         HStack(alignment: .top, spacing: 24) {
             VStack(alignment: .leading, spacing: 6) {
@@ -256,6 +263,7 @@ private struct MemoryLane: View {
                     .font(.caption).foregroundStyle(.secondary)
                 Text("Page-ins \(MetricText.rate(detail?.pageInBytesPerSecond.numericValue)) · compression \(MemoryText.ratio(detail?.compressionRatio.numericValue))")
                     .font(.caption).foregroundStyle(.secondary)
+                ContributorLine(model: model, subsystem: .memory)
             }
             .monospacedDigit()
             .frame(width: Layout.headerWidth, alignment: .leading)
@@ -301,7 +309,9 @@ private struct MemoryLane: View {
                 )
                 .foregroundStyle(MemoryStyle.color(span.level))
             }
+            CursorRule(time: model.cursorTime, range: start...end)
         }
+        .chartCursor(model)
         .chartLegend(.hidden)
         .chartXScale(domain: start...end)
         .chartYScale(domain: 0...(capacity * MemoryStyle.bandTop))
@@ -323,7 +333,7 @@ private struct MemoryLane: View {
         }
         .frame(height: Layout.graphHeight)
         .accessibilityChartDescriptor(MemoryChartAccessibility(
-            stack: stack, pressure: model.latest?.memory.pressure,
+            stack: stack, pressure: model.displayedFrame?.memory.pressure,
             start: start, end: end, capacity: capacity
         ))
     }
@@ -418,7 +428,7 @@ private struct GPULane: View {
         let start = end.addingTimeInterval(-Layout.visibleSeconds)
         let series = model.gpuSeries()
         let hasVisiblePoints = series.contains { $0.points.contains { $0.time >= start && $0.time <= end } }
-        let latest = model.gpuFrames.last
+        let latest = model.displayedGPUFrame
         let devices = latest?.devices ?? []
 
         HStack(alignment: .top, spacing: 24) {
@@ -435,13 +445,13 @@ private struct GPULane: View {
                     Text("Memory in use \(MetricText.bytes(device.inUseMemoryBytes.numericValue))")
                         .font(.caption).foregroundStyle(.secondary)
                 }
-                Text(GPUText.status(latest)).font(.caption).foregroundStyle(.secondary)
+                Text(GPUText.status(latest, cursor: model.cursorTime)).font(.caption).foregroundStyle(.secondary)
             }
             .monospacedDigit()
             .frame(width: Layout.headerWidth, alignment: .leading)
 
             if !hasVisiblePoints {
-                Text(GPUText.status(latest))
+                Text(GPUText.status(latest, cursor: model.cursorTime))
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, minHeight: Layout.graphHeight)
             } else {
@@ -467,7 +477,9 @@ private struct GPULane: View {
                     .interpolationMethod(.linear)
                 }
             }
+            CursorRule(time: model.cursorTime, range: start...end)
         }
+        .chartCursor(model)
         .chartLegend(.hidden)
         .chartXScale(domain: start...end)
         .chartYScale(domain: 0...MetricText.percentScale)
@@ -492,8 +504,11 @@ private struct GPULane: View {
 }
 
 private enum GPUText {
-    static func status(_ frame: CapturedGPU?) -> String {
-        guard let frame else { return String(localized: "Collecting GPU readings…") }
+    static func status(_ frame: CapturedGPU?, cursor: Date?) -> String {
+        guard let frame else {
+            return cursor == nil
+                ? String(localized: "Collecting GPU readings…") : String(localized: "No GPU sample near the cursor")
+        }
         if let reason = frame.enumeration.reason { return reason }
         if frame.devices.isEmpty { return String(localized: "No GPU publishes utilization on this Mac") }
         if let reason = frame.devices.first?.utilizationPercent.reason { return reason }
@@ -544,7 +559,7 @@ private struct PowerLane: View {
         let start = end.addingTimeInterval(-Layout.visibleSeconds)
         let points = model.batteryChargePoints().filter { $0.time >= start && $0.time <= end }
         let plugged = model.externalPowerSpans().filter { $0.end >= start && $0.start <= end }
-        let latest = model.powerFrames.last
+        let latest = model.displayedPowerFrame
 
         HStack(alignment: .top, spacing: 24) {
             VStack(alignment: .leading, spacing: 6) {
@@ -596,7 +611,9 @@ private struct PowerLane: View {
                 .foregroundStyle(Color.green)
                 .interpolationMethod(.linear)
             }
+            CursorRule(time: model.cursorTime, range: start...end)
         }
+        .chartCursor(model)
         .chartLegend(.hidden)
         .chartXScale(domain: start...end)
         .chartYScale(domain: 0...PowerStyle.bandTop)
@@ -713,7 +730,7 @@ private struct ThermalLane: View {
         let end = model.displayedEndTime ?? Date()
         let start = end.addingTimeInterval(-Layout.visibleSeconds)
         let spans = model.thermalPressureSpans().filter { $0.end >= start && $0.start <= end }
-        let reading = model.latest?.thermalPressure
+        let reading = model.displayedFrame?.thermalPressure
 
         HStack(alignment: .top, spacing: 24) {
             VStack(alignment: .leading, spacing: 6) {
@@ -730,13 +747,17 @@ private struct ThermalLane: View {
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, minHeight: Layout.bandHeight)
             } else {
-                Chart(spans) { span in
-                    RectangleMark(
-                        xStart: .value("Start", max(span.start, start)), xEnd: .value("End", span.end),
-                        yStart: .value("Bottom", 0), yEnd: .value("Top", 1)
-                    )
-                    .foregroundStyle(ThermalText.color(span.level))
+                Chart {
+                    ForEach(spans) { span in
+                        RectangleMark(
+                            xStart: .value("Start", max(span.start, start)), xEnd: .value("End", span.end),
+                            yStart: .value("Bottom", 0), yEnd: .value("Top", 1)
+                        )
+                        .foregroundStyle(ThermalText.color(span.level))
+                    }
+                    CursorRule(time: model.cursorTime, range: start...end)
                 }
+                .chartCursor(model)
                 .chartLegend(.hidden)
                 .chartXScale(domain: start...end)
                 .chartYScale(domain: 0...1)
@@ -862,7 +883,8 @@ private struct NetworkLane: View {
             } else {
                 TransferChart(
                     title: String(localized: "Network"), aboveLabel: String(localized: "Received"),
-                    belowLabel: String(localized: "Sent"), above: received, below: sent, start: start, end: end
+                    belowLabel: String(localized: "Sent"), above: received, below: sent, start: start, end: end,
+                    model: model
                 )
             }
         }
@@ -909,6 +931,7 @@ private struct DiskLane: View {
                     .font(.system(size: 20, weight: .semibold))
                 devicePicker
                 Text(model.storageSelectionMessage).font(.caption).foregroundStyle(.secondary)
+                ContributorLine(model: model, subsystem: .disk)
                 if let inventory = model.diskFrames.last,
                    inventory.enumerationTruncated || !inventory.issues.isEmpty {
                     Text("Storage inventory is incomplete.").font(.caption).foregroundStyle(.secondary)
@@ -922,7 +945,8 @@ private struct DiskLane: View {
             } else {
                 TransferChart(
                     title: String(localized: "Disk"), aboveLabel: String(localized: "Read"),
-                    belowLabel: String(localized: "Written"), above: read, below: written, start: start, end: end
+                    belowLabel: String(localized: "Written"), above: read, below: written, start: start, end: end,
+                    model: model
                 )
             }
         }
@@ -958,6 +982,7 @@ private struct TransferChart: View {
     let below: [DashboardPoint]
     let start: Date
     let end: Date
+    let model: DashboardModel
 
     var body: some View {
         let maximum = rateCeiling((above + below).map(\.value).max() ?? 1)
@@ -977,7 +1002,9 @@ private struct TransferChart: View {
                 .foregroundStyle(Color.orange)
                 .lineStyle(StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
             }
+            CursorRule(time: model.cursorTime, range: start...end)
         }
+        .chartCursor(model)
         .chartLegend(.hidden)
         .chartXScale(domain: start...end)
         .chartYScale(domain: -maximum...maximum)
@@ -1169,6 +1196,98 @@ private struct ProcessMetricCell: View {
         case .rate: return MetricText.bytes(value) + "/s" + suffix
         case .watts: return MetricText.watts(value) + suffix
         }
+    }
+}
+
+/// One hairline at the shared cursor time, drawn in every lane (plan P4).
+private struct CursorRule: ChartContent {
+    let time: Date?
+    let range: ClosedRange<Date>
+
+    var body: some ChartContent {
+        if let time, range.contains(time) {
+            RuleMark(x: .value("Cursor", time))
+                .foregroundStyle(Color.primary.opacity(0.6))
+                .lineStyle(StrokeStyle(lineWidth: 1))
+        }
+    }
+}
+
+private extension View {
+    /// Hovering any plot moves the one shared cursor; leaving it returns to live.
+    func chartCursor(_ model: DashboardModel) -> some View {
+        chartOverlay { proxy in
+            GeometryReader { geometry in
+                Rectangle()
+                    .fill(.clear)
+                    .contentShape(Rectangle())
+                    .onContinuousHover { phase in
+                        switch phase {
+                        case .active(let location):
+                            guard let plot = proxy.plotFrame else { return }
+                            let x = location.x - geometry[plot].origin.x
+                            // The axis margin maps to no date; keep the cursor rather than flicker to live.
+                            if let time = proxy.value(atX: x, as: Date.self) { model.cursorTime = time }
+                        case .ended:
+                            model.cursorTime = nil
+                        }
+                    }
+            }
+        }
+    }
+}
+
+private enum ContributorSubsystem { case cpu, memory, disk }
+
+/// "Top then": the leading apps at the process sample nearest the cursor.
+private struct ContributorLine: View {
+    let model: DashboardModel
+    let subsystem: ContributorSubsystem
+
+    var body: some View {
+        Text(label)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .lineLimit(2)
+            .help("Own-user processes grouped by app, from the process sample nearest the cursor")
+    }
+
+    private var label: String {
+        guard let snapshot = model.displayedContributors else {
+            return model.cursorTime == nil
+                ? String(localized: "Top: collecting…")
+                : String(localized: "Top: no process sample near this time")
+        }
+        let contributors = switch subsystem {
+        case .cpu: snapshot.cpu
+        case .memory: snapshot.memory
+        case .disk: snapshot.disk
+        }
+        let prefix = model.cursorTime == nil
+            ? String(localized: "Top")
+            : String(localized: "Top at \(snapshot.time.formatted(date: .omitted, time: .standard))")
+        guard !contributors.isEmpty else { return prefix + ": " + String(localized: "no readable activity") }
+        let items = contributors.map { contributor in
+            let value = switch subsystem {
+            case .cpu: MetricText.percent(contributor.value)
+            case .memory: MetricText.bytes(contributor.value)
+            case .disk: MetricText.rate(contributor.value)
+            }
+            return contributor.name + " " + value + (contributor.isEstimate ? " " + String(localized: "est.") : "")
+        }
+        return prefix + ": " + items.joined(separator: " · ")
+    }
+}
+
+private enum ToolbarText {
+    @MainActor
+    static func status(_ model: DashboardModel) -> String {
+        if model.collectionError != nil { return String(localized: "Collection stopped") }
+        if let cursor = model.cursorTime {
+            return String(localized: "Cursor \(cursor.formatted(date: .omitted, time: .standard)) · values at cursor")
+        }
+        return model.displayMode == .live
+            ? String(localized: "Live · last minute") : String(localized: "Display held · recording continues")
     }
 }
 

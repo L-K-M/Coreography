@@ -101,6 +101,23 @@ final class ProcessGroupsTests: XCTestCase {
         XCTAssertTrue(flat.allSatisfy { $0.children == nil && $0.groupingMethod == nil })
     }
 
+    func testContributorsRankAppsPerSubsystemAndSkipIdleOrUnreadableApps() throws {
+        let idle = try process(pid: 400, name: "Idle", cpu: 0, path: "/Applications/Idle.app/Contents/MacOS/Idle")
+        let unreadable = try process(pid: 500, name: "Hidden", cpu: nil)
+        let contributors = Contributors.snapshot(
+            from: try snapshot([safari, webContent(responsible: 100), standaloneDaemon, idle, unreadable])
+        )
+        XCTAssertEqual(contributors.time, Self.stamp.wallTime)
+        XCTAssertEqual(contributors.cpu.map(\.name), ["Safari", "mds"])
+        XCTAssertEqual(contributors.cpu.map(\.value), [30, 5])
+        XCTAssertEqual(contributors.cpu.map(\.isEstimate), [false, false])
+        // Footprint sums are estimates; ties break by name.
+        XCTAssertEqual(contributors.memory.map(\.name), ["Safari", "Hidden", "Idle"])
+        XCTAssertEqual(contributors.memory.first?.isEstimate, true)
+        XCTAssertEqual(contributors.disk.first?.value, 2048)
+        XCTAssertEqual(contributors.disk.count, Contributors.limit)
+    }
+
     private static let clock = UUID(uuidString: "0D3C1E39-58E6-4A35-8F2B-8B8C3D1E8E11")!
     private static let stamp = SampleStamp(
         clockID: clock, monotonicNanoseconds: 1, wallTime: Date(timeIntervalSince1970: 1_700_000_000)
