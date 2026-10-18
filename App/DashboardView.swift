@@ -1533,15 +1533,16 @@ private struct ProcessPane: View {
                             .help(row.networkReceivedBytesPerSecond.method ?? row.networkReceivedBytesPerSecond.reason
                                   ?? String(localized: "TCP and UDP bytes per second; no open socket reads as zero"))
                     }
-                    // A table takes ten columns per block; the group adds the rest.
+                    // A table takes ten columns per block; the group adds the rest, typed
+                    // because a group cannot infer its row.
                     Group {
-                        TableColumn("GPU ms/s") { row in
+                        TableColumn("GPU ms/s") { (row: ProcessRow) in
                             Text(ProcessText.gpuTime(row.gpuMillisecondsPerSecond.numericValue))
                                 .monospacedDigit()
                                 .help(row.gpuMillisecondsPerSecond.reason
                                       ?? String(localized: "GPU time per second, not the GPU lane's busy percentage; overlapping work can exceed 1000"))
                         }
-                        TableColumn("CPU power") { row in
+                        TableColumn("CPU power") { (row: ProcessRow) in
                             Text(ProcessText.power(row.cpuPowerWatts.numericValue))
                                 .monospacedDigit()
                                 .help(row.cpuPowerWatts.reason
