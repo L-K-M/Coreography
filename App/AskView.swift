@@ -4,7 +4,7 @@ import CoreographyServices
 /// What leaves the Mac, stated wherever a question can be asked (plan: show
 /// the provider and the data-sharing scope).
 private let sharingNotice = String(localized: """
-    Questions and requested readings (resource use, app names, sleep history and assertion types, never executable paths or process arguments) \
+    Questions and requested readings (resource use, app and process names, PIDs, sleep history and sleep-preventing assertion types, never executable paths or process arguments) \
     go directly to Anthropic. Calls happen only when you ask.
     """)
 
