@@ -292,6 +292,27 @@ jobs:
                             "topCPU": [r["app"] for r in report["topCPUApps"]["rows"][:3]]}))
           PY
 
+      - name: Smoke-test the MCP stdio server
+        run: |
+          set -euo pipefail
+          printf '%s\n' \
+            '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}' \
+            '{"jsonrpc":"2.0","method":"notifications/initialized"}' \
+            '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' \
+            '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"get_data_sources","arguments":{}}}' \
+            | dist/Coreography.app/Contents/Helpers/coreo mcp --stdio > "$RUNNER_TEMP/mcp.jsonl"
+          python3 - "$RUNNER_TEMP/mcp.jsonl" <<'PY'
+          import json, sys
+          with open(sys.argv[1]) as source:
+              replies = [json.loads(line) for line in source if line.strip()]
+          assert [reply["id"] for reply in replies] == [1, 2, 3], "one reply per request, none for the notification"
+          assert replies[0]["result"]["protocolVersion"] == "2025-06-18"
+          assert len(replies[1]["result"]["tools"]) == 6
+          call = replies[2]["result"]
+          assert call["isError"] is False and json.loads(call["content"][0]["text"])
+          print(json.dumps({"tools": [tool["name"] for tool in replies[1]["result"]["tools"]]}))
+          PY
+
       - name: Smoke-test native network counters
         run: |
           set -euo pipefail

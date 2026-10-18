@@ -7,6 +7,8 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
 ## [Unreleased]
 
 ### Added
+- `coreo mcp --stdio`: a read-only MCP server for the six diagnostic tools,
+  with snapshot reuse, cursors and a call budget.
 - The shared diagnostic contract and `coreo diagnose`: a summary with
   fact-only signals, paged top apps, bounded history and data sources.
 - Menu bar extra with CPU in the title, mini lanes, the top CPU app, hold

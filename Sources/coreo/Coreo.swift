@@ -13,6 +13,7 @@ private struct Coreo {
            coreo power --once --json
            coreo sensors --once --json
            coreo diagnose --json [--seconds N]
+           coreo mcp --stdio
            coreo --version
 
     doctor reports source availability. snapshot waits for a CPU baseline.
@@ -24,6 +25,8 @@ private struct Coreo {
     sensors reports SMC system power, the hottest temperature and fans.
     diagnose samples for N seconds (3-60, default 5) and reports a summary with
     fact-only signals, top apps by CPU and disk, and data-source availability.
+    mcp serves the read-only diagnostic tools to an MCP client over stdio,
+    sampling in this process; add it to the client's MCP server list.
     Native host sampling requires macOS 26 or later.
     """
 
@@ -80,6 +83,11 @@ private struct Coreo {
                 }
                 let service = try DiagnosticService()
                 try emit(await service.captureSensorsOnce())
+            case ["mcp", "--stdio"]:
+                guard DiagnosticService.nativeSamplingSupport == .supported else {
+                    throw CommandError.unsupportedPlatform
+                }
+                await serveMCP()
             case let arguments where arguments.first == "diagnose":
                 guard DiagnosticService.nativeSamplingSupport == .supported else {
                     throw CommandError.unsupportedPlatform
@@ -94,6 +102,24 @@ private struct Coreo {
             FileHandle.standardError.write(Data(message.utf8))
             exit(EXIT_FAILURE)
         }
+    }
+
+    /// Run the dashboard sampler in-process and answer JSON-RPC lines from stdin.
+    /// Stdout carries only protocol messages; stdin closing ends the server.
+    @MainActor
+    private static func serveMCP() async {
+        let model = DashboardModel()
+        model.start()
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "development"
+        let server = MCPServer(version: version) { await MainActor.run { model.diagnosticSnapshot() } }
+        // readLine blocks, so it runs off the main actor that drives sampling.
+        await Task.detached {
+            while let line = readLine(strippingNewline: true) {
+                guard !line.isEmpty, let response = await server.handle(line) else { continue }
+                FileHandle.standardOutput.write(Data((response + "\n").utf8))
+            }
+        }.value
+        model.stop()
     }
 
     /// Accepts "--json" with an optional "--seconds N" in either order.

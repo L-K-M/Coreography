@@ -3,7 +3,7 @@
 Track actual delivery against the [product plan](plan.md). A stage is
 complete only after its relevant checks and review pass and its PR merges.
 
-## Current slice: diagnostic contract
+## Current slice: MCP over stdio
 
 The native foundation merged in [PR #5](https://github.com/L-K-M/Coreography/pull/5)
 at `aee9494` after two GLM rounds and passing CI. Process monitoring merged
@@ -27,8 +27,9 @@ range export in [PR #18](https://github.com/L-K-M/Coreography/pull/18);
 shared continuity in [PR #19](https://github.com/L-K-M/Coreography/pull/19);
 process actions in [PR #20](https://github.com/L-K-M/Coreography/pull/20);
 app scope in [PR #21](https://github.com/L-K-M/Coreography/pull/21);
-the menu bar extra in [PR #22](https://github.com/L-K-M/Coreography/pull/22).
-This slice adds the shared diagnostic contract and `coreo diagnose`.
+the menu bar extra in [PR #22](https://github.com/L-K-M/Coreography/pull/22);
+the diagnostic contract in [PR #23](https://github.com/L-K-M/Coreography/pull/23).
+This slice serves those tools to MCP clients over stdio.
 
 Implemented:
 
@@ -147,6 +148,15 @@ Implemented:
   explicitly; sleep history is unavailable until S8.
   `coreo diagnose --json [--seconds N]` samples 3-60 s and prints a report
   an assistant can use. MCP transport and the app bridge remain M5.
+- `coreo mcp --stdio`: a read-only MCP server (JSON-RPC 2.0, protocol
+  2025-06-18, also accepting 2025-03-26 and 2024-11-05) exposing the six
+  contract tools with JSON schemas and read-only annotations. It runs the
+  dashboard sampler in-process, retains the last eight snapshots so
+  `snapshot_id` and cursors continue one question, refuses more than ten
+  tool calls per second, and returns tool failures as `isError` results.
+  Interim scope: the plan's bridge to the running app over authenticated
+  IPC, per-client approval, revocation and shared budgets remain M5; this
+  server trusts the local client that launched it, like any CLI.
 - A thermal lane showing system thermal pressure as a band, from the public
   `com.apple.system.thermalpressurelevel` notify state. Temperatures, fans
   and the hottest-sensor line wait for the sensor provider.
@@ -169,6 +179,7 @@ time, helper, MCP or model integration in this slice.
 | Native process collection, cancellation and CPU units | Passed [native review-fix CI](https://github.com/L-K-M/Coreography/actions/runs/39105964147) at `7df03ec`, including cancellation, saturation and `getrusage` cross-checks |
 | Native network MIB, wide-counter mapping and three-lane UI | Passed at `e62fac1`, including native C fixtures, live CLI and both executable architectures; integrated candidate pending |
 | Native IOKit storage counters and four-lane renderer | Passed [native CI](https://github.com/L-K-M/Coreography/actions/runs/39110306993) at `6434722`: 75 tests, 16 drivers, 32 measured rate fields, no inventory issues; owner checks pending |
+| MCP stdio server | MCP slice: 128 Swift tests pass on Linux (handshake, version negotiation, notifications, catalog, cursor reuse of one snapshot, protocol and tool errors, call budget); native CI smoke drives a real stdio session |
 | Diagnostic contract and `coreo diagnose` | Contract slice: 125 Swift tests pass on Linux (signals, cursor binding, bounds, gaps, no paths, unavailable sleep history); native CI smoke checks units, evidence and that no path leaks |
 | Menu bar extra and launch-time sampling | Menu slice: Swift tests unchanged (121); the menu view and project registration compile only in native CI; owner check for the title, mini lanes and Open Coreography |
 | App scope overlays and filtering | Scope slice: 121 Swift tests pass on Linux, including idle-as-zero and gap segments in the scoped series; UI compile pending |
