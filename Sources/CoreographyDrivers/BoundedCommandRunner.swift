@@ -44,17 +44,10 @@ struct BoundedCommandRunner: Sendable {
         process.standardInput = FileHandle.nullDevice
         do { try process.run() } catch { throw CommandRunnerError.launchFailed("\(error)") }
 
-        let stopped = StopFlag()
-        let watchdog = DispatchWorkItem {
-            guard process.isRunning else { return }
-            stopped.set()
-            // Not SIGTERM: a child spawned from a dispatch worker inherits its
-            // blocked signal mask and would never see it. SIGKILL cannot be blocked.
-            kill(process.processIdentifier, SIGKILL)
-        }
+        let watchdog = ChildWatchdog(pid: process.processIdentifier)
         let components = timeout.components
         let seconds = Double(components.seconds) + Double(components.attoseconds) / 1e18
-        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + seconds, execute: watchdog)
+        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + seconds) { watchdog.expire() }
 
         var kept = Data()
         var truncated = false
@@ -68,16 +61,34 @@ struct BoundedCommandRunner: Sendable {
             }
         }
         process.waitUntilExit()
-        watchdog.cancel()
-        return CommandOutput(data: kept, truncated: truncated, timedOut: stopped.isSet, exitStatus: process.terminationStatus)
+        watchdog.finish()
+        return CommandOutput(data: kept, truncated: truncated, timedOut: watchdog.expired, exitStatus: process.terminationStatus)
     }
 }
 
-/// Set once by the watchdog thread, read after the child exits.
-private final class StopFlag: @unchecked Sendable {
+/// Kills the child at its deadline unless `waitUntilExit` has returned.
+/// Holds only the pid, so nothing non-Sendable crosses to the timer thread.
+/// A deadline landing between reaping and `finish` signals a just-freed
+/// pid, the same window `Process.terminate()` has.
+private final class ChildWatchdog: @unchecked Sendable {
     private let lock = NSLock()
-    private var value = false
+    private let pid: Int32
+    private var finished = false
+    private var killed = false
 
-    func set() { lock.withLock { value = true } }
-    var isSet: Bool { lock.withLock { value } }
+    init(pid: Int32) { self.pid = pid }
+
+    func expire() {
+        lock.withLock {
+            guard !finished else { return }
+            killed = true
+            // Not SIGTERM: a child spawned from a dispatch worker inherits its
+            // blocked signal mask and would never see it. SIGKILL cannot be blocked.
+            kill(pid, SIGKILL)
+        }
+    }
+
+    func finish() { lock.withLock { finished = true } }
+
+    var expired: Bool { lock.withLock { killed } }
 }
