@@ -185,6 +185,16 @@ private struct NetworkLane: View {
                 Text("↑ " + MetricText.rate(sendReading?.numericValue))
                     .font(.system(size: 20, weight: .semibold))
                 interfacePicker
+                if let inventory = model.networkFrames.last {
+                    if inventory.enumerationTruncated {
+                        Text("Interface inventory reached capacity.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    if !inventory.issues.isEmpty {
+                        Text("\(inventory.issues.count) interface reads unavailable.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                }
                 Text(receiveReading?.reason ?? "IFMIB · 64-bit byte counters")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -340,7 +350,7 @@ private struct ProcessPane: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     if snapshot.enumerationTruncated {
-                        Text("Process limit reached; this enumeration is partial.")
+                        Text("Enumeration reached capacity; additional processes may exist.")
                             .font(.caption)
                             .foregroundStyle(.orange)
                     }
@@ -385,7 +395,8 @@ private struct ProcessMetricCell: View {
     var body: some View {
         Text(label)
             .monospacedDigit()
-            .help(reading.reason ?? "libproc · RUSAGE_INFO_V2")
+            .help(reading.reason ?? [reading.source?.provider, reading.source?.driver, reading.source?.channel]
+                .compactMap { $0 }.joined(separator: " · "))
     }
 
     private var label: String {

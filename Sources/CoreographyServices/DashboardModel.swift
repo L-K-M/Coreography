@@ -84,10 +84,6 @@ public final class DashboardModel {
         [latest?.stamp.wallTime, networkFrames.last?.stamp.wallTime].compactMap { $0 }.max()
     }
 
-    public var selectedNetworkInterface: CapturedInterface? {
-        networkFrames.last.flatMap(networkInterface(in:))
-    }
-
     public var networkReadings: [NetworkTableReading] {
         networkFrames.suffix(10).map { frame in
             let interface = networkInterface(in: frame)

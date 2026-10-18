@@ -21,6 +21,10 @@
 
 #include "CoreographySystem.h"
 
+#if defined(NDEBUG)
+#error "Build test_process_bridge without NDEBUG; assertions are the test mechanism"
+#endif
+
 #if defined(__APPLE__)
 #include <sys/resource.h>
 #include <unistd.h>
@@ -45,6 +49,7 @@ test_invalid_args(void)
 
     assert(coreo_process_read(-7, &sample) == EINVAL);
     assert(coreo_process_read(1, NULL) == EINVAL);
+    assert(count == -1 && truncated == -1);
 }
 
 #if defined(__APPLE__)
