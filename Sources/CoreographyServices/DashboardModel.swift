@@ -104,6 +104,8 @@ public final class DashboardModel {
     /// The shared hover time across all lanes; nil follows the live edge.
     public var cursorTime: Date?
     public var timeRange: TimeRange = .minute
+    /// A dragged time range; cleared only explicitly (plan: Esc or clear).
+    public var selection: ClosedRange<Date>?
     public private(set) var contributorHistory: [ContributorSnapshot] = []
 
     @ObservationIgnored private let monitor: SystemMonitor?
@@ -120,6 +122,8 @@ public final class DashboardModel {
     @ObservationIgnored private var liveFrames: [CapturedSnapshot] = []
     @ObservationIgnored private var liveProcesses: CapturedProcesses?
     @ObservationIgnored private var liveContributorHistory: [ContributorSnapshot] = []
+    @ObservationIgnored private var liveLedger = AppLedger(capacity: contributorCapacity)
+    private var ledger = AppLedger(capacity: contributorCapacity)
     @ObservationIgnored private var liveNetworkFrames: [CapturedNetwork] = []
     @ObservationIgnored private var liveDiskFrames: [CapturedDisks] = []
     @ObservationIgnored private var liveGPUFrames: [CapturedGPU] = []
@@ -270,6 +274,14 @@ public final class DashboardModel {
         return "Selected storage device is not observed"
     }
 
+    /// Totals for the selected range, from displayed (possibly held) data.
+    public var rangeReport: RangeReport? {
+        guard let selection else { return nil }
+        return RangeReport.make(
+            range: selection, ledger: ledger, frames: frames, gpuFrames: gpuFrames, sensorFrames: sensorFrames
+        )
+    }
+
     /// Coreography's own process cost, from the latest process sample.
     public var selfCost: SelfCost? {
         SelfCost.measure(in: processSnapshot, logicalCPUCount: latest?.inventory.logicalCPUCount)
@@ -346,6 +358,7 @@ public final class DashboardModel {
                         self.liveProcesses = processes
                         self.liveContributorHistory.append(Contributors.snapshot(from: processes))
                         self.liveContributorHistory = Array(self.liveContributorHistory.suffix(Self.contributorCapacity))
+                        self.liveLedger.record(processes, logicalCPUCount: history.last?.inventory.logicalCPUCount)
                     }
                     if let network { self.liveNetworkFrames = network }
                     if let disks { self.liveDiskFrames = disks }
@@ -357,6 +370,7 @@ public final class DashboardModel {
                         if let processes {
                             self.processSnapshot = processes
                             self.contributorHistory = self.liveContributorHistory
+                            self.ledger = self.liveLedger
                         }
                         if let network { self.networkFrames = network }
                         if let disks { self.diskFrames = disks }
@@ -391,6 +405,7 @@ public final class DashboardModel {
         frames = liveFrames
         processSnapshot = liveProcesses
         contributorHistory = liveContributorHistory
+        ledger = liveLedger
         networkFrames = liveNetworkFrames
         diskFrames = liveDiskFrames
         gpuFrames = liveGPUFrames
