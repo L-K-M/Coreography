@@ -8,8 +8,7 @@ public actor GPUMonitor {
         provider: "gpu", driver: "IOKit", channel: "IOAccelerator / PerformanceStatistics"
     )
     private let driver: any GPUSampleReading
-    private let maximumGap: Duration
-    private var previousStamp: SampleStamp?
+    private var continuity: ContinuityTracker
     private var buffer: SampleBuffer<GPUSnapshot>
 
     public init() throws { try self.init(driver: GPUStatisticsDriver(), historyCapacity: LiveHistory.capacity) }
@@ -17,12 +16,12 @@ public actor GPUMonitor {
     init(driver: any GPUSampleReading, maximumGap: Duration = .seconds(3), historyCapacity: Int = 60) throws {
         _ = try CounterRateTracker(maxGap: maximumGap)
         self.driver = driver
-        self.maximumGap = maximumGap
+        self.continuity = ContinuityTracker(maximumGap: maximumGap)
         self.buffer = try SampleBuffer(capacity: historyCapacity)
     }
 
     public func reset() {
-        previousStamp = nil
+        continuity.reset()
         buffer.removeAll()
     }
 
@@ -34,7 +33,9 @@ public actor GPUMonitor {
         let stamp = SampleStamp(
             clockID: raw.clockID, monotonicNanoseconds: raw.monotonicNanoseconds, wallTime: raw.wallTime
         )
-        let interrupted = updateContinuity(stamp)
+        let outcome = continuity.record(stamp)
+        if outcome == .discontinuous { buffer.removeAll() }
+        let interrupted = outcome != .continuous
 
         var devices: [GPUDeviceReading] = []
         var issues: [GPUCollectionIssue] = []
@@ -94,20 +95,6 @@ public actor GPUMonitor {
                 inUseMemoryBytes: try optional(statistics.inUseMemoryBytes.map { Double($0) }, "GPU memory in use")
             )
         }
-    }
-
-    private func updateContinuity(_ stamp: SampleStamp) -> Bool {
-        defer { previousStamp = stamp }
-        guard let previous = previousStamp else { return false }
-        let wallElapsed = stamp.wallTime.timeIntervalSince(previous.wallTime)
-        if wallElapsed < 0 || stamp.clockID != previous.clockID { buffer.removeAll() }
-        guard stamp.clockID == previous.clockID,
-              stamp.monotonicNanoseconds > previous.monotonicNanoseconds else { return true }
-        let components = maximumGap.components
-        let gapSeconds = Double(components.seconds)
-            + Double(components.attoseconds) / 1_000_000_000_000_000_000
-        return wallElapsed < 0 || wallElapsed > gapSeconds
-            || Duration.nanoseconds(stamp.monotonicNanoseconds - previous.monotonicNanoseconds) > maximumGap
     }
 
     private func missing(_ error: GPUDriverError) throws -> MetricReading {
