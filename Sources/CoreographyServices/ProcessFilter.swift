@@ -86,6 +86,8 @@ public struct ProcessFilter: Equatable, Sendable {
     private static let byteUnits: [(String, Double)] = [("TB", 1e12), ("GB", 1e9), ("MB", 1e6), ("KB", 1e3), ("B", 1)]
     // Locations Apple ships system software under; anything else is third-party.
     private static let systemPrefixes = ["/System/", "/usr/", "/bin/", "/sbin/", "/Library/Apple/"]
+    /// Under a system prefix but installed by the person or a package manager.
+    private static let localPrefix = "/usr/local/"
 
     let terms: [Term]
     /// Human-readable notes about terms that were not applied.
@@ -177,15 +179,17 @@ public struct ProcessFilter: Equatable, Sendable {
     }
 
     /// Unknown readings never match a numeric predicate: they are not zero.
+    /// Text also matches the member's app, so `safari cpu:>10` keeps Safari's helpers.
     /// - Parameter facts: connection and assertion data, read on demand.
     func matches(
-        _ process: ObservedProcess, isNew: Bool, facts: ProcessFacts = ProcessFacts(),
+        _ process: ObservedProcess, isNew: Bool, appName: String? = nil, facts: ProcessFacts = ProcessFacts(),
         currentUser: UInt32 = UInt32(getuid())
     ) -> Bool {
         terms.allSatisfy { term in
             switch term {
             case .text(let text):
                 return process.name.localizedCaseInsensitiveContains(text)
+                    || appName?.localizedCaseInsensitiveContains(text) == true
                     || String(process.id.pid).contains(text) || String(process.uid).contains(text)
             case .cpu(let comparison):
                 return process.cpuPercentOfMachine.numericValue.map(comparison.holds) ?? false
@@ -207,7 +211,7 @@ public struct ProcessFilter: Equatable, Sendable {
                 return process.uid == 0
             case .token(.thirdParty):
                 guard let path = process.executablePath else { return false }
-                return !Self.systemPrefixes.contains { path.hasPrefix($0) }
+                return path.hasPrefix(Self.localPrefix) || !Self.systemPrefixes.contains { path.hasPrefix($0) }
             case .token(.new):
                 return isNew
             case .token(.listening):
@@ -227,11 +231,13 @@ public struct ProcessFilter: Equatable, Sendable {
             (">=", Comparison.greaterOrEqual), ("<=", Comparison.lessOrEqual),
             (">", Comparison.greater), ("<", Comparison.less), ("=", Comparison.equal)
         ]
+        // "nan", "inf" and "1e400" parse as numbers no reading can be compared with.
+        func bound(_ text: String) -> Double? { unit(text).flatMap { $0.isFinite ? $0 : nil } }
         for (symbol, make) in operators where text.hasPrefix(symbol) {
-            return unit(String(text.dropFirst(symbol.count))).map(make)
+            return bound(String(text.dropFirst(symbol.count))).map(make)
         }
         // A bare number means "at least", the common question.
-        return unit(text).map(Comparison.greaterOrEqual)
+        return bound(text).map(Comparison.greaterOrEqual)
     }
 
     private static func bytes(_ text: String) -> Double? {
