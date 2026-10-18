@@ -4,11 +4,12 @@ import CoreographyKit
 /// A parsed process filter (plan P22). Whitespace separates terms; every
 /// term must match. Examples: `safari`, `cpu:>10`, `mem:>1GB`, `disk:>5MB`,
 /// `pid:42`, `user:root`, `user:me`, `#apps`, `#mine`, `#third-party`, `#new`,
-/// `#listening`, `#preventing-sleep`, `port:443`.
+/// `#listening`, `#preventing-sleep`, `port:443`, `file:~/Downloads`.
 /// Terms that cannot be evaluated are reported, never silently dropped.
 public typealias CapturedAssertions = AssertionSnapshot
 public typealias CapturedAssertion = SleepAssertion
 public typealias CapturedAssertionEffect = AssertionEffect
+public typealias CapturedOpenFiles = OpenFileSnapshot
 
 /// An assertion with the name of the process holding it, when observed.
 public struct AssertionHolder: Identifiable, Sendable {
@@ -23,6 +24,8 @@ struct ProcessFacts: Sendable {
     var sockets: SocketFacts?
     /// PIDs holding the Mac or its display awake.
     var sleepPreventers: Set<Int32>?
+    /// Open file paths by process.
+    var openFiles: [ProcessIdentity: [String]]?
 }
 
 /// What connection data says about each process, for `#listening` and `port:`.
@@ -71,6 +74,8 @@ public struct ProcessFilter: Equatable, Sendable {
         case token(Token)
         /// Reverse lookup: processes with a socket on this local or remote port.
         case port(UInt16)
+        /// Reverse lookup: processes with an open file whose path contains this.
+        case file(String)
     }
 
     /// Tokens the plan names whose data sources do not exist yet.
@@ -121,6 +126,10 @@ public struct ProcessFilter: Equatable, Sendable {
                 } else { issues.append("Unreadable \(word); try disk:>5MB") }
             case "pid":
                 if let pid = Int32(value) { terms.append(.pid(pid)) } else { issues.append("Unreadable \(word)") }
+            case "file", "path":
+                // A path or a file name; ~ means the home folder.
+                let expanded = value.hasPrefix("~") ? NSHomeDirectory() + value.dropFirst() : value
+                if expanded.isEmpty { issues.append("Unreadable \(word); try file:~/Downloads") } else { terms.append(.file(expanded)) }
             case "port":
                 if let port = UInt16(value), port > 0 { terms.append(.port(port)) } else { issues.append("Unreadable \(word); try port:443") }
             case "user", "uid":
@@ -140,6 +149,9 @@ public struct ProcessFilter: Equatable, Sendable {
     var isEmpty: Bool { terms.isEmpty }
     /// Matching needs connection data, which is read only on demand.
     var usesAssertions: Bool { terms.contains(.token(.preventingSleep)) }
+
+    /// Matching needs open-file data, read only on demand.
+    var usesFiles: Bool { terms.contains { if case .file = $0 { true } else { false } } }
 
     var usesSockets: Bool {
         terms.contains { term in
@@ -199,6 +211,8 @@ public struct ProcessFilter: Equatable, Sendable {
                 return facts.sleepPreventers?.contains(process.id.pid) ?? false
             case .port(let port):
                 return facts.sockets?.ports[process.id]?.contains(port) ?? false
+            case .file(let path):
+                return facts.openFiles?[process.id]?.contains { $0.localizedCaseInsensitiveContains(path) } ?? false
             }
         }
     }

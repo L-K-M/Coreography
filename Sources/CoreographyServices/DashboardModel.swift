@@ -107,7 +107,10 @@ public final class DashboardModel {
     public private(set) var powerFrames: [CapturedPower] = []
     public private(set) var sensorFrames: [CapturedSensors] = []
     public var processFilter = "" {
-        didSet { if wantsConnections { sampleConnections() } }
+        didSet {
+            if wantsConnections { sampleConnections() }
+            if wantsOpenFiles { sampleOpenFiles() }
+        }
     }
     /// Filters kept as chips under the field.
     public private(set) var savedFilters: [String] = []
@@ -144,6 +147,10 @@ public final class DashboardModel {
     public var connectionFilter = ""
     /// Displayed (possibly held) sockets; nil until first read.
     public private(set) var connectionSnapshot: CapturedConnections?
+    /// Displayed (possibly held) open files; nil until first read.
+    public private(set) var openFileSnapshot: CapturedOpenFiles?
+    /// The selected process's open files, read on selection.
+    public private(set) var inspectedFiles: [String]?
     /// Displayed (possibly held) power assertions; nil until first read.
     public private(set) var assertionSnapshot: CapturedAssertions?
     public var processSort: ProcessSort = .cpu
@@ -198,6 +205,9 @@ public final class DashboardModel {
     @ObservationIgnored private var connectionSample: Task<Void, Never>?
     @ObservationIgnored private var liveConnections: CapturedConnections?
     @ObservationIgnored private let assertionReader: AssertionReader?
+    @ObservationIgnored private let openFileMonitor: OpenFileMonitor?
+    @ObservationIgnored private var openFileSample: Task<Void, Never>?
+    @ObservationIgnored private var liveOpenFiles: CapturedOpenFiles?
     @ObservationIgnored private var liveAssertions: CapturedAssertions?
     @ObservationIgnored private var filterStore = SavedFilters(defaults: .standard)
     @ObservationIgnored private var sensorStats = SensorStats()
@@ -253,6 +263,7 @@ public final class DashboardModel {
         startupProvider = StartupProvider()
         inspector = ProcessInspector()
         assertionReader = AssertionReader()
+        openFileMonitor = OpenFileMonitor()
         interval = .seconds(1)
         processInterval = .seconds(2)
         do {
@@ -293,7 +304,8 @@ public final class DashboardModel {
         askService: AskService = AskService(), notifier: AlertDelivery? = nil,
         historyRecorder: HistoryRecorder? = nil, sleepProvider: SleepHistoryProvider? = nil,
         connectionMonitor: ConnectionMonitor? = nil, startupProvider: StartupProvider? = nil,
-        inspector: ProcessInspector? = nil, assertionReader: AssertionReader? = nil
+        inspector: ProcessInspector? = nil, assertionReader: AssertionReader? = nil,
+        openFileMonitor: OpenFileMonitor? = nil
     ) {
         self.controller = controller
         self.askService = askService
@@ -304,6 +316,7 @@ public final class DashboardModel {
         self.startupProvider = startupProvider
         self.inspector = inspector
         self.assertionReader = assertionReader
+        self.openFileMonitor = openFileMonitor
         self.monitor = monitor
         self.interval = interval
         self.processMonitor = processMonitor
@@ -321,6 +334,7 @@ public final class DashboardModel {
         sleepImport?.cancel()
         storedLoad?.cancel()
         connectionSample?.cancel()
+        openFileSample?.cancel()
         startupLoad?.cancel()
         inspection?.cancel()
     }
@@ -731,7 +745,8 @@ public final class DashboardModel {
             in: processSnapshot, matching: processFilter, sortedBy: processSort, grouping: processGrouping,
             isNew: { lifecycle.isNew($0, at: time) },
             facts: ProcessFacts(
-                sockets: connectionSnapshot.map(SocketFacts.init), sleepPreventers: assertionSnapshot?.sleepPreventers
+                sockets: connectionSnapshot.map(SocketFacts.init), sleepPreventers: assertionSnapshot?.sleepPreventers,
+                openFiles: openFileSnapshot?.files
             )
         )
         guard let scopedApp else { return rows }
@@ -742,6 +757,14 @@ public final class DashboardModel {
     public var processFilterIssues: [String] {
         let filter = ProcessFilter.parse(processFilter)
         var issues = filter.issues
+        if filter.usesFiles {
+            if let files = openFileSnapshot {
+                if let reason = files.unavailableReason { issues.append("file: matches nothing: \(reason)") }
+                if files.restrictedProcesses > 0 { issues.append("file: covers your own processes; other users' need the helper") }
+            } else {
+                issues.append("file: is waiting for open-file data")
+            }
+        }
         if filter.usesAssertions {
             if let reason = assertionSnapshot?.unavailableReason { issues.append("#preventing-sleep matches nothing: \(reason)") }
             if assertionSnapshot == nil { issues.append("#preventing-sleep is waiting for power assertions") }
@@ -757,6 +780,20 @@ public final class DashboardModel {
     public var appConnections: [AppConnections] {
         guard let connectionSnapshot else { return [] }
         return ConnectionGroups.apps(in: connectionSnapshot, processes: processSnapshot, matching: connectionFilter)
+    }
+
+    private var wantsOpenFiles: Bool { ProcessFilter.parse(processFilter).usesFiles }
+
+    /// One read of every process's open files, off the sampling loop and never two at once.
+    private func sampleOpenFiles() {
+        guard let openFileMonitor, let processes = liveProcesses, openFileSample == nil else { return }
+        openFileSample = Task { [weak self] in
+            let snapshot = await openFileMonitor.sample(processes)
+            guard let self, !Task.isCancelled else { return }
+            self.openFileSample = nil
+            self.liveOpenFiles = snapshot
+            if self.displayMode == .live { self.openFileSnapshot = snapshot }
+        }
     }
 
     private var wantsConnections: Bool {
@@ -895,6 +932,7 @@ public final class DashboardModel {
                         if let interval, let recorder = self.historyRecorder { Task { await recorder.recordLedger(interval) } }
                         self.liveLifecycle.record(processes)
                         if self.wantsConnections { self.sampleConnections() }
+                        if self.wantsOpenFiles { self.sampleOpenFiles() }
                     }
                     if let assertions { self.liveAssertions = assertions }
                     if let network { self.liveNetworkFrames = network }
@@ -964,6 +1002,7 @@ public final class DashboardModel {
         sensorFrames = liveSensorFrames
         connectionSnapshot = liveConnections
         assertionSnapshot = liveAssertions
+        openFileSnapshot = liveOpenFiles
         if detailPane == .sensors { publishSensorStats() }
         refreshSystemMarkers()
     }
@@ -1035,15 +1074,19 @@ public final class DashboardModel {
         inspection?.cancel()
         processDetail = nil
         inspectedSockets = nil
+        inspectedFiles = nil
         guard let process = selectedProcess, let inspector else { return }
         let connectionMonitor = connectionMonitor
+        let openFileMonitor = openFileMonitor
         inspection = Task { [weak self] in
             async let detail = inspector.detail(of: process)
             async let sockets = connectionMonitor?.connections(of: process)
-            let (readDetail, readSockets) = await (detail, sockets)
+            async let files = openFileMonitor?.files(of: process)
+            let (readDetail, readSockets, readFiles) = await (detail, sockets, files)
             guard let self, !Task.isCancelled else { return }
             self.processDetail = readDetail
             self.inspectedSockets = readSockets.flatMap { $0 }
+            self.inspectedFiles = readFiles.flatMap { $0 }
         }
         if startupInventory == nil { refreshStartupItems() }
     }

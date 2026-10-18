@@ -83,6 +83,22 @@ final class ProcessFilterTests: XCTestCase {
         XCTAssertFalse(filter.matches(player, isNew: false), "no assertion data, no match")
     }
 
+    func testFileLookupMatchesOpenPathsAndExpandsHome() throws {
+        let editor = try process(name: "Editor", cpu: 1, uid: 501, path: "/Applications/Editor.app/Contents/MacOS/Editor", pid: 70)
+        let shell = try process(name: "zsh", cpu: 0, uid: 501, path: "/bin/zsh", pid: 71)
+        let home = NSHomeDirectory()
+        let facts = ProcessFacts(openFiles: [editor.id: [home + "/Downloads/Report.pdf"], shell.id: ["/dev/ttys001"]])
+
+        let byFolder = ProcessFilter.parse("file:~/Downloads")
+        XCTAssertEqual(byFolder.terms, [.file(home + "/Downloads")])
+        XCTAssertTrue(byFolder.usesFiles)
+        XCTAssertTrue(byFolder.matches(editor, isNew: false, facts: facts))
+        XCTAssertFalse(byFolder.matches(shell, isNew: false, facts: facts))
+        XCTAssertTrue(ProcessFilter.parse("file:report.pdf").matches(editor, isNew: false, facts: facts), "a file name, any case")
+        XCTAssertFalse(byFolder.matches(editor, isNew: false), "no open-file data, no match")
+        XCTAssertEqual(ProcessFilter.parse("file:").issues, ["Unreadable file:; try file:~/Downloads"])
+    }
+
     func testGroupsShowAllMembersOnlyForAppNameText() throws {
         let stamp = SampleStamp(clockID: UUID(), monotonicNanoseconds: 1, wallTime: Date())
         let host = try process(name: "Safari", cpu: 1, uid: 501, path: "/Applications/Safari.app/Contents/MacOS/Safari", pid: 10)
