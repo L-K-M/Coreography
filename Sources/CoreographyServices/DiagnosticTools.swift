@@ -16,11 +16,13 @@ public struct DiagnosticSnapshot: Sendable {
     let ledger: AppLedger
     let sleep: SleepHistoryState
     let assertions: AssertionSnapshot?
+    let maintenance: CapturedMaintenance?
 
     init(
         takenAt: Date, host: [CapturedSnapshot], network: [CapturedNetwork], gpu: [CapturedGPU],
         power: [CapturedPower], sensors: [CapturedSensors], processes: CapturedProcesses?, ledger: AppLedger,
-        sleep: SleepHistoryState = .notImported, assertions: AssertionSnapshot? = nil
+        sleep: SleepHistoryState = .notImported, assertions: AssertionSnapshot? = nil,
+        maintenance: CapturedMaintenance? = nil
     ) {
         self.id = UUID()
         self.takenAt = takenAt
@@ -33,6 +35,7 @@ public struct DiagnosticSnapshot: Sendable {
         self.ledger = ledger
         self.sleep = sleep
         self.assertions = assertions
+        self.maintenance = maintenance
     }
 }
 
@@ -60,7 +63,7 @@ public struct DiagnosticValue: Codable, Sendable {
 /// A fact the service computed; the model explains it, never the reverse.
 public struct DiagnosticSignal: Codable, Equatable, Sendable {
     public enum Kind: String, Codable, Sendable {
-        case cpuSaturated, memoryPressureElevated, swapping, thermalPressureElevated, samplingGap
+        case cpuSaturated, memoryPressureElevated, swapping, thermalPressureElevated, samplingGap, backupRunning
     }
 
     public let kind: Kind
@@ -87,6 +90,8 @@ public struct SystemSummary: Codable, Sendable {
     public let systemPowerWatts: DiagnosticValue?
     public let thermalPressure: String?
     public let hottestCelsius: DiagnosticValue?
+    /// Time Machine and Spotlight state when last read; absent before the first read.
+    public let maintenance: MaintenanceReport?
     public let signals: [DiagnosticSignal]
 }
 
@@ -233,8 +238,18 @@ public enum DiagnosticTools {
             hottestCelsius: sensors.flatMap { frame in
                 frame.hottest.map { DiagnosticValue(unit: "°C (\($0.key))", reading: $0.celsius, evidence: "sensors:\(frame.id)") }
             },
-            signals: signals(window)
+            maintenance: snapshot.maintenance.map(MaintenanceReport.init),
+            signals: signals(window) + maintenanceSignals(snapshot.maintenance)
         )
+    }
+
+    /// A reported running backup is a fact; Spotlight's indexed state is not activity.
+    static func maintenanceSignals(_ maintenance: CapturedMaintenance?) -> [DiagnosticSignal] {
+        guard let maintenance, case .backingUp = maintenance.timeMachine else { return [] }
+        return [DiagnosticSignal(
+            kind: .backupRunning, detail: MaintenanceNotes.timeMachine(maintenance.timeMachine),
+            evidence: "maintenance:\(maintenance.readAt.timeIntervalSince1970)"
+        )]
     }
 
     /// Facts only: thresholds over the summary window, each with evidence.

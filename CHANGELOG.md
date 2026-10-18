@@ -13,6 +13,9 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
   after the store first exceeds it.
 
 ### Added
+- The inspector shows Time Machine backup progress for `backupd` and
+  whether Spotlight indexes the startup disk for its processes;
+  diagnostics report both and flag a running backup.
 - Diagnostic process role notes and current sleep-preventing assertion
   types, with read time, availability and omissions. Private assertion
   names stay out of diagnostic results.

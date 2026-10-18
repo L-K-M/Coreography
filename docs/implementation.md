@@ -3,7 +3,7 @@
 Track actual delivery against the [product plan](plan.md). A stage is
 complete only after its relevant checks and review pass and its PR merges.
 
-## Current slice: diagnostic context
+## Current slice: maintenance states
 
 The native foundation merged in [PR #5](https://github.com/L-K-M/Coreography/pull/5)
 at `aee9494` after two GLM rounds and passing CI. Process monitoring merged
@@ -34,17 +34,30 @@ Ask Coreography in [PR #25](https://github.com/L-K-M/Coreography/pull/25);
 alerts in [PR #26](https://github.com/L-K-M/Coreography/pull/26);
 process change highlighting in [PR #27](https://github.com/L-K-M/Coreography/pull/27);
 the filter grammar in [PR #28](https://github.com/L-K-M/Coreography/pull/28).
-This slice shares process role notes and current assertion facts with
-diagnostic clients.
+Process role notes and current assertion facts are shared with
+diagnostic clients in [PR #52](https://github.com/L-K-M/Coreography/pull/52).
+This slice adds maintenance states where macOS reports them.
 
 Implemented:
+
+- Maintenance states: `tmutil status` (whether a backup runs, its phase,
+  progress and time left) and `mdutil -s /` (only whether the startup
+  disk is indexed) run with fixed paths and arguments, a 5-second limit
+  and a 64 KB cap, off the sampling path: every five minutes and when
+  `backupd` or a Spotlight process is selected with a status older than
+  10 s, never twice at once. The inspector shows the state under the
+  role note with its read time. Only a reported running backup says it
+  finishes on its own; Spotlight never does, because `mdutil` reports no
+  progress. A cut-off, failed or unrecognised answer is unavailable, not
+  idle. `get_system_summary` and `coreo diagnose` carry the state, and a
+  running backup is a `backupRunning` signal. Photo analysis, iCloud sync
+  and software updates have no status source and keep role notes only.
 
 - Diagnostic context: the inspector and `get_process_details` share role
   notes qualified by name and a system executable path. Missing paths and
   writable `/usr/local` paths get no note; PID 0 identifies `kernel_task`
   without a path. Quitting guidance names possible interruption, never
-  guarantees safety. Signature/version matching and live maintenance
-  status sources remain pending.
+  guarantees safety. Signature/version matching remains pending.
 - `get_sleep_history` and `coreo sleep` include up to 200 current
   sleep-preventing assertions, their read time, omitted count and explicit
   unavailable reasons. Names that may contain private paths or document
@@ -396,6 +409,7 @@ outstanding. The store, MCP and model features above await stack delivery.
 | Native network MIB, wide-counter mapping and three-lane UI | Passed at `e62fac1`, including native C fixtures, live CLI and both executable architectures; integrated candidate pending |
 | Native IOKit storage counters and four-lane renderer | Passed [native CI](https://github.com/L-K-M/Coreography/actions/runs/39110306993) at `6434722`: 75 tests, 16 drivers, 32 measured rate fields, no inventory issues; owner checks pending |
 | On-disk history store and recorder | History slice: 148 Swift tests pass on Linux against the real system SQLite (round trip with gaps, duplicates, retention, reopen, permissions, WAL, batching); native CI checks the CLI and file permissions |
+| Maintenance states | 222 Swift tests pass on Linux (running, unknown-progress, idle and unrecognised `tmutil` answers; `mdutil` states; cut-off and failed tools unavailable; path-qualified processes only; no end promised for Spotlight; the summary's state and signal; one read per refresh window through the model). Native CI compares `coreo diagnose` with independent `tmutil` and `mdutil` reads |
 | Diagnostic context | 212 Swift tests pass on Linux; privacy and unsafe-quit regressions failed before the fix. One completed Devin review found the missing kernel note; its PID-0 regression also failed before the fix. Native compilation and current stack review remain pending |
 | Sample | Sample slice: 208 Swift tests pass on Linux (report and failure states through the model); the native tool run and the sheet are owner checks |
 | HUD | HUD slice: App-only, no Swift tests; the panel and its project registration compile only in native CI; staying above full-screen games is an owner check (S6) |

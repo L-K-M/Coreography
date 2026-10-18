@@ -154,7 +154,8 @@ public actor DiagnosticService {
         let snapshot = DiagnosticSnapshot(
             takenAt: Date(), host: await monitor.history(), network: await networkMonitor.history(),
             gpu: await gpuMonitor.history(), power: await powerMonitor.history(),
-            sensors: await sensorMonitor.history(), processes: processes, ledger: ledger
+            sensors: await sensorMonitor.history(), processes: processes, ledger: ledger,
+            maintenance: await MaintenanceStatusProvider().load()
         )
         return DiagnosisReport(
             summary: DiagnosticTools.summary(snapshot),
