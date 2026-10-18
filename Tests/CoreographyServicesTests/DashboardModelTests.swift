@@ -173,6 +173,47 @@ final class DashboardModelTests: XCTestCase {
         XCTAssertNil(SelfCost.measure(in: nil, logicalCPUCount: 4))
     }
 
+    func testClearingASelectionAlsoClearsAnUnfinishedDrag() async throws {
+        let model = DashboardModel(monitor: try SystemMonitor(driver: IncreasingHostDriver()), interval: .milliseconds(10))
+        let range = Date(timeIntervalSince1970: 0)...Date(timeIntervalSince1970: 10)
+        model.selection = range
+        // A drag the system cancelled never reaches onEnded, so its draft would linger.
+        model.draftSelection = range
+        model.clearSelection()
+        XCTAssertNil(model.selection)
+        XCTAssertNil(model.draftSelection, "a lingering draft keeps shading every lane with no panel to clear it")
+    }
+
+    func testRangeReportIsBuiltOnlyWhenItsInputsChange() async throws {
+        let model = DashboardModel(
+            monitor: try SystemMonitor(driver: IncreasingHostDriver()), interval: .milliseconds(10),
+            processMonitor: try ProcessMonitor(driver: IncreasingProcessDriver()), processInterval: .milliseconds(10)
+        )
+        model.start()
+        try await eventually { model.frames.count >= 3 }
+        model.toggleDisplayHold()
+        defer { model.stop() }
+        let start = try XCTUnwrap(model.frames.first?.stamp.wallTime)
+        model.selection = start...start.addingTimeInterval(60)
+
+        // Hovering re-renders the window; each render reads the report again.
+        let first = try XCTUnwrap(model.rangeReport)
+        for _ in 0..<5 { _ = model.rangeReport }
+        XCTAssertEqual(model.rangeReportBuilds, 1, "an unchanged selection and data reuse the report")
+
+        model.selection = start...start.addingTimeInterval(1)
+        let narrowed = try XCTUnwrap(model.rangeReport)
+        XCTAssertEqual(model.rangeReportBuilds, 2, "a new selection rebuilds it")
+        XCTAssertNotEqual(first.requested, narrowed.requested)
+
+        model.toggleDisplayHold()
+        try await eventually { model.frames.last?.id != nil && model.rangeReportBuilds >= 2 }
+        let live = model.frames.last?.id
+        try await eventually { model.frames.last?.id != live }
+        _ = model.rangeReport
+        XCTAssertEqual(model.rangeReportBuilds, 3, "new samples rebuild it")
+    }
+
     func testMemorySeriesDoesNotBridgeSamplingGaps() async throws {
         let driver = IncreasingHostDriver()
         let monitor = try SystemMonitor(driver: driver)
