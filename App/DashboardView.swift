@@ -285,7 +285,8 @@ struct DashboardView: View {
 
     private func lane(_ metric: DashboardMetric) -> some View {
         let reading = model.reading(for: metric)
-        let graphHeight = Layout.graphHeight(model.laneLayout.size(of: .cpu))
+        let laneSize = model.laneLayout.size(of: .cpu)
+        let graphHeight = Layout.graphHeight(laneSize)
         let title = metric == .cpu ? String(localized: "CPU") : String(localized: "Memory")
         let maximum = metric == .cpu
             ? MetricText.percentScale
@@ -295,6 +296,7 @@ struct DashboardView: View {
         let points = visiblePoints(model.points(for: metric), start, end)
         let scoped = metric == .cpu ? model.scopedSeries().map { visiblePoints($0.cpu, start, end) } : nil
         let split = metric == .cpu ? model.cpuSplitPoints().filter { (start...end).contains($0.time) } : []
+        let tiers = metric == .cpu ? model.tierBandCells().filter { $0.end >= start && $0.start <= end } : []
 
         return HStack(alignment: .top, spacing: 24) {
             VStack(alignment: .leading, spacing: 10) {
@@ -341,69 +343,75 @@ struct DashboardView: View {
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, minHeight: graphHeight)
             } else {
-                Chart {
-                    // User under system (plan: CPU lane); position, not hue, tells them apart.
-                    ForEach(split) { point in
-                        AreaMark(
-                            x: .value("Time", point.time), yStart: .value("User", 0), yEnd: .value("User", point.user),
-                            series: .value("Segment", "user-\(point.segment)")
-                        )
-                        .foregroundStyle(Color.blue.opacity(0.25))
-                        AreaMark(
-                            x: .value("Time", point.time), yStart: .value("System", point.user),
-                            yEnd: .value("System", point.user + point.system),
-                            series: .value("Segment", "system-\(point.segment)")
-                        )
-                        .foregroundStyle(Color.blue.opacity(0.55))
+                VStack(alignment: .leading, spacing: 4) {
+                    Chart {
+                        // User under system (plan: CPU lane); position, not hue, tells them apart.
+                        ForEach(split) { point in
+                            AreaMark(
+                                x: .value("Time", point.time), yStart: .value("User", 0), yEnd: .value("User", point.user),
+                                series: .value("Segment", "user-\(point.segment)")
+                            )
+                            .foregroundStyle(Color.blue.opacity(0.25))
+                            AreaMark(
+                                x: .value("Time", point.time), yStart: .value("System", point.user),
+                                yEnd: .value("System", point.user + point.system),
+                                series: .value("Segment", "system-\(point.segment)")
+                            )
+                            .foregroundStyle(Color.blue.opacity(0.55))
+                        }
+                        ForEach(points) { point in
+                            LineMark(
+                                x: .value("Time", point.time),
+                                y: .value(title, point.value),
+                                series: .value("Segment", "lane-\(point.segment)")
+                            )
+                            .foregroundStyle(metric == .cpu ? Color.blue : Color.teal)
+                            .interpolationMethod(.linear)
+                        }
+                        // The scoped app's share, as a second series in the lane's hue (plan P8).
+                        ForEach(scoped ?? []) { point in
+                            LineMark(
+                                x: .value("Time", point.time), y: .value(title, point.value),
+                                series: .value("Segment", "scoped-\(point.segment)")
+                            )
+                            .foregroundStyle(Color.blue.opacity(0.6))
+                            .lineStyle(StrokeStyle(lineWidth: 1.5, dash: [4, 2]))
+                        }
+                        CursorRule(time: model.cursorTime, range: start...end)
+                        SelectionBand(selection: model.draftSelection ?? model.selection, range: start...end)
+                        SelectionBand(selection: model.draftComparison ?? model.comparison, range: start...end, tint: .orange)
+                        MarkerRules(markers: model.timelineMarkers, range: start...end)
                     }
-                    ForEach(points) { point in
-                        LineMark(
-                            x: .value("Time", point.time),
-                            y: .value(title, point.value),
-                            series: .value("Segment", "lane-\(point.segment)")
-                        )
-                        .foregroundStyle(metric == .cpu ? Color.blue : Color.teal)
-                        .interpolationMethod(.linear)
-                    }
-                    // The scoped app's share, as a second series in the lane's hue (plan P8).
-                    ForEach(scoped ?? []) { point in
-                        LineMark(
-                            x: .value("Time", point.time), y: .value(title, point.value),
-                            series: .value("Segment", "scoped-\(point.segment)")
-                        )
-                        .foregroundStyle(Color.blue.opacity(0.6))
-                        .lineStyle(StrokeStyle(lineWidth: 1.5, dash: [4, 2]))
-                    }
-                    CursorRule(time: model.cursorTime, range: start...end)
-                    SelectionBand(selection: model.draftSelection ?? model.selection, range: start...end)
-                    SelectionBand(selection: model.draftComparison ?? model.comparison, range: start...end, tint: .orange)
-                    MarkerRules(markers: model.timelineMarkers, range: start...end)
-                }
-                .chartCursor(model)
-                .chartLegend(.hidden)
-                .chartXScale(domain: start...end)
-                .chartYScale(domain: 0...max(1, maximum))
-                .chartYAxis {
-                    AxisMarks(position: .trailing, values: [0, maximum / 2, maximum]) { value in
-                        AxisGridLine()
-                        AxisValueLabel {
-                            if let number = value.as(Double.self) {
-                                Text(metric == .cpu ? MetricText.percent(number) : MetricText.bytes(number))
-                                    .frame(width: Layout.axisLabelWidth, alignment: .leading)
+                    .chartCursor(model)
+                    .chartLegend(.hidden)
+                    .chartXScale(domain: start...end)
+                    .chartYScale(domain: 0...max(1, maximum))
+                    .chartYAxis {
+                        AxisMarks(position: .trailing, values: [0, maximum / 2, maximum]) { value in
+                            AxisGridLine()
+                            AxisValueLabel {
+                                if let number = value.as(Double.self) {
+                                    Text(metric == .cpu ? MetricText.percent(number) : MetricText.bytes(number))
+                                        .frame(width: Layout.axisLabelWidth, alignment: .leading)
+                                }
                             }
                         }
                     }
-                }
-                .chartXAxis {
-                    AxisMarks(values: .automatic(desiredCount: 4)) {
-                        AxisValueLabel(format: .dateTime.hour().minute().second())
+                    .chartXAxis {
+                        AxisMarks(values: .automatic(desiredCount: 4)) {
+                            AxisValueLabel(format: .dateTime.hour().minute().second())
+                        }
+                    }
+                    .frame(height: graphHeight)
+                    .accessibilityChartDescriptor(MetricChartAccessibility(
+                        title: title, metric: metric, points: points,
+                        start: start, end: end, maximum: max(1, maximum)
+                    ))
+                    // Sheds first when the lane is compact (plan: lane sizes).
+                    if laneSize != .compact, !tiers.isEmpty {
+                        TierStrip(cells: tiers, range: start...end)
                     }
                 }
-                .frame(height: graphHeight)
-                .accessibilityChartDescriptor(MetricChartAccessibility(
-                    title: title, metric: metric, points: points,
-                    start: start, end: end, maximum: max(1, maximum)
-                ))
             }
         }
         .padding(Layout.padding)
@@ -3025,6 +3033,41 @@ private extension EnvironmentValues {
     var laneGraphHeight: CGFloat {
         get { self[LaneGraphHeightKey.self] }
         set { self[LaneGraphHeightKey.self] = newValue }
+    }
+}
+
+/// One row per core tier, shaded by its activity (plan: the CPU lane's
+/// cluster sub-band); holes are samples without a reading.
+private struct TierStrip: View {
+    private static let rowHeight: CGFloat = 10
+    let cells: [TierBandCell]
+    let range: ClosedRange<Date>
+
+    var body: some View {
+        let tiers = Array(Set(cells.map(\.tier))).sorted()
+        Chart(cells) { cell in
+            RectangleMark(
+                xStart: .value("Start", max(cell.start, range.lowerBound)), xEnd: .value("End", min(cell.end, range.upperBound)),
+                y: .value("Tier", cell.tier)
+            )
+            .foregroundStyle(Color.blue.opacity(0.1 + 0.9 * cell.activePercent / MetricText.percentScale))
+        }
+        .chartXScale(domain: range)
+        .chartYScale(domain: tiers)
+        .chartXAxis(.hidden)
+        // Labels take the main chart's trailing column, so both plots share one time axis.
+        .chartYAxis {
+            AxisMarks(position: .trailing) { value in
+                AxisValueLabel {
+                    if let tier = value.as(String.self) {
+                        Text(tier).frame(width: Layout.axisLabelWidth, alignment: .leading)
+                    }
+                }
+            }
+        }
+        .chartLegend(.hidden)
+        .frame(height: CGFloat(tiers.count) * Self.rowHeight)
+        .accessibilityLabel(String(localized: "Core tier activity over the visible range"))
     }
 }
 
