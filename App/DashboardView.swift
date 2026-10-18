@@ -903,7 +903,8 @@ private struct TemperatureChartAccessibility: AXChartDescriptorRepresentable {
 }
 
 private enum ThermalText {
-    static let celsiusCeiling = 110.0
+    /// Matches the sensor plausibility ceiling, so no shown reading is clipped.
+    static let celsiusCeiling = 130.0
 
     static func celsius(_ value: Double?) -> String {
         guard let value, value.isFinite else { return "–" }

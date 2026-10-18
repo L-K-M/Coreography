@@ -49,15 +49,23 @@ public actor SensorDriver: SensorSampleReading {
             var opened: UInt32 = 0
             let status = coreo_smc_open(&opened)
             guard status == 0 else {
-                // A missing or refused service does not appear later; stop retrying.
+                // A missing or refused service does not appear later; stop retrying it.
                 let failure = Self.failure(status, operation: "AppleSMC open")
-                openFailure = failure
+                if failure == .notPresent || failure == .restricted(code: status) { openFailure = failure }
                 return .failure(failure)
             }
             connection = opened
         }
 
-        let keys = temperatureKeys ?? discoverTemperatureKeys()
+        // "#KEY" doubles as a liveness check: a connection that cannot read it
+        // reopens next sample instead of reporting a Mac without sensors.
+        guard let keyCount = value("#KEY").flatMap({ UInt32(exactly: $0) }) else {
+            coreo_smc_close(connection)
+            connection = 0
+            temperatureKeys = nil
+            return .failure(.systemCall(operation: "AppleSMC read #KEY", code: EIO))
+        }
+        let keys = temperatureKeys ?? discoverTemperatureKeys(count: keyCount)
         let temperatures = keys.compactMap { key in value(key).map { RawSensorValue(key: key, value: $0) } }
         let power = Self.powerKeys.compactMap { key in value(key).map { RawSensorValue(key: key, value: $0) } }
         return .success(RawSensors(
@@ -70,9 +78,8 @@ public actor SensorDriver: SensorSampleReading {
 
     #if os(macOS)
     /// Temperature keys start with "T" and use a decodable temperature type.
-    private func discoverTemperatureKeys() -> [String] {
+    private func discoverTemperatureKeys(count: UInt32) -> [String] {
         var keys: [String] = []
-        let count = value("#KEY").flatMap { UInt32(exactly: $0) } ?? 0
         discoveryTruncated = count > Self.keyCapacity
         var name = [CChar](repeating: 0, count: 5)
         for index in 0..<min(count, Self.keyCapacity) {
