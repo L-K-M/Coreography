@@ -151,6 +151,10 @@ must be qualified before labeling a physical total or automatic boot disk.
 
 ## Review decisions carried forward
 
+- The first network Mac CI failed because the SDK returns a non-optional
+  `CFString` from `SCDynamicStoreKeyCreateNetworkGlobalEntity`. Replace
+  optional binding with direct assignment; native compilation and runtime
+  checks still gate the corrected candidate.
 - Foundation review round 2: no actionable or important findings. Defer
   clearer test-extraction failure messages. Production signing remains
   M7; adding placeholder credentials would break the current build.

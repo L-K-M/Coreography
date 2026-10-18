@@ -176,11 +176,9 @@ public actor NetworkInterfacesDriver: NetworkSampleReading {
 
     #if os(macOS)
     private func primaryName(entity: CFString) -> Result<String?, NetworkDriverError> {
-        guard let key = SCDynamicStoreKeyCreateNetworkGlobalEntity(
+        let key = SCDynamicStoreKeyCreateNetworkGlobalEntity(
             nil, kSCDynamicStoreDomainState, entity
-        ) else {
-            return .failure(.systemCall(operation: "SCDynamicStoreKeyCreateNetworkGlobalEntity", code: SCError()))
-        }
+        )
         guard let raw = SCDynamicStoreCopyValue(nil, key) else {
             let code = SCError()
             if code == kSCStatusNoKey { return .success(nil) }
