@@ -3,7 +3,8 @@ import CoreographyKit
 
 public typealias StoredMetric = HistoryMetric
 
-/// Records the newest system readings to the on-disk Recent tier.
+/// Records the newest system readings and app-ledger intervals to the
+/// on-disk Recent tier.
 ///
 /// Samples buffer in memory and flush in one transaction every 30 s, so
 /// the store sees about two writes a minute rather than one per sample.
@@ -12,9 +13,12 @@ public typealias StoredMetric = HistoryMetric
 public actor HistoryRecorder {
     static let flushInterval: TimeInterval = 30
     private static let bufferLimit = 4096
+    /// Over two hours of two-second process intervals.
+    private static let ledgerBufferLimit = 4096
 
     private let store: HistoryStore
     private var buffer: [HistorySample] = []
+    private var ledgerBuffer: [LedgerInterval] = []
     private var lastFlush: Date?
     public private(set) var lastError: String?
 
@@ -42,12 +46,19 @@ public actor HistoryRecorder {
         await flush(now: now)
     }
 
+    /// Buffer one ledger interval; it is written with the next sample batch.
+    func recordLedger(_ interval: LedgerInterval) {
+        ledgerBuffer.append(interval)
+        if ledgerBuffer.count > Self.ledgerBufferLimit { ledgerBuffer.removeFirst(ledgerBuffer.count - Self.ledgerBufferLimit) }
+    }
+
     func flush(now: Date = Date()) async {
         lastFlush = now
-        guard !buffer.isEmpty else { return }
+        guard !buffer.isEmpty || !ledgerBuffer.isEmpty else { return }
         do {
-            try await store.append(buffer, now: now)
+            try await store.append(buffer, ledger: ledgerBuffer, now: now)
             buffer.removeAll()
+            ledgerBuffer.removeAll()
             lastError = nil
         } catch HistoryStoreError.storage(let reason) {
             lastError = reason
@@ -58,11 +69,16 @@ public actor HistoryRecorder {
 
     public func deleteAll() async throws {
         buffer.removeAll()
+        ledgerBuffer.removeAll()
         try await store.deleteAll()
     }
 
     func samples(_ metric: HistoryMetric, from start: Date, to end: Date) async throws -> [HistorySample] {
         try await store.samples(metric, from: start, to: end)
+    }
+
+    func ledger(from start: Date, to end: Date) async throws -> [LedgerInterval] {
+        try await store.ledger(from: start, to: end)
     }
 }
 

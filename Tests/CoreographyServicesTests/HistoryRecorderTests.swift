@@ -44,6 +44,44 @@ final class HistoryRecorderTests: XCTestCase {
         XCTAssertEqual(samples.first { $0.metric == .thermalPressure }?.availability, .unavailable)
     }
 
+    func testLedgerIntervalsReachTheStoreAndRebuildTheSameTotals() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("coreo-ledger-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = try HistoryStore(directory: directory)
+        let recorder = HistoryRecorder(store: store)
+
+        var ledger = AppLedger(capacity: 10)
+        XCTAssertNil(ledger.record(try processes(at: 0, cpu: 50), logicalCPUCount: 2), "the first sample opens no interval")
+        let interval = try XCTUnwrap(ledger.record(try processes(at: 2, cpu: 50), logicalCPUCount: 2))
+        XCTAssertEqual(interval.entries.map(\.app), ["Worker"])
+        XCTAssertEqual(interval.entries.first?.cpuSeconds ?? 0, 2, accuracy: 1e-9, "half of two cores for two seconds")
+
+        await recorder.recordLedger(interval)
+        await recorder.flush(now: epoch.addingTimeInterval(2))
+        let stored = try await store.ledger(from: epoch, to: epoch.addingTimeInterval(2))
+        XCTAssertEqual(stored, [interval])
+
+        let range = epoch...epoch.addingTimeInterval(2)
+        let rebuilt = AppLedger(stored: stored).totals(in: range)
+        let live = ledger.totals(in: range)
+        XCTAssertEqual(rebuilt.apps.map(\.cpuSeconds), live.apps.map(\.cpuSeconds))
+        XCTAssertEqual(rebuilt.covered, live.covered)
+    }
+
+    private func processes(at second: TimeInterval, cpu: Double) throws -> CapturedProcesses {
+        let stamp = SampleStamp(clockID: UUID(), monotonicNanoseconds: UInt64(second * 1e9), wallTime: epoch.addingTimeInterval(second))
+        let row = ProcessReading(
+            id: try ProcessIdentity(pid: 42, startSeconds: 1, startMicroseconds: 0), parentPID: 1, uid: 501,
+            name: "Worker", stamp: stamp, cpuPercentOfMachine: try .measured(cpu), memoryFootprintBytes: try .measured(1),
+            diskReadBytesPerSecond: try .measured(0), diskWriteBytesPerSecond: try .measured(0),
+            executablePath: nil, responsiblePID: nil
+        )
+        return ProcessSnapshot(
+            stamp: stamp, collectorPID: 1, enumeration: try .measured(1), enumerationTruncated: false,
+            processes: [row], issues: [], continuity: .continuous
+        )
+    }
+
     private func sample(_ second: Int) -> HistorySample {
         HistorySample(metric: .cpu, time: epoch.addingTimeInterval(TimeInterval(second)), value: Double(second), availability: .measured)
     }

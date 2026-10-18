@@ -117,6 +117,7 @@ swift run coreo diagnose --json         # macOS only; summary, signals, top apps
 swift run coreo mcp --stdio             # macOS only; read-only MCP server
 swift run coreo history --json cpu      # recorded history for one metric
 swift run coreo sleep --json            # macOS only; sleep and wake records
+swift run coreo apps --json             # recorded per-app CPU and disk totals
 python3 tools/tests/test_buildscripts.py
 shellcheck scripts/*.sh
 python3 tools/doccheck/checkdocs.py .

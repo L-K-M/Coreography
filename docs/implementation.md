@@ -202,7 +202,17 @@ Implemented:
   Writes batch into one transaction every 30 s; each batch also enforces
   the 6-hour time cap and a 256 MB size cap. Settings deletes history in
   one click; `coreo history --json METRIC` reads it, and the CLI never
-  records samples. Rollups and the app ledger on disk remain (S7, M4).
+  records samples. Rollups remain (S7, M4).
+- The app ledger on disk: every two-second process interval, idle ones
+  included, is written with the sample batches as per-app CPU-seconds,
+  disk bytes and a lower-bound flag, under the same 6-hour and size
+  caps. App names are interned and swept hourly once their intervals age
+  out, and one-click deletion clears them. `coreo apps --json` totals the
+  recorded apps over the last N minutes. The size cap now counts live
+  pages only and, once exceeded, prunes the oldest tenths down to 90% of
+  it; it used to count freed pages and drop another tenth on every batch
+  after the first overflow. Range reports and scoped apps over stored
+  history are next.
 - The 6 h range: lanes draw stored history behind the live hour. Each
   minute while that range is shown (not while the display is held), the
   model reads the store off the main actor and reduces every series once
@@ -249,6 +259,7 @@ time, helper, MCP or model integration in this slice.
 | Native network MIB, wide-counter mapping and three-lane UI | Passed at `e62fac1`, including native C fixtures, live CLI and both executable architectures; integrated candidate pending |
 | Native IOKit storage counters and four-lane renderer | Passed [native CI](https://github.com/L-K-M/Coreography/actions/runs/39110306993) at `6434722`: 75 tests, 16 drivers, 32 measured rate fields, no inventory issues; owner checks pending |
 | On-disk history store and recorder | History slice: 148 Swift tests pass on Linux against the real system SQLite (round trip with gaps, duplicates, retention, reopen, permissions, WAL, batching); native CI checks the CLI and file permissions |
+| App ledger on disk | Ledger slice: 164 Swift tests pass on Linux against the system SQLite (round trip with idle intervals, whole-interval replacement, retention with name sweep, deletion, rebuilt totals equal live ones, the size-cap regression observed failing first); native CI smoke reads `coreo apps` |
 | 6 h replay | Replay slice: 160 Swift tests pass on Linux (reduction keeps peaks, gaps and silences; stack alignment; bands do not bridge silences; the model puts stored points behind live without joining them and drops them for short ranges; a missing store is named); native compile and the owner's look at a long range are pending |
 | Sleep and wake import | Sleep slice: 156 Swift tests pass on Linux (record parsing with tab or space columns, cut lines, periods across dark wakes, caps as partial coverage, the tool's window and record cap, a runner that stops a child at its limit); native CI compares parsed records with an independent count of the real `pmset -g log` |
 | Process filter grammar | Filter slice: 143 Swift tests pass on Linux (predicates, units, tokens, reported issues, unknown-is-not-zero, group visibility) |

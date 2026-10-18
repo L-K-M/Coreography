@@ -6,7 +6,13 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
 
 ## [Unreleased]
 
+### Fixed
+- The history size cap no longer drops more history on every write
+  after the store first exceeds it.
+
 ### Added
+- The per-app ledger is recorded to the history store for six hours;
+  `coreo apps` totals recorded app activity.
 - A 6 h range: lanes show recorded history behind the live hour, with
   gaps kept.
 - Sleep and wake history from the power-management log: sleep periods

@@ -30,6 +30,59 @@ final class HistoryStoreTests: XCTestCase {
         XCTAssertEqual(count, 4)
     }
 
+    func testSizeCapDropsOldestHistoryOnceRatherThanOnEveryBatch() async throws {
+        let store = try HistoryStore(directory: directory, maximumBytes: 256 * 1024)
+        let filled = (0..<20_000).map { sample(.cpu, TimeInterval($0 - 20_000), Double($0)) }
+        try await store.append(filled, now: now)
+        let afterCap = try await store.sampleCount()
+        XCTAssertLessThan(afterCap, 20_000, "the cap dropped the oldest samples")
+        let oldest = try await store.samples(.cpu, from: .distantPast, to: now).first?.value
+        XCTAssertGreaterThan(oldest ?? 0, 0, "oldest first")
+
+        // Freed pages are not history: a small batch under the cap must not drop more.
+        try await store.append([sample(.memoryUsed, 0, 1)], now: now)
+        let afterBatch = try await store.sampleCount()
+        XCTAssertEqual(afterBatch, afterCap + 1)
+    }
+
+    func testLedgerRoundTripKeepsIdleIntervalsAndReplacesWholeIntervals() async throws {
+        let store = try HistoryStore(directory: directory)
+        let busy = interval(-4, -2, [entry("Safari", 1.5, 4096), entry("Mail", 0.25, 0, lowerBound: true)])
+        let idle = interval(-2, 0, [])
+        try await store.append([], ledger: [busy, idle], now: now)
+
+        let read = try await store.ledger(from: now.addingTimeInterval(-10), to: now)
+        XCTAssertEqual(read, [interval(-4, -2, [entry("Mail", 0.25, 0, lowerBound: true), entry("Safari", 1.5, 4096)]), idle])
+
+        // A rewritten interval replaces every entry, so Mail's old figures go.
+        try await store.append([], ledger: [interval(-4, -2, [entry("Safari", 2, 0)])], now: now)
+        let rewritten = try await store.ledger(from: now.addingTimeInterval(-10), to: now.addingTimeInterval(-1))
+        XCTAssertEqual(rewritten.first?.entries, [entry("Safari", 2, 0)])
+    }
+
+    func testLedgerAgesOutWithItsAppNamesAndDeletesWithHistory() async throws {
+        let store = try HistoryStore(directory: directory)
+        try await store.append([], ledger: [interval(-4, -2, [entry("Old App", 1, 0)])], now: now)
+        let later = now.addingTimeInterval(HistoryStore.retention + 3600)
+        try await store.append([], ledger: [interval(HistoryStore.retention + 3598, HistoryStore.retention + 3600, [entry("New App", 1, 0)])], now: later)
+
+        let kept = try await store.ledger(from: .distantPast, to: later)
+        XCTAssertEqual(kept.flatMap(\.entries).map(\.app), ["New App"])
+        let names = try await store.storedAppNames()
+        XCTAssertEqual(names, ["New App"], "no name outlives its intervals past the sweep")
+
+        try await store.deleteAll()
+        let afterDelete = try await store.ledger(from: .distantPast, to: later)
+        XCTAssertTrue(afterDelete.isEmpty)
+        let namesAfterDelete = try await store.storedAppNames()
+        XCTAssertTrue(namesAfterDelete.isEmpty)
+
+        // Interning starts over cleanly after deletion.
+        try await store.append([], ledger: [interval(HistoryStore.retention + 3600, HistoryStore.retention + 3602, [entry("New App", 1, 0)])], now: later)
+        let reinterned = try await store.ledger(from: .distantPast, to: .distantFuture)
+        XCTAssertEqual(reinterned.flatMap(\.entries).map(\.app), ["New App"])
+    }
+
     func testRetentionDropsSamplesOlderThanSixHours() async throws {
         let store = try HistoryStore(directory: directory)
         try await store.append([sample(.cpu, -HistoryStore.retention - 5, 1), sample(.cpu, -60, 2)], now: now)
@@ -55,6 +108,14 @@ final class HistoryStoreTests: XCTestCase {
         try await reopened.deleteAll()
         let count = try await reopened.sampleCount()
         XCTAssertEqual(count, 0)
+    }
+
+    private func interval(_ start: TimeInterval, _ end: TimeInterval, _ entries: [LedgerEntry]) -> LedgerInterval {
+        LedgerInterval(start: now.addingTimeInterval(start), end: now.addingTimeInterval(end), cores: 8, entries: entries)
+    }
+
+    private func entry(_ app: String, _ cpu: Double, _ disk: Double, lowerBound: Bool = false) -> LedgerEntry {
+        LedgerEntry(app: app, cpuSeconds: cpu, diskBytes: disk, isLowerBound: lowerBound)
     }
 
     private func sample(
