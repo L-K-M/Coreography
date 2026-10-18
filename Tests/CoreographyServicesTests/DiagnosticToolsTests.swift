@@ -58,7 +58,7 @@ final class DiagnosticToolsTests: XCTestCase {
         XCTAssertTrue(try DiagnosticTools.history(snapshot, metric: .gpuBusy).points.isEmpty)
     }
 
-    func testProcessDetailsOmitPathsAndSleepHistoryIsExplicitlyUnavailable() async throws {
+    func testProcessDetailsOmitPathsAndSleepHistoryWaitsForItsImport() async throws {
         let snapshot = try await makeSnapshot(seconds: 4, busyShare: 0.5, pressure: .normal, swapping: false,
                                               apps: [("Worker", 5)])
         let details = try XCTUnwrap(DiagnosticTools.processDetails(snapshot, pid: 100))
@@ -70,6 +70,49 @@ final class DiagnosticToolsTests: XCTestCase {
             guard case .unavailable = $0 as? DiagnosticError else { return XCTFail("expected unavailable") }
         }
         XCTAssertTrue(DiagnosticTools.dataSources(snapshot).contains { $0.metric == "cpu" && $0.availability == .measured })
+    }
+
+    func testSleepHistoryIsWindowedCappedAndCarriesCoverage() throws {
+        // One sleep per hour for 300 hours, each followed by a wake; the snapshot is taken at the end.
+        let events = (0..<300).flatMap { hour -> [PowerEvent] in
+            let start = epoch.addingTimeInterval(Double(hour) * 3600)
+            return [
+                PowerEvent(time: start, kind: .sleep, reason: "Idle Sleep", powerSource: .battery, batteryPercent: 90),
+                PowerEvent(time: start.addingTimeInterval(1800), kind: .wake, reason: "UserActivity", powerSource: .battery, batteryPercent: 88)
+            ]
+        }
+        let history = SleepHistory(
+            importedAt: epoch, coveredFrom: events.first?.time, coveredTo: events.last?.time,
+            coverage: .partial("older records exceeded the import cap"), events: events,
+            periods: SleepHistoryProvider.periods(events)
+        )
+        let takenAt = epoch.addingTimeInterval(300 * 3600)
+        let snapshot = DiagnosticSnapshot(
+            takenAt: takenAt, host: [], network: [], gpu: [], power: [], sensors: [], processes: nil,
+            ledger: AppLedger(capacity: 1), sleep: .imported(history)
+        )
+
+        let day = try DiagnosticTools.sleepHistory(snapshot)
+        XCTAssertEqual(day.windowStart, takenAt.addingTimeInterval(-24 * 3600))
+        XCTAssertEqual(day.events.count, 48)
+        XCTAssertEqual(day.periods.count, 24)
+        XCTAssertEqual(day.periods.first?.batteryChangePercent, -2)
+        XCTAssertEqual(day.partialCoverage, "older records exceeded the import cap")
+        XCTAssertEqual(day.omittedEvents, 0)
+
+        let week = try DiagnosticTools.sleepHistory(snapshot, hours: DiagnosticTools.maximumSleepHours)
+        XCTAssertEqual(week.events.count, DiagnosticTools.maximumSleepEvents)
+        XCTAssertEqual(week.omittedEvents, 2 * 168 - DiagnosticTools.maximumSleepEvents)
+        XCTAssertEqual(week.events.last?.time, events.last?.time, "the newest records are kept")
+        XCTAssertThrowsError(try DiagnosticTools.sleepHistory(snapshot, hours: 0))
+
+        let failed = DiagnosticSnapshot(
+            takenAt: takenAt, host: [], network: [], gpu: [], power: [], sensors: [], processes: nil,
+            ledger: AppLedger(capacity: 1), sleep: .failed("pmset could not start")
+        )
+        XCTAssertThrowsError(try DiagnosticTools.sleepHistory(failed)) {
+            XCTAssertEqual($0 as? DiagnosticError, .unavailable("Sleep history is unavailable: pmset could not start"))
+        }
     }
 
     // MARK: Fixtures

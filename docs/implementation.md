@@ -150,7 +150,7 @@ Implemented:
   with cursors bound to the snapshot, metric and range, bounded metric
   history with gaps as segments, process details without paths, and data
   sources. Ranges over an hour, oversized pages and foreign cursors fail
-  explicitly; sleep history is unavailable until S8.
+  explicitly; sleep history arrived with the sleep import below.
   `coreo diagnose --json [--seconds N]` samples 3-60 s and prints a report
   an assistant can use. MCP transport and the app bridge remain M5.
 - `coreo mcp --stdio`: a read-only MCP server (JSON-RPC 2.0, protocol
@@ -203,7 +203,18 @@ Implemented:
   the 6-hour time cap and a 256 MB size cap. Settings deletes history in
   one click; `coreo history --json METRIC` reads it, and the CLI never
   records samples. Replaying stored history in the window, rollups, the app ledger
-  on disk and sleep import remain (S7/S8, M4).
+  on disk remain (S7, M4).
+- Sleep and wake history, first part: `pmset -g log` runs with a fixed
+  path and arguments, a 20-second limit and an 8 MB tail cap, off the
+  sampling path: once at launch and 10 s after each wake (an interrupted
+  sample), never twice at once. Sleep, Wake and DarkWake records keep the
+  logged reason, power source and charge; a period runs from a Sleep to
+  the next full Wake, counts dark wakes and reports the battery change
+  over sleep. A cap reached, a non-zero exit or a missing tool is named as
+  partial coverage or unavailability. `get_sleep_history` (1-168 hours,
+  at most 200 newest records) and `coreo sleep --json` read it; reasons
+  are evidence, not proven causes. The bounded `log show` import, wake
+  markers on the timeline and the battery-over-sleep view remain (S8).
 - A thermal lane showing system thermal pressure as a band, from the public
   `com.apple.system.thermalpressurelevel` notify state. Temperatures, fans
   and the hottest-sensor line wait for the sensor provider.
@@ -227,6 +238,7 @@ time, helper, MCP or model integration in this slice.
 | Native network MIB, wide-counter mapping and three-lane UI | Passed at `e62fac1`, including native C fixtures, live CLI and both executable architectures; integrated candidate pending |
 | Native IOKit storage counters and four-lane renderer | Passed [native CI](https://github.com/L-K-M/Coreography/actions/runs/39110306993) at `6434722`: 75 tests, 16 drivers, 32 measured rate fields, no inventory issues; owner checks pending |
 | On-disk history store and recorder | History slice: 148 Swift tests pass on Linux against the real system SQLite (round trip with gaps, duplicates, retention, reopen, permissions, WAL, batching); native CI checks the CLI and file permissions |
+| Sleep and wake import | Sleep slice: 156 Swift tests pass on Linux (record parsing with tab or space columns, cut lines, periods across dark wakes, caps as partial coverage, the tool's window and record cap, a runner that stops a child at its limit); native CI compares parsed records with an independent count of the real `pmset -g log` |
 | Process filter grammar | Filter slice: 143 Swift tests pass on Linux (predicates, units, tokens, reported issues, unknown-is-not-zero, group visibility) |
 | Process heat, new and exited rows | Lifecycle slice: 139 Swift tests pass on Linux (new-row window, ghost expiry, sleep not read as exits); UI compile pending |
 | Alerts | Alerts slice: 137 Swift tests pass on Linux (debounce, hysteresis, unknown readings, cooldown, permission-once delivery, end-to-end tint, marker and notification); native notification permission and banners are owner checks |

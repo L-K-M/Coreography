@@ -14,10 +14,12 @@ public struct DiagnosticSnapshot: Sendable {
     let sensors: [CapturedSensors]
     let processes: CapturedProcesses?
     let ledger: AppLedger
+    let sleep: SleepHistoryState
 
     init(
         takenAt: Date, host: [CapturedSnapshot], network: [CapturedNetwork], gpu: [CapturedGPU],
-        power: [CapturedPower], sensors: [CapturedSensors], processes: CapturedProcesses?, ledger: AppLedger
+        power: [CapturedPower], sensors: [CapturedSensors], processes: CapturedProcesses?, ledger: AppLedger,
+        sleep: SleepHistoryState = .notImported
     ) {
         self.id = UUID()
         self.takenAt = takenAt
@@ -28,7 +30,15 @@ public struct DiagnosticSnapshot: Sendable {
         self.sensors = sensors
         self.processes = processes
         self.ledger = ledger
+        self.sleep = sleep
     }
+}
+
+/// The sleep-history import a snapshot carries.
+enum SleepHistoryState: Sendable {
+    case notImported
+    case imported(SleepHistory)
+    case failed(String)
 }
 
 public enum DiagnosticError: Error, Codable, Equatable, Sendable {
@@ -120,6 +130,24 @@ public struct DataSourceStatus: Codable, Sendable {
     public let reason: String?
 }
 
+/// Logged sleep and wake over a window. Reasons are evidence, not proven causes.
+public struct SleepHistoryReport: Codable, Sendable {
+    public let snapshotID: UUID
+    public let source: String
+    public let importedAt: Date
+    public let windowStart: Date
+    public let windowEnd: Date
+    /// The first and last log records the import read.
+    public let coveredFrom: Date?
+    public let coveredTo: Date?
+    /// Why records may be missing; nil when the import was complete.
+    public let partialCoverage: String?
+    public let periods: [SleepPeriod]
+    /// The newest records in the window, oldest first.
+    public let events: [PowerEvent]
+    public let omittedEvents: Int
+}
+
 public struct ProcessDetails: Codable, Sendable {
     public let pid: Int32
     public let startSeconds: UInt64
@@ -145,6 +173,12 @@ public enum DiagnosticTools {
     public static let maximumRangeSeconds = 3600
     public static let maximumRows = 50
     public static let maximumPoints = 600
+    public static let defaultSleepHours = 24
+    /// One week; older records may not survive in the log anyway.
+    public static let maximumSleepHours = 168
+    static let maximumSleepEvents = 200
+    private static let sleepSource = "pmset -g log"
+    private static let secondsPerHour: TimeInterval = 3600
     static let summaryWindow: TimeInterval = 60
     private static let saturatedCPUPercent = 85.0
 
@@ -306,8 +340,32 @@ public enum DiagnosticTools {
         }
     }
 
-    public static func sleepHistory(_ snapshot: DiagnosticSnapshot) throws -> Never {
-        throw DiagnosticError.unavailable("Sleep and wake history needs the pmset and log import (spike S8)")
+    /// Sleep periods and power records in the hours before the snapshot.
+    public static func sleepHistory(_ snapshot: DiagnosticSnapshot, hours: Int = defaultSleepHours) throws -> SleepHistoryReport {
+        guard (1...maximumSleepHours).contains(hours) else {
+            throw DiagnosticError.invalidArgument("hours must be 1-\(maximumSleepHours)")
+        }
+        let history: SleepHistory
+        switch snapshot.sleep {
+        case .notImported:
+            throw DiagnosticError.unavailable("Sleep history has not been imported yet; try again shortly")
+        case .failed(let reason):
+            throw DiagnosticError.unavailable("Sleep history is unavailable: \(reason)")
+        case .imported(let imported):
+            history = imported
+        }
+
+        let end = snapshot.takenAt
+        let start = end.addingTimeInterval(-Double(hours) * secondsPerHour)
+        let inWindow = history.events.filter { $0.time >= start && $0.time <= end }
+        let kept = inWindow.suffix(maximumSleepEvents)
+        let partial: String? = if case .partial(let reason) = history.coverage { reason } else { nil }
+        return SleepHistoryReport(
+            snapshotID: snapshot.id, source: sleepSource, importedAt: history.importedAt,
+            windowStart: start, windowEnd: end, coveredFrom: history.coveredFrom, coveredTo: history.coveredTo,
+            partialCoverage: partial, periods: history.periods.filter { $0.end >= start && $0.start <= end },
+            events: Array(kept), omittedEvents: inWindow.count - kept.count
+        )
     }
 
     // MARK: Helpers

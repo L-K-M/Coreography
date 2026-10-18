@@ -15,6 +15,7 @@ private struct Coreo {
            coreo diagnose --json [--seconds N]
            coreo mcp --stdio
            coreo history --json METRIC [--minutes N]
+           coreo sleep --json [--hours N]
            coreo --version
 
     doctor reports source availability. snapshot waits for a CPU baseline.
@@ -28,6 +29,8 @@ private struct Coreo {
     fact-only signals, top apps by CPU and disk, and data-source availability.
     history prints what the app recorded for METRIC (cpu, memoryUsed, memoryPressure,
     thermalPressure, gpuBusy, systemPower, ...) over the last N minutes (default 60).
+    sleep imports the power-management log and reports sleep periods and
+    sleep, wake and dark-wake records over the last N hours (1-168, default 24).
     mcp serves the read-only diagnostic tools to an MCP client over stdio,
     sampling in this process; add it to the client's MCP server list.
     Native host sampling requires macOS 26 or later.
@@ -103,6 +106,18 @@ private struct Coreo {
                 }
                 let service = try DiagnosticService()
                 try emit(await service.history(metric: options[1], minutes: minutes))
+            case let arguments where arguments.first == "sleep":
+                let options = Array(arguments.dropFirst())
+                guard options.first == "--json", options.count == 1 || options.count == 3 else {
+                    throw CommandError.invalidArguments
+                }
+                var hours = DiagnosticTools.defaultSleepHours
+                if options.count == 3 {
+                    guard options[1] == "--hours", let value = Int(options[2]) else { throw CommandError.invalidArguments }
+                    hours = value
+                }
+                let service = try DiagnosticService()
+                try emit(await service.sleepHistory(hours: hours))
             case let arguments where arguments.first == "diagnose":
                 guard DiagnosticService.nativeSamplingSupport == .supported else {
                     throw CommandError.unsupportedPlatform

@@ -52,7 +52,14 @@ enum DiagnosticToolCatalog {
                 description: "Identity (PID and start time), app and resource readings for one observed process. No paths or arguments.",
                 properties: ["pid": ["type": "integer"], "snapshot_id": snapshotID], required: ["pid"]
             ),
-            Definition(name: "get_sleep_history", description: "Sleep and wake records; currently unavailable.", properties: [:], required: []),
+            Definition(
+                name: "get_sleep_history",
+                description: "Logged sleep, wake and dark-wake records with reasons and battery charge, and sleep periods with battery change over sleep. Reasons are evidence, not proven causes; partialCoverage says when records may be missing.",
+                properties: [
+                    "hours": ["type": "integer", "minimum": 1, "maximum": DiagnosticTools.maximumSleepHours],
+                    "snapshot_id": snapshotID
+                ], required: []
+            ),
             Definition(
                 name: "get_data_sources",
                 description: "Which readings are measured, estimated, restricted or unavailable on this Mac, with provenance.",
@@ -87,7 +94,9 @@ enum DiagnosticToolCatalog {
             }
             output = details
         case "get_sleep_history":
-            try DiagnosticTools.sleepHistory(snapshot)
+            output = try DiagnosticTools.sleepHistory(
+                snapshot, hours: try intArgument(arguments, "hours") ?? DiagnosticTools.defaultSleepHours
+            )
         case "get_data_sources":
             output = DiagnosticTools.dataSources(snapshot)
         default:
