@@ -31,6 +31,23 @@ samples stays in memory, and charts keep every spike when zoomed out.
 A menu bar extra shows CPU in the menu bar and opens mini lanes; it shares
 the window's sampler and keeps sampling while the window is closed.
 
+MCP clients can query the same read-only diagnostic tools. For example, in
+an MCP client's server list:
+
+```json
+{
+  "mcpServers": {
+    "coreography": {
+      "command": "/Applications/Coreography.app/Contents/Helpers/coreo",
+      "args": ["mcp", "--stdio"]
+    }
+  }
+}
+```
+
+The server samples in its own process for now; connecting it to the running
+app with per-client approval is planned.
+
 Dragging across any lane selects a range; a panel totals CPU-seconds and
 disk bytes per app over it, tail apps included.
 
@@ -92,6 +109,7 @@ swift run coreo gpu --once --json       # macOS only; per-GPU utilization
 swift run coreo power --once --json     # macOS only; battery and adapter
 swift run coreo sensors --once --json   # macOS only; SMC temperatures, fans, power
 swift run coreo diagnose --json         # macOS only; summary, signals, top apps
+swift run coreo mcp --stdio             # macOS only; read-only MCP server
 python3 tools/tests/test_buildscripts.py
 shellcheck scripts/*.sh
 python3 tools/doccheck/checkdocs.py .
