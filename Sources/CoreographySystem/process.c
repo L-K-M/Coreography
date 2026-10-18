@@ -253,6 +253,18 @@ coreo_process_signal(int32_t pid, uint64_t start_seconds, uint64_t start_microse
     case COREO_SIGNAL_KILL:
         signal_number = SIGKILL;
         break;
+    case COREO_SIGNAL_STOP:
+        signal_number = SIGSTOP;
+        break;
+    case COREO_SIGNAL_CONTINUE:
+        signal_number = SIGCONT;
+        break;
+    case COREO_SIGNAL_HANGUP:
+        signal_number = SIGHUP;
+        break;
+    case COREO_SIGNAL_INTERRUPT:
+        signal_number = SIGINT;
+        break;
     default:
         return EINVAL;
     }
@@ -286,6 +298,29 @@ _Static_assert(COREO_TCP_STATE_CLOSING == TSI_S_CLOSING, "TCP state numbering");
 _Static_assert(COREO_TCP_STATE_LAST_ACK == TSI_S_LAST_ACK, "TCP state numbering");
 _Static_assert(COREO_TCP_STATE_FIN_WAIT_2 == TSI_S_FIN_WAIT_2, "TCP state numbering");
 _Static_assert(COREO_TCP_STATE_TIME_WAIT == TSI_S_TIME_WAIT, "TCP state numbering");
+
+int32_t
+coreo_process_renice(int32_t pid, uint64_t start_seconds, uint64_t start_microseconds,
+                     int32_t nice_value)
+{
+    struct proc_bsdinfo identity;
+    int32_t err;
+
+    if (pid <= 0 || nice_value < COREO_NICE_MIN || nice_value > COREO_NICE_MAX) {
+        return EINVAL;
+    }
+    err = coreo_read_identity(pid, &identity);
+    if (err != 0) {
+        return err;
+    }
+    if (identity.pbi_start_tvsec != start_seconds || identity.pbi_start_tvusec != start_microseconds) {
+        return EAGAIN;
+    }
+    if (setpriority(PRIO_PROCESS, (id_t)pid, nice_value) != 0) {
+        return errno ? errno : EIO;
+    }
+    return 0;
+}
 
 int32_t
 coreo_process_arguments_capacity(void)
@@ -498,7 +533,19 @@ coreo_process_signal(int32_t pid, uint64_t start_seconds, uint64_t start_microse
 {
     (void)start_seconds;
     (void)start_microseconds;
-    if (pid <= 0 || (signal_kind != COREO_SIGNAL_TERMINATE && signal_kind != COREO_SIGNAL_KILL)) {
+    if (pid <= 0 || signal_kind < COREO_SIGNAL_TERMINATE || signal_kind > COREO_SIGNAL_INTERRUPT) {
+        return EINVAL;
+    }
+    return ENOTSUP;
+}
+
+int32_t
+coreo_process_renice(int32_t pid, uint64_t start_seconds, uint64_t start_microseconds,
+                     int32_t nice_value)
+{
+    (void)start_seconds;
+    (void)start_microseconds;
+    if (pid <= 0 || nice_value < COREO_NICE_MIN || nice_value > COREO_NICE_MAX) {
         return EINVAL;
     }
     return ENOTSUP;

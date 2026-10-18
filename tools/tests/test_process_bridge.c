@@ -58,6 +58,10 @@ test_invalid_args(void)
     assert(coreo_process_signal(0, 1, 0, COREO_SIGNAL_TERMINATE) == EINVAL);
     assert(coreo_process_signal(-1, 1, 0, COREO_SIGNAL_KILL) == EINVAL);
     assert(coreo_process_signal(42, 1, 0, 99) == EINVAL);
+    assert(coreo_process_signal(42, 1, 0, 0) == EINVAL);
+    assert(coreo_process_renice(0, 1, 0, 10) == EINVAL);
+    assert(coreo_process_renice(42, 1, 0, COREO_NICE_MAX + 1) == EINVAL);
+    assert(coreo_process_renice(42, 1, 0, COREO_NICE_MIN - 1) == EINVAL);
     assert(coreo_process_read(1, NULL) == EINVAL);
     assert(count == -1 && truncated == -1);
 
@@ -163,6 +167,24 @@ test_platform(void)
     assert(read_status == 0 && target.pid == (int32_t)child);
     assert(coreo_process_signal((int32_t)child, target.start_seconds + 1, target.start_microseconds,
                                 COREO_SIGNAL_TERMINATE) == EAGAIN);
+
+    /* Suspend and resume land as stop and continue. */
+    int stop_status = 0;
+    assert(coreo_process_signal((int32_t)child, target.start_seconds, target.start_microseconds,
+                                COREO_SIGNAL_STOP) == 0);
+    assert(waitpid(child, &stop_status, WUNTRACED) == child && WIFSTOPPED(stop_status));
+    assert(coreo_process_signal((int32_t)child, target.start_seconds, target.start_microseconds,
+                                COREO_SIGNAL_CONTINUE) == 0);
+    assert(waitpid(child, &stop_status, WCONTINUED) == child && WIFCONTINUED(stop_status));
+
+    /* Renice lowers priority; raising it back needs root. */
+    assert(coreo_process_renice((int32_t)child, target.start_seconds + 1, target.start_microseconds, 10) == EAGAIN);
+    assert(coreo_process_renice((int32_t)child, target.start_seconds, target.start_microseconds, 10) == 0);
+    errno = 0;
+    assert(getpriority(PRIO_PROCESS, (id_t)child) == 10 && errno == 0);
+    assert(coreo_process_renice((int32_t)child, target.start_seconds, target.start_microseconds, 0)
+           == (getuid() == 0 ? 0 : EACCES));
+
     assert(coreo_process_signal((int32_t)child, target.start_seconds, target.start_microseconds,
                                 COREO_SIGNAL_TERMINATE) == 0);
     int status = 0;
@@ -318,6 +340,8 @@ test_platform(void)
     assert(sample.responsible_pid == 0);
 
     assert(coreo_process_signal(42, 1, 0, COREO_SIGNAL_TERMINATE) == ENOTSUP);
+    assert(coreo_process_signal(42, 1, 0, COREO_SIGNAL_STOP) == ENOTSUP);
+    assert(coreo_process_renice(42, 1, 0, 10) == ENOTSUP);
 
     /* PID 0 names kernel_task on macOS; it is a valid identity, not EINVAL. */
     assert(coreo_process_read(0, &sample) == ENOTSUP);
