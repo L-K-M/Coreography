@@ -129,10 +129,12 @@ test_platform(void)
         }
     }
     coreo_process_sample target;
-    for (int attempt = 0; attempt < 100 && coreo_process_read((int32_t)child, &target) != 0; attempt++) {
+    int32_t read_status = coreo_process_read((int32_t)child, &target);
+    for (int attempt = 0; attempt < 100 && read_status != 0; attempt++) {
         usleep(10000);
+        read_status = coreo_process_read((int32_t)child, &target);
     }
-    assert(target.pid == (int32_t)child);
+    assert(read_status == 0 && target.pid == (int32_t)child);
     assert(coreo_process_signal((int32_t)child, target.start_seconds + 1, target.start_microseconds,
                                 COREO_SIGNAL_TERMINATE) == EAGAIN);
     assert(coreo_process_signal((int32_t)child, target.start_seconds, target.start_microseconds,

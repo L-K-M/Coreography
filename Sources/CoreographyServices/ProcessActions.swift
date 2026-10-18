@@ -27,7 +27,7 @@ enum ProcessActions {
     private static let sessionProcesses: Set<String> = ["loginwindow", "WindowServer"]
 
     static func request(for process: ObservedProcess, mode: QuitMode, in snapshot: CapturedProcesses?) -> ProcessActionRequest {
-        let children = snapshot?.processes.filter { $0.parentPID == UInt32(bitPattern: process.id.pid) }.count ?? 0
+        let children = snapshot?.processes.filter { $0.parentPID == UInt32(bitPattern: process.id.pid) }.count
         let endsSession = sessionProcesses.contains(process.name)
         var consequences: [String] = []
         if endsSession {
@@ -39,8 +39,13 @@ enum ProcessActions {
         case .forced:
             consequences.append("The process ends immediately without a chance to save.")
         }
-        if children > 0 {
-            consequences.append("\(children) child process\(children == 1 ? "" : "es") may also exit.")
+        switch children {
+        case nil:
+            consequences.append("Child processes, if any, may also exit.")
+        case let count? where count > 0:
+            consequences.append("\(count) child process\(count == 1 ? "" : "es") may also exit.")
+        default:
+            break
         }
         return ProcessActionRequest(
             target: process.id, name: process.name, mode: mode, consequences: consequences, endsSession: endsSession
