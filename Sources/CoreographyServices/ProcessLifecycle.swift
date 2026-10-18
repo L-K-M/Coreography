@@ -35,18 +35,23 @@ struct ProcessLifecycle: Sendable {
 
         let present = Set(snapshot.processes.map(\.id))
         if baseline == nil { baseline = time }
-        // An interrupted sample (sleep) cannot tell exits from missed samples.
-        if snapshot.continuity == .continuous {
+        // An interrupted sample (sleep) cannot tell exits from missed samples,
+        // and a truncated list leaves out processes that still run.
+        let truncated = snapshot.enumerationTruncated
+        if snapshot.continuity == .continuous, !truncated {
             for (identity, last) in lastObserved where !present.contains(identity) {
                 exited.append(ExitedProcess(identity: identity, name: last.name, appName: last.app, lastSeen: last.time))
             }
         }
-        lastObserved = Dictionary(uniqueKeysWithValues: snapshot.processes.map {
+        var observed = Dictionary(uniqueKeysWithValues: snapshot.processes.map {
             ($0.id, (name: $0.name, app: apps[$0.id] ?? $0.name, time: time))
         })
+        // Left-out processes keep their last sighting until a full list settles them.
+        if truncated { observed.merge(lastObserved) { current, _ in current } }
+        lastObserved = observed
         for identity in present where firstSeen[identity] == nil { firstSeen[identity] = time }
-        firstSeen = firstSeen.filter { present.contains($0.key) }
-        exited.removeAll { time.timeIntervalSince($0.lastSeen) > Self.ghostWindow }
+        if !truncated { firstSeen = firstSeen.filter { present.contains($0.key) } }
+        exited.removeAll { present.contains($0.identity) || time.timeIntervalSince($0.lastSeen) > Self.ghostWindow }
     }
 
     func isNew(_ identity: ProcessIdentity, at time: Date) -> Bool {
