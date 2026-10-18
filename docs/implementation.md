@@ -3,7 +3,7 @@
 Track actual delivery against the [product plan](plan.md). A stage is
 complete only after its relevant checks and review pass and its PR merges.
 
-## Current slice: native foundation
+## Current slice: process counters
 
 Code in progress:
 
@@ -15,21 +15,31 @@ Code in progress:
   accessibility descriptors and display hold independent of collection.
 - Xcode project, embedded CLI, shared build/release adapters, verified
   universal packaging and CI development artifacts.
+- Bounded libproc enumeration with PID/start-time identity checks before
+  and after usage, whole-machine CPU share, physical footprint and disk
+  read/write rates for readable processes. Permission failures remain
+  explicit, and all identified processes are retained in each snapshot.
+- A collapsed process table with name/PID/UID filtering and CPU, memory,
+  disk and name sorting. The same dashboard scheduler polls processes
+  every two seconds. Display hold includes the process table.
+- `coreo processes --once --json` captures a real two-sample interval.
 
 This is not the seven-lane product yet. The live buffer currently holds
-60 frames. There is no process attribution, disk store, GPU/power/thermal
-provider, helper, MCP or model integration in this slice.
+60 host frames. App grouping, process history/attribution and system-wide
+disk/network series are still outstanding. There is no disk store,
+GPU/power/thermal provider, helper, MCP or model integration in this slice.
 
 ## Verification
 
 | Check | Status |
 | --- | --- |
-| Portable Swift tests | 33 passed locally on Linux |
+| Portable Swift tests | 46 passed locally on Linux |
 | `coreo doctor` on Linux | Reports unsupported native sampling with no numeric Mac readings |
 | Build-script regression tests | 30 local tests; includes actual release-step rejection, fixture isolation and exact archive selection |
 | Xcode/macOS compilation and live CPU/memory smoke | Passed [native CI](https://github.com/L-K-M/Coreography/actions/runs/39093205075) at `18120ff`; review-fix checks tracked on PR #5 |
 | Universal app and CLI slices, code signature and archive | Passed the same native CI; ad-hoc signing only |
 | Native chart rendering, VoiceOver and display-hold behavior | [Candidate build](https://github.com/L-K-M/Coreography/actions/runs/39093205075/artifacts/12123973089) delivered; owner checks pending |
+| Native process sampling, CPU timebase conversion and process UI | Pending macOS CI for this slice; foundation artifact above does not include it |
 | CPU, memory and wakeup budgets | Unmeasured; S2 pending |
 | Developer ID, notarization and signed update delivery | Pending credentials and M7 |
 
@@ -41,7 +51,7 @@ sensor calibration, fullscreen behavior or Mac energy overhead.
 | Stage | Outstanding outcome |
 | --- | --- |
 | M0 / S1-S8 | Native CI foundation and reproducible probes; record hardware findings and missing environments |
-| M1 | CPU/memory depth, processes and app grouping, disk/network providers, one scheduler and full attribution contracts |
+| M1 | CPU/memory depth, process app grouping/lifecycle/history, disk/network providers, full cadence scheduler and attribution contracts |
 | M2 | GPU, clusters, frequency, power, sensors, thermals and honest chip profiles |
 | M3 | Seven aligned lanes, shared cursor, scoped selection, process pane, inspector, self-cost and accessibility |
 | M4 | SQLite history, app ledger, sleep/log import, retention/deletion, replay, ranges and exports |
@@ -67,6 +77,29 @@ production release. Check:
 
 More specific S1/S6 probes follow when those providers and HUD exist.
 Do not mark a physical-Mac gate passed from a cross-compile or fixture.
+
+For the process-counter candidate, compare own-user process trends with
+Activity Monitor. Its default process CPU scale is one core equals 100%;
+Coreography uses the whole machine, so divide Activity Monitor's process
+CPU by the logical CPU count before comparing. Check CPU/memory/disk sort,
+filters containing spaces, display hold, and unreadable/restricted counts.
+Enumeration can miss short-lived processes and is capped at 16,384 PIDs.
+No per-process network or app grouping is claimed yet.
+
+## Process source and units
+
+`PROC_PIDTBSDINFO` and `RUSAGE_INFO_V2` are public but access may be denied
+for other users' processes. Those identity failures appear in coverage;
+they are not empty zero-usage rows. A failed usage read on an identified
+process keeps a restricted/unavailable row and drops its rate baseline.
+
+The CPU fields in `proc_pid_rusage` are Mach timebase ticks, not already
+nanoseconds. The bridge converts with `mach_timebase_info` using checked
+128-bit intermediates. The native C contract test compares busy-loop CPU
+deltas against `getrusage`'s microseconds to catch timebase/unit mistakes.
+Primary source chain: Apple's [fill_task_rusage](https://github.com/apple-oss-distributions/xnu/blob/f6217f891ac0bb64f3d375211650a4c1ff8ca1ea/osfmk/kern/bsd_kern.c),
+[task_power_info_locked](https://github.com/apple-oss-distributions/xnu/blob/f6217f891ac0bb64f3d375211650a4c1ff8ca1ea/osfmk/kern/task.c)
+and [recount metrics](https://github.com/apple-oss-distributions/xnu/blob/f6217f891ac0bb64f3d375211650a4c1ff8ca1ea/osfmk/kern/recount.h).
 
 ## Review decisions carried forward
 

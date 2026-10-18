@@ -7,6 +7,8 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
 ## [Unreleased]
 
 ### Added
+- PID/start-time-safe process CPU, footprint and disk rates through public
+  libproc, a sortable/filterable process pane and process JSON capture.
 - Native CPU/memory graph foundation, numeric readings, display hold and
   an embedded diagnostic CLI.
 - Typed availability, counter-rate and bounded-history primitives with

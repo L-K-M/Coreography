@@ -20,8 +20,12 @@ public actor DiagnosticService {
     private static let schemaVersion = 1
     private static let warmupInterval: Duration = .seconds(1)
     private let monitor: SystemMonitor
+    private let processMonitor: ProcessMonitor
 
-    public init() throws { monitor = try SystemMonitor() }
+    public init() throws {
+        monitor = try SystemMonitor()
+        processMonitor = try ProcessMonitor()
+    }
 
     public func report() async throws -> DiagnosticReport {
         DiagnosticReport(
@@ -38,6 +42,12 @@ public actor DiagnosticService {
         _ = try await monitor.sample()
         try await Task.sleep(for: Self.warmupInterval)
         return try await monitor.sample()
+    }
+
+    public func captureProcessesOnce() async throws -> CapturedProcesses {
+        _ = try await processMonitor.sample()
+        try await Task.sleep(for: .seconds(2))
+        return try await processMonitor.sample()
     }
 
     public static var nativeSamplingSupport: NativeSamplingSupport {

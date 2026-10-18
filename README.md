@@ -12,7 +12,12 @@ memory, shows a minute of aligned graphs, and includes a numeric table
 and the `coreo` diagnostic CLI. Holding the display keeps collection
 running. Missing readings leave gaps instead of invented zeros.
 
-Process attribution, other subsystems, persistent history, power tools,
+The process pane adds PID/start-time-safe CPU share, physical footprint
+and disk read/write rates, with filtering, sorting and explicit restricted
+or unreadable coverage. It refreshes every two seconds using public libproc
+APIs. Footprints are not an additive system memory total.
+
+App grouping and attribution, other subsystems, persistent history, power tools,
 MCP and Ask are tracked in the [implementation ledger](docs/implementation.md).
 The full product is still in progress.
 
@@ -42,6 +47,7 @@ native sampling as unsupported; it does not manufacture Mac telemetry.
 ```sh
 swift run coreo doctor
 swift run coreo snapshot --once --json  # macOS only
+swift run coreo processes --once --json # macOS only; two-second baseline
 python3 tools/tests/test_buildscripts.py
 shellcheck scripts/*.sh
 python3 tools/doccheck/checkdocs.py .
