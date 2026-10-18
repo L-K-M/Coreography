@@ -1086,7 +1086,34 @@ public final class DashboardModel {
         sessions = await sessionArchive.all()
     }
 
+    /// A new name is saved with the session; a blank one is ignored.
+    public func renameSession(_ id: UUID, to name: String) async {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, let index = sessions.firstIndex(where: { $0.id == id }) else { return }
+        sessions[index].name = trimmed
+        try? await sessionArchive?.save(sessions[index])
+    }
+
+    /// Sessions picked for comparison; picking a third drops the oldest pick.
+    public private(set) var comparedSessions: [UUID] = []
+
+    public func toggleComparison(_ id: UUID) {
+        if let index = comparedSessions.firstIndex(of: id) {
+            comparedSessions.remove(at: index)
+            return
+        }
+        comparedSessions = Array((comparedSessions + [id]).suffix(2))
+    }
+
+    /// The two picked sessions overlaid, aligned at their starts.
+    public var sessionComparison: SessionComparison? {
+        let picked = comparedSessions.compactMap { id in sessions.first { $0.id == id } }
+        guard picked.count == 2 else { return nil }
+        return SessionComparison.make(picked[0], picked[1])
+    }
+
     public func deleteSession(_ id: UUID) async {
+        comparedSessions.removeAll { $0 == id }
         try? await sessionArchive?.delete(id)
         sessions.removeAll { $0.id == id }
     }

@@ -1866,11 +1866,20 @@ private enum StartupText {
 /// Recorded sessions with their reports (plan P19): minimum, mean, 95th
 /// percentile from raw readings, maximum, and the top apps.
 private struct SessionsPane: View {
-    let model: DashboardModel
+    @Bindable var model: DashboardModel
+    @State private var exportFile: ExportFile?
+    @State private var exportType: UTType = .json
+    @State private var exportError: String?
 
     var body: some View {
         DisclosureGroup("Sessions") {
             VStack(alignment: .leading, spacing: 12) {
+                if let comparison = model.sessionComparison {
+                    SessionComparisonView(comparison: comparison)
+                }
+                if let exportError {
+                    Text(exportError).font(.caption).foregroundStyle(.red)
+                }
                 if let name = model.recordingName, let start = model.recordingStart {
                     Text("Recording \(name) since \(start.formatted(date: .omitted, time: .standard))")
                         .foregroundStyle(.red)
@@ -1891,7 +1900,20 @@ private struct SessionsPane: View {
                         .frame(height: 220)
                         Text(RangeText.apps(String(localized: "Top CPU"), session.topApps) { RangeText.cpuSeconds($0.cpuSeconds) })
                             .font(.callout)
-                        Button("Delete", role: .destructive) { Task { await model.deleteSession(session.id) } }
+                        HStack {
+                            SessionNameField(model: model, session: session)
+                            Button(model.comparedSessions.contains(session.id) ? "Comparing" : "Compare") {
+                                model.toggleComparison(session.id)
+                            }
+                            Picker("App names", selection: $model.exportNaming) {
+                                Text("Redacted").tag(ExportNaming.redacted)
+                                Text("Included").tag(ExportNaming.named)
+                            }
+                            .frame(width: 200)
+                            Button("Export JSON…") { export(session, as: .json) }
+                            Button("Export CSV…") { export(session, as: .commaSeparatedText) }
+                            Button("Delete", role: .destructive) { Task { await model.deleteSession(session.id) } }
+                        }
                     } label: {
                         Text(SessionText.title(session))
                     }
@@ -1900,6 +1922,68 @@ private struct SessionsPane: View {
         }
         .monospacedDigit()
         .task { await model.refreshSessions() }
+        .fileExporter(
+            isPresented: Binding(get: { exportFile != nil }, set: { if !$0 { exportFile = nil } }),
+            document: exportFile, contentType: exportType, defaultFilename: "Coreography session"
+        ) { result in
+            if case .failure(let error) = result { exportError = error.localizedDescription }
+        }
+    }
+
+    /// Build the file from the saved session; failures are shown, not swallowed.
+    private func export(_ session: RecordedSession, as type: UTType) {
+        do {
+            let data = type == .json
+                ? try SessionExport.json(session, naming: model.exportNaming)
+                : Data(SessionExport.csv(session).utf8)
+            exportError = nil
+            exportType = type
+            exportFile = ExportFile(data: data)
+        } catch {
+            exportError = String(localized: "Export failed: \(error.localizedDescription)")
+        }
+    }
+}
+
+/// Renames on Return; a blank name is ignored.
+private struct SessionNameField: View {
+    let model: DashboardModel
+    let session: RecordedSession
+    @State private var name = ""
+
+    var body: some View {
+        TextField("Name", text: $name)
+            .textFieldStyle(.roundedBorder)
+            .frame(width: 200)
+            .onAppear { name = session.name }
+            .onSubmit { Task { await model.renameSession(session.id, to: name) } }
+    }
+}
+
+/// Two sessions overlaid per shared metric, aligned at their starts (plan P19).
+private struct SessionComparisonView: View {
+    let comparison: SessionComparison
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Comparison").font(.headline)
+            ForEach(comparison.metrics, id: \.metric) { metric in
+                Text("\(metric.metric) (\(metric.unit.rawValue))").font(.caption.weight(.medium))
+                Chart {
+                    ForEach(metric.series) { series in
+                        ForEach(Array(series.points.enumerated()), id: \.offset) { _, point in
+                            LineMark(
+                                x: .value("Seconds from start", point.offset),
+                                y: .value(metric.metric, point.value),
+                                series: .value("Session", series.name)
+                            )
+                            .foregroundStyle(by: .value("Session", series.name))
+                        }
+                    }
+                }
+                .frame(height: 110)
+            }
+        }
     }
 }
 

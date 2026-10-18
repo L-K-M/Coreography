@@ -56,6 +56,32 @@ final class SessionsTests: XCTestCase {
         XCTAssertEqual(remaining, ["Newer"])
     }
 
+    func testComparisonAlignsSharedMetricsAndExportsRedactApps() throws {
+        var first = SessionRecording(name: "Before", start: epoch)
+        var second = SessionRecording(name: "After", start: epoch.addingTimeInterval(3600))
+        first.record([HistorySample(metric: .cpu, time: epoch.addingTimeInterval(1), value: 80, availability: .measured)])
+        first.record([HistorySample(metric: .gpuBusy, time: epoch.addingTimeInterval(1), value: 50, availability: .measured)])
+        second.record([HistorySample(metric: .cpu, time: epoch.addingTimeInterval(3601), value: 40, availability: .measured)])
+        second.record(LedgerInterval(
+            start: epoch.addingTimeInterval(3600), end: epoch.addingTimeInterval(3602), cores: 4,
+            entries: [LedgerEntry(app: "Secret Tool", cpuSeconds: 1, diskBytes: 0, isLowerBound: false)]
+        ))
+        let before = first.finish(at: epoch.addingTimeInterval(2))
+        let after = second.finish(at: epoch.addingTimeInterval(3602))
+
+        let comparison = SessionComparison.make(before, after)
+        XCTAssertEqual(comparison.metrics.map(\.metric), ["cpu"], "only metrics both sessions recorded")
+        XCTAssertEqual(comparison.metrics.first?.series.map(\.name), ["Before", "After"])
+        XCTAssertEqual(comparison.metrics.first?.series.map { $0.points.first?.offset }, [1, 1], "aligned at each start")
+
+        let redacted = String(decoding: try SessionExport.json(after, naming: .redacted), as: UTF8.self)
+        XCTAssertFalse(redacted.contains("Secret Tool"))
+        XCTAssertTrue(redacted.contains("App 1"))
+        let named = String(decoding: try SessionExport.json(after, naming: .named), as: UTF8.self)
+        XCTAssertTrue(named.contains("Secret Tool"))
+        XCTAssertEqual(SessionExport.csv(after).split(separator: "\n"), ["offset_seconds,metric,value", "1.0,cpu,40.0"])
+    }
+
     @MainActor
     func testRecordingThroughTheModelSavesAReport() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("coreo-model-sessions-\(UUID().uuidString)")
@@ -77,6 +103,13 @@ final class SessionsTests: XCTestCase {
         let session = try XCTUnwrap(model.sessions.first)
         XCTAssertEqual(session.name, "Export render")
         XCTAssertGreaterThan(session.summaries.first { $0.metric == "cpu" }?.samples ?? 0, 0)
+
+        await model.renameSession(session.id, to: "Final render")
+        await model.refreshSessions()
+        XCTAssertEqual(model.sessions.first?.name, "Final render", "the new name is saved")
+
+        model.toggleComparison(session.id)
+        XCTAssertNil(model.sessionComparison, "a comparison needs two sessions")
     }
 }
 

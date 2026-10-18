@@ -37,7 +37,7 @@ public struct RecordedSession: Codable, Identifiable, Sendable {
 
     public let schemaVersion: Int
     public let id: UUID
-    public let name: String
+    public internal(set) var name: String
     public let start: Date
     public let end: Date
     public let summaries: [SessionMetricSummary]
@@ -99,6 +99,77 @@ struct SessionRecording: Sendable {
         return SessionMetricSummary(
             metric: metric, unit: unit, minimum: sorted[0], maximum: sorted[sorted.count - 1],
             mean: sorted.reduce(0, +) / Double(sorted.count), percentile95: sorted[max(rank, 0)], samples: sorted.count
+        )
+    }
+}
+
+/// Two sessions side by side (plan P19: overlaid graphs, CapFrameX style),
+/// aligned at their starts.
+public struct SessionComparison: Sendable {
+    public struct Series: Identifiable, Sendable {
+        public var id: String { session.uuidString + metric }
+        public let session: UUID
+        public let name: String
+        public let metric: String
+        public let unit: SessionUnit
+        public let points: [SessionPoint]
+    }
+
+    /// Per metric both sessions recorded, in the recorded order.
+    public let metrics: [(metric: String, unit: SessionUnit, series: [Series])]
+
+    static func make(_ first: RecordedSession, _ second: RecordedSession) -> SessionComparison {
+        let metrics = SessionRecording.metrics.compactMap { metric, unit -> (metric: String, unit: SessionUnit, series: [Series])? in
+            let name = "\(metric)"
+            guard let a = first.series[name], let b = second.series[name] else { return nil }
+            return (name, unit, [
+                Series(session: first.id, name: first.name, metric: name, unit: unit, points: reduced(a)),
+                Series(session: second.id, name: second.name, metric: name, unit: unit, points: reduced(b))
+            ])
+        }
+        return SessionComparison(metrics: metrics)
+    }
+
+    /// Bucket extremes, as the lanes draw, so an hour-long session stays a few hundred marks.
+    private static func reduced(_ points: [SessionPoint]) -> [SessionPoint] {
+        guard let last = points.last else { return points }
+        return Decimation.extremes(
+            points, start: Date(timeIntervalSince1970: 0), end: Date(timeIntervalSince1970: last.offset),
+            time: { Date(timeIntervalSince1970: $0.offset) }, value: \.value, segment: { _ in 0 }
+        )
+    }
+}
+
+/// Session exports: the JSON document, or CSV of every raw reading.
+/// App names follow the same redaction as range exports.
+public enum SessionExport {
+    public static func json(_ session: RecordedSession, naming: ExportNaming) throws -> Data {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        return try encoder.encode(redacted(session, naming))
+    }
+
+    /// `offset_seconds,metric,value` rows, in time order per metric.
+    public static func csv(_ session: RecordedSession) -> String {
+        var lines = ["offset_seconds,metric,value"]
+        for (metric, _) in SessionRecording.metrics {
+            for point in session.series["\(metric)"] ?? [] {
+                lines.append("\(point.offset),\(metric),\(point.value)")
+            }
+        }
+        return lines.joined(separator: "\n") + "\n"
+    }
+
+    static func redacted(_ session: RecordedSession, _ naming: ExportNaming) -> RecordedSession {
+        guard naming == .redacted else { return session }
+        return RecordedSession(
+            schemaVersion: session.schemaVersion, id: session.id, name: session.name, start: session.start,
+            end: session.end, summaries: session.summaries,
+            topApps: session.topApps.enumerated().map { index, app in
+                AppRangeTotal(name: "App \(index + 1)", cpuSeconds: app.cpuSeconds, diskBytes: app.diskBytes, isLowerBound: app.isLowerBound)
+            },
+            series: session.series
         )
     }
 }
