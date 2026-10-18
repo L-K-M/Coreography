@@ -1293,7 +1293,8 @@ private struct ProcessPane: View {
                     .frame(width: 180)
                 }
 
-                ForEach(model.processFilterIssues, id: \.self) { issue in
+                // The same mistake typed twice is two issues; identity is the position.
+                ForEach(Array(model.processFilterIssues.enumerated()), id: \.offset) { _, issue in
                     Text(issue).font(.caption).foregroundStyle(.orange)
                 }
 

@@ -83,7 +83,7 @@ enum ProcessGroups {
             let name = names[key] ?? key
             // Free text naming the app shows all its members; predicates test each member.
             let nameMatches = parsed.isEmpty || (parsed.isTextOnly && parsed.matchesName(name))
-            let visible = group.filter { nameMatches || parsed.matches($0.0, isNew: isNew($0.0.id)) }
+            let visible = group.filter { nameMatches || parsed.matches($0.0, isNew: isNew($0.0.id), appName: name) }
             guard !visible.isEmpty else { continue }
 
             if group.count == 1, let (process, method) = group.first {
