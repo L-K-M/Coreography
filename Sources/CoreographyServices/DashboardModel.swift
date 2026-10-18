@@ -136,6 +136,8 @@ public final class DashboardModel {
         didSet {
             guard selectedProcessRow != oldValue else { return }
             if selectedProcessRow != nil { inspectorShown = true }
+            selectedProcessHistory = []
+            selectedHistorySegment = 0
             inspectSelection()
         }
     }
@@ -160,6 +162,9 @@ public final class DashboardModel {
     public private(set) var openFileSnapshot: CapturedOpenFiles?
     /// The selected process's open files, read on selection.
     public private(set) var inspectedFiles: [String]?
+    /// The selected process's readings since it was selected, an hour at most.
+    public private(set) var selectedProcessHistory: [ProcessHistoryPoint] = []
+    @ObservationIgnored private var selectedHistorySegment = 0
     /// Displayed (possibly held) power assertions; nil until first read.
     public private(set) var assertionSnapshot: CapturedAssertions?
     /// Displayed (possibly held) per-process network rates; nil until first read.
@@ -959,6 +964,23 @@ public final class DashboardModel {
         SelfCost.measure(in: processSnapshot, logicalCPUCount: latest?.inventory.logicalCPUCount)
     }
 
+    /// Append the selected process's live readings; a gap starts a new segment.
+    private func recordSelectedHistory(_ processes: CapturedProcesses, traffic: CapturedTraffic?) {
+        guard let selectedProcessRow,
+              let process = processes.processes.first(where: { ProcessGroups.rowID($0) == selectedProcessRow }) else { return }
+        if processes.continuity != .continuous { selectedHistorySegment += 1 }
+        let disk = ProcessGroups.total([process.diskReadBytesPerSecond, process.diskWriteBytesPerSecond], overlap: nil)
+        let network = ProcessNetwork.rates(for: process, in: traffic)
+        selectedProcessHistory.append(ProcessHistoryPoint(
+            id: UUID(), time: processes.stamp.wallTime, cpuPercent: process.cpuPercentOfMachine.numericValue,
+            footprintBytes: process.memoryFootprintBytes.numericValue, diskBytesPerSecond: disk.numericValue,
+            networkBytesPerSecond: ProcessNetwork.total(network.received, network.sent), segment: selectedHistorySegment
+        ))
+        if selectedProcessHistory.count > Self.contributorCapacity {
+            selectedProcessHistory.removeFirst(selectedProcessHistory.count - Self.contributorCapacity)
+        }
+    }
+
     /// One process's TCP and UDP rates from the displayed traffic sample.
     public func networkRates(for process: ObservedProcess) -> (received: DashboardReading, sent: DashboardReading) {
         ProcessNetwork.rates(for: process, in: trafficSnapshot)
@@ -1412,6 +1434,7 @@ public final class DashboardModel {
                         if let interval, let recorder = self.historyRecorder { Task { await recorder.recordLedger(interval) } }
                         if let interval { self.sessionRecording?.record(interval) }
                         self.liveLifecycle.record(processes)
+                        self.recordSelectedHistory(processes, traffic: traffic)
                         if self.wantsConnections { self.sampleConnections() }
                         if self.wantsOpenFiles { self.sampleOpenFiles() }
                     }

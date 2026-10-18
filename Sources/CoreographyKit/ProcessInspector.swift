@@ -22,6 +22,9 @@ public struct ProcessDetail: Sendable {
     /// Why arguments are missing, when they are.
     public let argumentsProblem: String?
     public let signing: ProcessSigning?
+    /// Threads when read; nil with a reason otherwise.
+    public var threads: Int? = nil
+    public var threadsProblem: String? = nil
 }
 
 /// Facts about this Mac for the inspector when nothing is selected.
@@ -66,7 +69,14 @@ public actor ProcessInspector {
             let raw = await driver.signing(path: path)
             signing = ProcessSigning(signer: Self.signer(raw), identifier: raw.identifier)
         }
-        return ProcessDetail(process: process.id, arguments: arguments, argumentsProblem: problem, signing: signing)
+        var detail = ProcessDetail(process: process.id, arguments: arguments, argumentsProblem: problem, signing: signing)
+        switch await driver.threads(
+            pid: process.id.pid, startSeconds: process.id.startSeconds, startMicroseconds: process.id.startMicroseconds
+        ) {
+        case .success(let count): detail.threads = count
+        case .failure(let error): detail.threadsProblem = Self.describe(error, subject: "Threads")
+        }
+        return detail
     }
 
     private static func signer(_ raw: CodeSigning) -> ProcessSigner {
@@ -78,13 +88,14 @@ public actor ProcessInspector {
         }
     }
 
-    private static func describe(_ error: ProcessDetailError) -> String {
+    /// `subject` is plural: "Arguments", "Threads".
+    private static func describe(_ error: ProcessDetailError, subject: String = "Arguments") -> String {
         switch error {
-        case .unsupportedPlatform: "Arguments need macOS"
+        case .unsupportedPlatform: "\(subject) need macOS"
         case .exited: "The process has exited"
-        case .notPermitted: "Another user's process; its arguments need the helper"
+        case .notPermitted: "Another user's process; its \(subject.lowercased()) need the helper"
         case .malformed: "The kernel returned an unreadable argument block"
-        case .systemCall(let code): "Arguments could not be read (\(code))"
+        case .systemCall(let code): "\(subject) could not be read (\(code))"
         }
     }
 }

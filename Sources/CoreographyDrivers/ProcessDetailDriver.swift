@@ -34,6 +34,14 @@ public struct CodeSigning: Equatable, Sendable {
 public protocol ProcessDetailReading: Sendable {
     func arguments(pid: Int32, startSeconds: UInt64, startMicroseconds: UInt64) async -> Result<[String], ProcessDetailError>
     func signing(path: String) async -> CodeSigning
+    func threads(pid: Int32, startSeconds: UInt64, startMicroseconds: UInt64) async -> Result<Int, ProcessDetailError>
+}
+
+extension ProcessDetailReading {
+    /// Readers that cannot count threads say so.
+    public func threads(pid: Int32, startSeconds: UInt64, startMicroseconds: UInt64) async -> Result<Int, ProcessDetailError> {
+        .failure(.unsupportedPlatform)
+    }
 }
 
 /// Reads one process's arguments (never its environment) for the exact
@@ -74,6 +82,21 @@ public actor ProcessDetailDriver: ProcessDetailReading {
 
     public func signing(path: String) -> CodeSigning {
         CodeSignatureReader.signing(path: path)
+    }
+
+    public func threads(pid: Int32, startSeconds: UInt64, startMicroseconds: UInt64) -> Result<Int, ProcessDetailError> {
+        #if os(macOS)
+        var count: Int32 = 0
+        switch coreo_process_threads(pid, startSeconds, startMicroseconds, &count) {
+        case 0: return .success(Int(count))
+        case ESRCH, EAGAIN: return .failure(.exited)
+        case EPERM, EACCES: return .failure(.notPermitted)
+        case ENOTSUP: return .failure(.unsupportedPlatform)
+        case let status: return .failure(.systemCall(code: status))
+        }
+        #else
+        return .failure(.unsupportedPlatform)
+        #endif
     }
 }
 

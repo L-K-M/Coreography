@@ -1723,6 +1723,15 @@ private struct InspectorView: View {
             Text(WakeupText.rate(process.wakeupsPerSecond.numericValue))
             let network = model.networkRates(for: process)
             Text("Network \(NetworkText.rates(network.received, network.sent))")
+            if let threads = inspection.detail?.threads {
+                Text("\(threads) threads")
+            } else if let problem = inspection.detail?.threadsProblem {
+                Text(problem).foregroundStyle(.secondary)
+            }
+        }
+
+        InspectorSection("Since selected") {
+            ProcessHistoryCharts(points: model.selectedProcessHistory)
         }
 
         InspectorSection("Identity") {
@@ -2761,6 +2770,42 @@ enum MetricText {
     static func frequency(_ megahertz: Double?) -> String {
         guard let megahertz, megahertz.isFinite else { return "–" }
         return (megahertz / 1000).formatted(.number.precision(.fractionLength(1))) + " GHz"
+    }
+}
+
+/// The selected process's CPU and footprint since selection, gaps kept.
+private struct ProcessHistoryCharts: View {
+    private static let chartHeight: CGFloat = 60
+    let points: [ProcessHistoryPoint]
+
+    var body: some View {
+        if points.count < 2 {
+            Text("Recording from the next samples…").foregroundStyle(.secondary)
+        } else {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("CPU, whole machine").font(.caption).foregroundStyle(.secondary)
+                chart(\.cpuPercent, color: .blue)
+                    .chartYScale(domain: 0...max(1, points.compactMap(\.cpuPercent).max() ?? 1))
+                Text("Footprint").font(.caption).foregroundStyle(.secondary)
+                chart(\.footprintBytes, color: .teal)
+                if let first = points.first?.time {
+                    Text("Since \(first.formatted(date: .omitted, time: .standard)); kept for an hour while selected")
+                        .font(.caption2).foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+
+    private func chart(_ value: KeyPath<ProcessHistoryPoint, Double?>, color: Color) -> some View {
+        Chart(points.filter { $0[keyPath: value] != nil }) { point in
+            LineMark(
+                x: .value("Time", point.time), y: .value("Value", point[keyPath: value] ?? 0),
+                series: .value("Segment", point.segment)
+            )
+            .foregroundStyle(color)
+        }
+        .chartXAxis(.hidden)
+        .frame(height: Self.chartHeight)
     }
 }
 
