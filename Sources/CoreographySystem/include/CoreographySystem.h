@@ -85,7 +85,8 @@ typedef struct {
 
 /* AppleSMC is private (owner-approved); every call reports errno-style codes:
    EINVAL for bad arguments, ENOTSUP off macOS, ENOENT for a missing service
-   or key, EPERM when the user client is refused, EIO for other failures. */
+   or key, EPERM when the user client is refused, EOVERFLOW for a value
+   larger than 32 bytes, EIO for other failures. */
 int32_t coreo_smc_open(uint32_t *connection);
 void coreo_smc_close(uint32_t connection);
 /* key is exactly four characters. */
