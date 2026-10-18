@@ -245,6 +245,15 @@ public final class DashboardModel {
     @ObservationIgnored private var sleepImport: Task<Void, Never>?
     @ObservationIgnored private var alertEngine = AlertEngine(rules: AlertRules.shipped)
     @ObservationIgnored private var alertCooldown = AlertCooldown()
+    /// Shortcut runs have their own cooldown, so a flapping rule cannot loop one.
+    @ObservationIgnored private var shortcutCooldown = AlertCooldown()
+    @ObservationIgnored private var shortcutStore = AlertShortcuts(defaults: .standard)
+    @ObservationIgnored private let shortcutRunner: ShortcutLauncher?
+    @ObservationIgnored private var runningShortcuts: Set<String> = []
+    @ObservationIgnored private let volumeReader: StartupVolumeMonitor?
+    @ObservationIgnored private var volumeRead: Task<Void, Never>?
+    @ObservationIgnored private var startupFreeFraction: Double?
+    @ObservationIgnored private var volumeReadAt: Date?
     @ObservationIgnored private var askTask: Task<Void, Never>?
     @ObservationIgnored private let processMonitor: ProcessMonitor?
     @ObservationIgnored private let networkMonitor: NetworkMonitor?
@@ -287,6 +296,8 @@ public final class DashboardModel {
         inspector = ProcessInspector()
         assertionReader = AssertionReader()
         openFileMonitor = OpenFileMonitor()
+        shortcutRunner = ShortcutLauncher()
+        volumeReader = StartupVolumeMonitor()
         sessionArchive = SessionArchive.makeDefault()
         sampler = ProcessSampler()
         interval = .seconds(1)
@@ -324,6 +335,7 @@ public final class DashboardModel {
         }
         applyRetention()
         savedFilters = filterStore.all
+        alertShortcuts = shortcutStore.all
     }
 
     init(
@@ -338,8 +350,11 @@ public final class DashboardModel {
         connectionMonitor: ConnectionMonitor? = nil, startupProvider: StartupProvider? = nil,
         inspector: ProcessInspector? = nil, assertionReader: AssertionReader? = nil,
         openFileMonitor: OpenFileMonitor? = nil, sessionArchive: SessionArchive? = nil,
-        sampler: ProcessSampler? = nil, maintenanceProvider: MaintenanceStatusProvider? = nil
+        sampler: ProcessSampler? = nil, maintenanceProvider: MaintenanceStatusProvider? = nil,
+        shortcutRunner: ShortcutLauncher? = nil, volumeReader: StartupVolumeMonitor? = nil
     ) {
+        self.shortcutRunner = shortcutRunner
+        self.volumeReader = volumeReader
         self.controller = controller
         self.askService = askService
         self.notifier = notifier
@@ -371,6 +386,7 @@ public final class DashboardModel {
         askTask?.cancel()
         sleepImport?.cancel()
         maintenanceRead?.cancel()
+        volumeRead?.cancel()
         storedLoad?.cancel()
         connectionSample?.cancel()
         openFileSample?.cancel()
@@ -672,15 +688,72 @@ public final class DashboardModel {
         }
     }
 
+    /// The shipped rules, for Settings.
+    public var alertRules: [AlertRule] { alertEngine.rules }
+    /// Each rule's Shortcut, by rule id; saved.
+    public private(set) var alertShortcuts: [String: String] = [:]
+    /// The person's Shortcuts, read on request; nil until read or when the tool failed.
+    public private(set) var availableShortcuts: [String]?
+
+    public func setShortcut(_ name: String?, for ruleID: String) {
+        alertShortcuts = shortcutStore.set(name, for: ruleID)
+    }
+
+    public func refreshShortcuts() async {
+        guard let shortcutRunner else { return }
+        if case .success(let names) = await shortcutRunner.list() { availableShortcuts = names } else { availableShortcuts = nil }
+    }
+
+    /// Tests keep their actions out of the person's preferences.
+    func useShortcutStore(_ defaults: UserDefaults) {
+        shortcutStore = AlertShortcuts(defaults: defaults)
+        alertShortcuts = shortcutStore.all
+    }
+
+    /// Volume capacity changes slowly; read it once a minute, off the sampling path.
+    private static let volumeReadInterval: TimeInterval = 60
+
+    private func refreshStartupCapacity(now: Date) {
+        guard let volumeReader, volumeRead == nil else { return }
+        if let volumeReadAt, now.timeIntervalSince(volumeReadAt) < Self.volumeReadInterval { return }
+        volumeReadAt = now
+        volumeRead = Task { [weak self] in
+            let fraction = await volumeReader.freeFraction()
+            guard let self else { return }
+            self.volumeRead = nil
+            self.startupFreeFraction = fraction
+        }
+    }
+
+    /// Run a rule's Shortcut once per raise, never two of the same at once.
+    private func runShortcut(for rule: AlertRule, at time: Date) {
+        guard let shortcutRunner, let name = alertShortcuts[rule.id], !runningShortcuts.contains(rule.id),
+              shortcutCooldown.admit(rule.id, at: time) else { return }
+        runningShortcuts.insert(rule.id)
+        Task { [weak self] in
+            let result = await shortcutRunner.run(name)
+            guard let self else { return }
+            self.runningShortcuts.remove(rule.id)
+            switch result {
+            case .success:
+                self.markers.append(TimelineMarker(time: Date(), label: "Ran Shortcut \(name)", kind: .alert))
+            case .failure(let error):
+                self.actionMessage = "Shortcut \(name) for “\(rule.title)” failed: \(error.description)"
+            }
+        }
+    }
+
     /// Rules read live data, so a held display never delays an alert.
     private func evaluateAlerts() {
         let host = liveFrames.last
         let power = livePowerFrames.last
+        refreshStartupCapacity(now: host?.stamp.wallTime ?? Date())
         let inputs = AlertInputs(
             memoryPressure: host?.memory.pressureLevel,
             thermalPressure: host.flatMap { ThermalPressureLevel(reading: $0.thermalPressure) },
             batteryPercent: power?.batteryChargePercent.numericValue,
-            onBattery: power?.powerSource.map { $0 == .battery }
+            onBattery: power?.powerSource.map { $0 == .battery },
+            startupFreeFraction: startupFreeFraction
         )
         let now = host?.stamp.wallTime ?? Date()
         for event in alertEngine.evaluate(inputs, at: now) {
@@ -689,6 +762,7 @@ public final class DashboardModel {
             case .raised:
                 activeAlerts[rule.lane] = rule.title
                 markers.append(TimelineMarker(time: event.time, label: rule.title, kind: .alert))
+                runShortcut(for: rule, at: event.time)
                 guard rule.notifies, let notifier, alertCooldown.admit(rule.id, at: event.time) else { continue }
                 Task { await notifier.deliver(ruleID: rule.id, title: rule.title, body: "Open Coreography to see what is using it.") }
             case .cleared:

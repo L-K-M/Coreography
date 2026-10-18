@@ -96,6 +96,23 @@ struct SettingsView: View {
                 }
                 .disabled(!model.recordsHistory)
             }
+            Section("Alerts") {
+                ForEach(model.alertRules) { rule in
+                    Picker(rule.title, selection: Binding(
+                        get: { model.alertShortcuts[rule.id] ?? "" },
+                        set: { model.setShortcut($0, for: rule.id) }
+                    )) {
+                        Text("No Shortcut").tag("")
+                        // A saved Shortcut stays listed even if it has since been renamed or deleted.
+                        let names = Array(Set((model.availableShortcuts ?? []) + [model.alertShortcuts[rule.id]].compactMap { $0 })).sorted()
+                        ForEach(names, id: \.self) { Text($0).tag($0) }
+                    }
+                }
+                Text(model.availableShortcuts == nil
+                     ? "Shortcuts could not be listed; rules still tint their lane and notify."
+                     : "A rule runs its Shortcut when it is raised, at most once every 15 minutes.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             Section("Dock") {
                 Picker("Dock icon", selection: $model.dockIcon) {
                     Text("App icon").tag(DockIconStyle.appIcon)
@@ -138,6 +155,7 @@ struct SettingsView: View {
         .formStyle(.grouped)
         .frame(width: 460)
         .task {
+            await model.refreshShortcuts()
             await model.refreshProviderKey()
             await model.refreshHistorySize()
         }
