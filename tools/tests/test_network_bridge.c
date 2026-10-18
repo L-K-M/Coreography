@@ -8,7 +8,7 @@
  * outputs. On macOS the bridge must return real interface counters.
  *
  * Build/run (non-Apple):
- *   cc -std=c11 -Wall -Wextra -Werror \
+ *   mkdir -p .build && cc -std=c11 -Wall -Wextra -Werror \
  *      -I Sources/CoreographySystem/include \
  *      -I Sources/CoreographySystem \
  *      tools/tests/test_network_bridge.c Sources/CoreographySystem/network.c \
@@ -23,6 +23,10 @@
 
 #include "CoreographySystem.h"
 #include "network_internal.h"
+
+#if defined(NDEBUG)
+#error "Build test_network_bridge without NDEBUG; assertions are the test mechanism"
+#endif
 
 static void
 test_invalid_args(void)

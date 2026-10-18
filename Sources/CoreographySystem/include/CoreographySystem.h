@@ -71,7 +71,9 @@ int32_t coreo_network_indices(uint32_t *indices, int32_t capacity,
                              int32_t *count, int32_t *truncated);
 
 /* Read unmasked 64-bit IFMIB_IFDATA/IFDATA_GENERAL counters, not routing statistics.
-   A detached interface's zero-filled success response is an ENXIO, not zero traffic. */
+   When the kernel answers a detached interface with a zero-filled record,
+   this returns ENXIO rather than zero traffic. On success, name is
+   NUL-terminated within IF_NAMESIZE. */
 int32_t coreo_network_read(uint32_t index, coreo_network_sample *sample);
 
 /* OSThermalPressureLevel on macOS (libkern/OSThermalNotification.h); the

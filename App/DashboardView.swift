@@ -155,6 +155,12 @@ struct DashboardView: View {
                     .font(.caption)
                     .monospacedDigit()
             }
+            if let app = model.scopedApp {
+                ToolbarItem(placement: .automatic) {
+                    Button("Scope: \(app)", systemImage: "xmark.circle") { model.scopedApp = nil }
+                        .help("Clear the app scope")
+                }
+            }
             ToolbarItem(placement: .automatic) {
                 Picker("Time range", selection: $model.timeRange) {
                     ForEach(TimeRange.allCases) { range in
@@ -188,6 +194,7 @@ struct DashboardView: View {
         let end = model.displayedEndTime ?? Date()
         let start = end.addingTimeInterval(-model.timeRange.seconds)
         let points = visiblePoints(model.points(for: metric), start, end)
+        let scoped = metric == .cpu ? model.scopedSeries().map { visiblePoints($0.cpu, start, end) } : nil
 
         return HStack(alignment: .top, spacing: 24) {
             VStack(alignment: .leading, spacing: 10) {
@@ -204,6 +211,10 @@ struct DashboardView: View {
                     .foregroundStyle(.secondary)
                 if metric == .cpu {
                     ContributorLine(model: model, subsystem: .cpu)
+                    if let app = model.scopedApp {
+                        Text("\(app): \(MetricText.percent(scoped?.last?.value))")
+                            .font(.caption.weight(.medium)).foregroundStyle(.blue)
+                    }
                 }
             }
             .frame(width: Layout.headerWidth, alignment: .leading)
@@ -219,10 +230,19 @@ struct DashboardView: View {
                         LineMark(
                             x: .value("Time", point.time),
                             y: .value(title, point.value),
-                            series: .value("Segment", point.segment)
+                            series: .value("Segment", "lane-\(point.segment)")
                         )
                         .foregroundStyle(metric == .cpu ? Color.blue : Color.teal)
                         .interpolationMethod(.linear)
+                    }
+                    // The scoped app's share, as a second series in the lane's hue (plan P8).
+                    ForEach(scoped ?? []) { point in
+                        LineMark(
+                            x: .value("Time", point.time), y: .value("Scoped app", point.value),
+                            series: .value("Segment", "scoped-\(point.segment)")
+                        )
+                        .foregroundStyle(Color.blue.opacity(0.6))
+                        .lineStyle(StrokeStyle(lineWidth: 1.5, dash: [4, 2]))
                     }
                     CursorRule(time: model.cursorTime, range: start...end)
                     SelectionBand(selection: model.draftSelection ?? model.selection, range: start...end)
@@ -1084,6 +1104,10 @@ private struct DiskLane: View {
                 devicePicker
                 Text(model.storageSelectionMessage).font(.caption).foregroundStyle(.secondary)
                 ContributorLine(model: model, subsystem: .disk)
+                if let app = model.scopedApp {
+                    Text("\(app): \(MetricText.rate(model.scopedSeries()?.disk.last?.value)) read + write")
+                        .font(.caption.weight(.medium)).foregroundStyle(.blue)
+                }
                 if let inventory = model.diskFrames.last,
                    inventory.enumerationTruncated || !inventory.issues.isEmpty {
                     Text("Storage inventory is incomplete.").font(.caption).foregroundStyle(.secondary)
@@ -1282,6 +1306,7 @@ private struct ProcessPane: View {
                         Text(row.children == nil ? row.name : "\(row.name) (\(row.memberCount))")
                             .help(ProcessText.grouping(row.groupingMethod))
                             .contextMenu {
+                                Button("Show \(row.appName) in lanes") { model.scopedApp = row.appName }
                                 if let process = row.process {
                                     Button("Quit…") { pendingAction = model.actionRequest(for: process, mode: .graceful) }
                                     Button("Force Quit…") { pendingAction = model.actionRequest(for: process, mode: .forced) }

@@ -109,6 +109,8 @@ public final class DashboardModel {
     /// The range while a drag is in progress; reports wait for the drag to end.
     public var draftSelection: ClosedRange<Date>?
     public private(set) var markers: [TimelineMarker] = []
+    /// One app scoping every view (plan P8); cleared only by its clear button.
+    public var scopedApp: String?
     public private(set) var actionMessage: String?
     public private(set) var contributorHistory: [ContributorSnapshot] = []
 
@@ -353,9 +355,17 @@ public final class DashboardModel {
     }
 
     public var visibleProcessRows: [ProcessRow] {
-        ProcessGroups.rows(
+        let rows = ProcessGroups.rows(
             in: processSnapshot, matching: processFilter, sortedBy: processSort, grouping: processGrouping
         )
+        guard let scopedApp else { return rows }
+        return rows.filter { $0.appName == scopedApp }
+    }
+
+    /// The scoped app's CPU share and disk rate from the ledger, for lane overlays.
+    public func scopedSeries() -> (cpu: [DashboardPoint], disk: [DashboardPoint])? {
+        guard let scopedApp else { return nil }
+        return ledger.series(for: scopedApp)
     }
 
     public func start() {

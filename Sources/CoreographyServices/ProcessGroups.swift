@@ -25,6 +25,8 @@ public struct ProcessRow: Identifiable, Sendable {
     /// The process for a leaf row; nil for a group.
     public let process: ObservedProcess?
     public let groupingMethod: ProcessGroupingMethod?
+    /// The app this row belongs to; the key for scope and the app ledger.
+    public let appName: String
     public let memberCount: Int
     public let cpuPercentOfMachine: MetricReading
     public let memoryFootprintBytes: MetricReading
@@ -52,7 +54,7 @@ enum ProcessGroups {
     ) -> [ProcessRow] {
         if grouping == .flat {
             return ProcessList.rows(in: snapshot, matching: filter, sortedBy: sort)
-                .map { leaf($0, method: nil) }
+                .map { leaf($0, method: nil, appName: $0.name) }
         }
 
         let query = filter.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -83,13 +85,13 @@ enum ProcessGroups {
             guard !visible.isEmpty else { continue }
 
             if group.count == 1, let (process, method) = group.first {
-                rows.append(leaf(process, method: method))
+                rows.append(leaf(process, method: method, appName: process.name))
                 continue
             }
-            let children = sorted(visible.map { leaf($0.0, method: $0.1) }, by: sort)
+            let children = sorted(visible.map { leaf($0.0, method: $0.1, appName: name) }, by: sort)
             let all = group.map(\.0)
             rows.append(ProcessRow(
-                id: "group-\(key)", name: name, process: nil, groupingMethod: nil,
+                id: "group-\(key)", name: name, process: nil, groupingMethod: nil, appName: name,
                 memberCount: all.count,
                 cpuPercentOfMachine: total(all.map(\.cpuPercentOfMachine), overlap: nil),
                 memoryFootprintBytes: total(all.map(\.memoryFootprintBytes), overlap: footprintMethod),
@@ -138,10 +140,12 @@ enum ProcessGroups {
         "\(process.id.pid)-\(process.id.startSeconds)-\(process.id.startMicroseconds)"
     }
 
-    private static func leaf(_ process: ObservedProcess, method: ProcessGroupingMethod?) -> ProcessRow {
+    private static func leaf(
+        _ process: ObservedProcess, method: ProcessGroupingMethod?, appName: String
+    ) -> ProcessRow {
         ProcessRow(
             id: "process-\(identityKey(process))", name: process.name, process: process,
-            groupingMethod: method, memberCount: 1,
+            groupingMethod: method, appName: appName, memberCount: 1,
             cpuPercentOfMachine: process.cpuPercentOfMachine,
             memoryFootprintBytes: process.memoryFootprintBytes,
             diskReadBytesPerSecond: process.diskReadBytesPerSecond,
