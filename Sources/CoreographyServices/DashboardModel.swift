@@ -1040,6 +1040,8 @@ public final class DashboardModel {
 
     /// The command palette (plan: Command-Shift-P).
     public var paletteShown = false
+    /// The named-marker prompt (plan: M drops a named marker).
+    public var markerPromptShown = false
 
     /// When the newest live sample arrived, held display or not; surfaces
     /// that always show live data (the Dock graph) redraw on it.
@@ -1089,6 +1091,9 @@ public final class DashboardModel {
             entry(inspectorShown ? "Hide Inspector" : "Show Inspector", .toggleInspector),
             entry(displayMode == .live ? "Hold Display" : "Return to Live", .toggleHold),
             sessionRecording == nil ? entry("Start Recording", .startRecording) : entry("Stop Recording", .stopRecording),
+            entry(samplingPaused ? "Resume Recording" : "Pause Recording", .toggleSampling),
+            entry("Return to Now", .returnToNow),
+            entry("Add Marker…", .addMarker),
             entry("Toggle HUD", .toggleHUD),
             entry("Open Settings", .openSettings)
         ]
@@ -1130,6 +1135,8 @@ public final class DashboardModel {
         switch action {
         case .toggleInspector: inspectorShown.toggle()
         case .toggleHold: toggleDisplayHold()
+        case .toggleSampling: samplingPaused ? resumeSampling() : pauseSampling()
+        case .returnToNow: returnToNow()
         case .startRecording: startRecording()
         case .stopRecording: await stopRecording()
         case .range(let range): timeRange = range
@@ -1149,7 +1156,7 @@ public final class DashboardModel {
             if let process = selectedProcess { await sampleProcess(process) }
         case .processAction(.resume):
             if let process = selectedProcess { perform(actionRequest(for: process, action: .resume)) }
-        case .processAction, .copySelected, .toggleHUD, .openSettings:
+        case .processAction, .copySelected, .toggleHUD, .openSettings, .addMarker:
             break
         }
     }
@@ -1236,8 +1243,9 @@ public final class DashboardModel {
         return (cpu, disk)
     }
 
+    /// Does nothing while the person has paused recording.
     public func start() {
-        guard worker == nil, let monitor else { return }
+        guard worker == nil, !samplingPaused, let monitor else { return }
         let run = UUID()
         generation = run
         collectionError = nil
@@ -1378,6 +1386,39 @@ public final class DashboardModel {
                 }
             }
         }
+    }
+
+    /// Sampling stopped by the person (plan: Pause Recording stops sampling and
+    /// leaves a labelled gap in every series; Hold only freezes the display).
+    public private(set) var samplingPaused = false
+    /// A marker name longer than this is not a name.
+    static let maximumMarkerLength = 120
+
+    public func pauseSampling() {
+        guard !samplingPaused else { return }
+        markers.append(TimelineMarker(time: Date(), label: "Recording paused", kind: .note))
+        samplingPaused = true
+        stop()
+    }
+
+    public func resumeSampling() {
+        guard samplingPaused else { return }
+        samplingPaused = false
+        markers.append(TimelineMarker(time: Date(), label: "Recording resumed", kind: .note))
+        start()
+    }
+
+    /// Command-0: back to the live edge, without changing the range or selection.
+    public func returnToNow() {
+        if displayMode == .held { toggleDisplayHold() }
+        cursorTime = nil
+    }
+
+    /// M: a named marker at the live edge; a blank name becomes the time.
+    public func addMarker(named name: String, at time: Date = Date()) {
+        let trimmed = String(name.trimmingCharacters(in: .whitespacesAndNewlines).prefix(Self.maximumMarkerLength))
+        let label = trimmed.isEmpty ? "Marker \(time.formatted(date: .omitted, time: .standard))" : trimmed
+        markers.append(TimelineMarker(time: time, label: label, kind: .note))
     }
 
     public func stop() {

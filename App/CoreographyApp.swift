@@ -40,6 +40,11 @@ private struct CoreographyApp: App {
             CommandGroup(after: .toolbar) {
                 Button(hud.isShown ? "Hide HUD" : "Show HUD") { hud.toggle() }
                     .keyboardShortcut("h", modifiers: [.command, .option])
+                Button("Return to Now") {
+                    automation.showDashboard()
+                    dashboard.returnToNow()
+                }
+                .keyboardShortcut("0", modifiers: .command)
                 Button("Command Palette…") {
                     automation.showDashboard()
                     dashboard.paletteShown = true
