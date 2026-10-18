@@ -47,6 +47,15 @@ final class RangeReportTests: XCTestCase {
         XCTAssertTrue(app.isLowerBound)
     }
 
+    func testUnknownCoreCountRecordsALowerBoundInsteadOfZeroCPU() throws {
+        var ledger = AppLedger(capacity: 10)
+        ledger.record(try snapshot(at: 0, rows: [("App", 10, 0)]), logicalCPUCount: nil)
+        ledger.record(try snapshot(at: 2, rows: [("App", 10, 0)]), logicalCPUCount: nil)
+        let app = try XCTUnwrap(ledger.totals(in: epoch...epoch.addingTimeInterval(5)).apps.first)
+        XCTAssertEqual(app.cpuSeconds, 0)
+        XCTAssertTrue(app.isLowerBound)
+    }
+
     func testReportRanksAppsAndSummarisesLanes() throws {
         var ledger = AppLedger(capacity: 10)
         ledger.record(try snapshot(at: 0, rows: [("A", 10, 5), ("B", 30, 1)]), logicalCPUCount: 2)
