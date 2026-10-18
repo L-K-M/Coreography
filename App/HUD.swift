@@ -10,7 +10,7 @@ import CoreographyServices
 @MainActor
 @Observable
 final class HUDController {
-    private static let size = NSSize(width: 230, height: 128)
+    private static let size = NSSize(width: 230, height: 146)
     private static let margin: CGFloat = 16
 
     private(set) var isShown = false
@@ -75,6 +75,9 @@ private struct HUDView: View {
             row("GPU clock", MetricText.frequency(model.displayedSiliconFrame?.gpuFrequencyMHz.numericValue))
             row("Temp", ThermalText.celsius(model.displayedSensorFrame?.hottest?.celsius.numericValue))
             row("Power", MetricText.watts(model.displayedSystemPower?.numericValue))
+            if let hint = model.bottleneckHints.first {
+                Text(hint.title).foregroundStyle(.orange)
+            }
         }
         .font(.system(size: 12, weight: .semibold, design: .monospaced))
         .foregroundStyle(.white)

@@ -396,6 +396,14 @@ public final class DashboardModel {
         atCursor(siliconFrames, tolerance: Self.cursorTolerance) { $0.stamp.wallTime }
     }
 
+    /// Heuristic hints over the last seconds of displayed data (plan:
+    /// bottleneck hints); empty without silicon or GPU readings.
+    public var bottleneckHints: [BottleneckHint] {
+        guard let end = displayedEndTime else { return [] }
+        let thermal = frames.last.flatMap { ThermalPressureLevel(reading: $0.thermalPressure) }
+        return BottleneckHints.evaluate(gpu: gpuFrames, silicon: siliconFrames, thermal: thermal, now: end)
+    }
+
     /// System draw from one qualified source (plan): an SMC rail where the
     /// Mac publishes one, otherwise battery discharge while unplugged.
     public var displayedSystemPower: DashboardReading? {

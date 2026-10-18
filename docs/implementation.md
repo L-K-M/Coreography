@@ -3,7 +3,7 @@
 Track actual delivery against the [product plan](plan.md). A stage is
 complete only after its relevant checks and review pass and its PR merges.
 
-## Current slice: Apple Silicon power and frequency
+## Current slice: bottleneck hints
 
 The native foundation merged in [PR #5](https://github.com/L-K-M/Coreography/pull/5)
 at `aee9494` after two GLM rounds and passing CI. Process monitoring merged
@@ -39,9 +39,22 @@ diagnostic clients in [PR #52](https://github.com/L-K-M/Coreography/pull/52).
 Maintenance states follow in [PR #53](https://github.com/L-K-M/Coreography/pull/53)
 and automation in [PR #54](https://github.com/L-K-M/Coreography/pull/54),
 the command palette in [PR #55](https://github.com/L-K-M/Coreography/pull/55).
-This slice adds IOReport power and frequency (M2, first rung).
+IOReport power and frequency (M2, first rung) follow in
+[PR #56](https://github.com/L-K-M/Coreography/pull/56). This slice adds
+bottleneck hints.
 
 Implemented:
+
+- Bottleneck hints (plan: PresentMon and RTSS style) over the last
+  5 s of displayed data: "Looks GPU-bound" when the busiest GPU averages
+  at least 90% while the top core tier is at most 50% active; "Looks
+  CPU-bound" when the top tier is at least 90% active within 5% of its
+  table's top frequency with the GPU at most 70% busy; "Possibly
+  throttling" under moderate or higher thermal pressure when the top
+  tier, at least half active, ran 10% slower than in the 5 s before.
+  Each names the readings that tripped it; no tier table, no CPU-bound
+  hint. They appear under the CPU lane's tiers and in the HUD. Frame
+  rate joins them with performance mode (S4).
 
 - Apple Silicon power and frequency: the private IOReport library
   (owner-approved), loaded at run time from the shared cache, subscribed
@@ -461,6 +474,7 @@ helper remain outstanding. The store, MCP and model features above await stack d
 | Native network MIB, wide-counter mapping and three-lane UI | Passed at `e62fac1`, including native C fixtures, live CLI and both executable architectures; integrated candidate pending |
 | Native IOKit storage counters and four-lane renderer | Passed [native CI](https://github.com/L-K-M/Coreography/actions/runs/39110306993) at `6434722`: 75 tests, 16 drivers, 32 measured rate fields, no inventory issues; owner checks pending |
 | On-disk history store and recorder | History slice: 148 Swift tests pass on Linux against the real system SQLite (round trip with gaps, duplicates, retention, reopen, permissions, WAL, batching); native CI checks the CLI and file permissions |
+| Bottleneck hints | 242 Swift tests pass on Linux (each hint's thresholds and evidence, no CPU-bound hint without a top frequency, no throttling without thermal pressure, no data no hints); the lane and HUD lines compile only in native CI |
 | Apple Silicon power and frequency | 238 Swift tests pass on Linux (block sums without subtotals, units, residency weighting, idle and unfitting tables, hertz or kilohertz tables, legacy and `acc-clusters` assignment, baseline, frozen counters, virtual machines); the IOReport driver compiles only in native CI, whose virtual runner must report unsupported with its reason. Accuracy against `powermetrics` is an owner check (S1) |
 | Command palette | 229 Swift tests pass on Linux (ranking, unavailable reasons, target names, actions applied through the model, unconfirmed process actions ignored); the palette view compiles only in native CI; keyboard use is an owner check |
 | Automation | 227 Swift tests pass on Linux (every link form, refusals with reasons, holder lookups with their limits, commands applied through the model); intents and link delivery compile only in native CI, which checks the scheme and intent metadata |
