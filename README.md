@@ -22,6 +22,10 @@ band, battery watts, time estimate and health; system draw is shown while
 running on battery. The thermal lane shows system thermal pressure as a band;
 temperatures and fans come with the sensor provider.
 
+Hovering any lane moves one cursor through all of them: every header
+shows its value at that time, and the CPU, memory and disk headers name
+the apps that led then.
+
 The process pane adds PID/start-time-safe CPU share, physical footprint
 and disk read/write rates, with filtering, sorting and explicit restricted
 or unreadable coverage. It refreshes every two seconds using public libproc

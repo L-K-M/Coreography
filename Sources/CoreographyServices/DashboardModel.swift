@@ -100,6 +100,9 @@ public final class DashboardModel {
     public var processFilter = ""
     public var processSort: ProcessSort = .cpu
     public var processGrouping: ProcessGrouping = .app
+    /// The shared hover time across all lanes; nil follows the live edge.
+    public var cursorTime: Date?
+    public private(set) var contributorHistory: [ContributorSnapshot] = []
 
     @ObservationIgnored private let monitor: SystemMonitor?
     @ObservationIgnored private let processMonitor: ProcessMonitor?
@@ -113,6 +116,7 @@ public final class DashboardModel {
     @ObservationIgnored private var generation = UUID()
     @ObservationIgnored private var liveFrames: [CapturedSnapshot] = []
     @ObservationIgnored private var liveProcesses: CapturedProcesses?
+    @ObservationIgnored private var liveContributorHistory: [ContributorSnapshot] = []
     @ObservationIgnored private var liveNetworkFrames: [CapturedNetwork] = []
     @ObservationIgnored private var liveDiskFrames: [CapturedDisks] = []
     @ObservationIgnored private var liveGPUFrames: [CapturedGPU] = []
@@ -164,6 +168,30 @@ public final class DashboardModel {
     deinit { worker?.cancel() }
 
     public var latest: CapturedSnapshot? { frames.last }
+
+    // A cursor reads the nearest sample within these windows, or nothing.
+    private static let cursorTolerance: TimeInterval = 1.5
+    private static let contributorTolerance: TimeInterval = 2.5
+    private static let contributorCapacity = 32
+
+    /// Host frame at the cursor, or the latest frame without one.
+    public var displayedFrame: CapturedSnapshot? { atCursor(frames, tolerance: Self.cursorTolerance) { $0.stamp.wallTime } }
+    public var displayedGPUFrame: CapturedGPU? { atCursor(gpuFrames, tolerance: Self.cursorTolerance) { $0.stamp.wallTime } }
+    public var displayedPowerFrame: CapturedPower? { atCursor(powerFrames, tolerance: Self.cursorTolerance) { $0.stamp.wallTime } }
+    public var displayedContributors: ContributorSnapshot? {
+        atCursor(contributorHistory, tolerance: Self.contributorTolerance) { $0.time }
+    }
+
+    private func atCursor<Frame>(
+        _ frames: [Frame], tolerance: TimeInterval, time: (Frame) -> Date
+    ) -> Frame? {
+        guard let cursorTime else { return frames.last }
+        let nearest = frames.min {
+            abs(time($0).timeIntervalSince(cursorTime)) < abs(time($1).timeIntervalSince(cursorTime))
+        }
+        guard let nearest, abs(time(nearest).timeIntervalSince(cursorTime)) <= tolerance else { return nil }
+        return nearest
+    }
 
     public var displayedEndTime: Date? {
         [
@@ -282,14 +310,21 @@ public final class DashboardModel {
                     }
                     guard let self, self.generation == run, !Task.isCancelled else { return }
                     self.liveFrames = history
-                    if let processes { self.liveProcesses = processes }
+                    if let processes {
+                        self.liveProcesses = processes
+                        self.liveContributorHistory.append(Contributors.snapshot(from: processes))
+                        self.liveContributorHistory = Array(self.liveContributorHistory.suffix(Self.contributorCapacity))
+                    }
                     if let network { self.liveNetworkFrames = network }
                     if let disks { self.liveDiskFrames = disks }
                     if let gpus { self.liveGPUFrames = gpus }
                     if let power { self.livePowerFrames = power }
                     if self.displayMode == .live {
                         self.frames = history
-                        if let processes { self.processSnapshot = processes }
+                        if let processes {
+                            self.processSnapshot = processes
+                            self.contributorHistory = self.liveContributorHistory
+                        }
                         if let network { self.networkFrames = network }
                         if let disks { self.diskFrames = disks }
                         if let gpus { self.gpuFrames = gpus }
@@ -321,6 +356,7 @@ public final class DashboardModel {
         displayMode = .live
         frames = liveFrames
         processSnapshot = liveProcesses
+        contributorHistory = liveContributorHistory
         networkFrames = liveNetworkFrames
         diskFrames = liveDiskFrames
         gpuFrames = liveGPUFrames
@@ -329,13 +365,15 @@ public final class DashboardModel {
 
     public func reading(for metric: DashboardMetric) -> DashboardReading? {
         switch metric {
-        case .cpu: return latest?.cpuPercentOfMachine
-        case .memory: return latest?.memoryUsedBytes
+        case .cpu: return displayedFrame?.cpuPercentOfMachine
+        case .memory: return displayedFrame?.memoryUsedBytes
         case .networkReceived, .networkSent:
-            guard let latestNetwork = networkFrames.last else { return nil }
-            return networkReading(for: metric, in: latestNetwork)
+            guard let frame = atCursor(networkFrames, tolerance: Self.cursorTolerance, time: { $0.stamp.wallTime })
+            else { return nil }
+            return networkReading(for: metric, in: frame)
         case .diskRead, .diskWritten:
-            guard let frame = diskFrames.last else { return nil }
+            guard let frame = atCursor(diskFrames, tolerance: Self.cursorTolerance, time: { $0.stamp.wallTime })
+            else { return nil }
             if let device = storageDevice(in: frame) {
                 return metric == .diskRead ? device.readBytesPerSecond : device.writtenBytesPerSecond
             }
