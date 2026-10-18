@@ -520,25 +520,39 @@ public final class DashboardModel {
         let storedEnd: Date?
     }
 
-    @ObservationIgnored private var rangeReportCache: (inputs: RangeReportInputs, report: RangeReport)?
+    @ObservationIgnored private var rangeReportCache: [ClosedRange<Date>: (inputs: RangeReportInputs, report: RangeReport)] = [:]
     /// How many reports were built; tests check that rereading reuses one.
     @ObservationIgnored private(set) var rangeReportBuilds = 0
 
     /// Totals for the selected range, from displayed (possibly held) data
     /// and, on the 6 h range, stored history before it.
-    public var rangeReport: RangeReport? {
-        guard let selection else { return nil }
+    public var rangeReport: RangeReport? { selection.map(report) }
+
+    /// A second range, Command-dragged, to compare with the selection (plan P7).
+    public var comparison: ClosedRange<Date>?
+    /// The comparison range while its drag is in progress.
+    public var draftComparison: ClosedRange<Date>?
+
+    /// The selection and the comparison range side by side; nil without both.
+    public var rangeComparison: RangeComparison? {
+        guard let selection, let comparison else { return nil }
+        return RangeComparison.make(first: report(selection), second: report(comparison))
+    }
+
+    private func report(_ range: ClosedRange<Date>) -> RangeReport {
         let inputs = RangeReportInputs(
-            selection: selection, ledgerIntervals: ledger.intervals.count, ledgerEnd: ledger.intervals.last?.end,
+            selection: range, ledgerIntervals: ledger.intervals.count, ledgerEnd: ledger.intervals.last?.end,
             frame: frames.last?.id, gpuFrame: gpuFrames.last?.id, sensorFrame: sensorFrames.last?.id,
             storedStart: storedHistory?.start, storedEnd: storedHistory?.end
         )
-        if let cache = rangeReportCache, cache.inputs == inputs { return cache.report }
+        if let cache = rangeReportCache[range], cache.inputs == inputs { return cache.report }
         let report = RangeReport.make(
-            range: selection, ledger: ledger, frames: frames, gpuFrames: gpuFrames, sensorFrames: sensorFrames,
+            range: range, ledger: ledger, frames: frames, gpuFrames: gpuFrames, sensorFrames: sensorFrames,
             stored: storedHistory
         )
-        rangeReportCache = (inputs, report)
+        // Only the selection and the comparison are ever shown.
+        rangeReportCache = rangeReportCache.filter { $0.key == selection || $0.key == comparison }
+        rangeReportCache[range] = (inputs, report)
         rangeReportBuilds += 1
         return report
     }
@@ -548,6 +562,14 @@ public final class DashboardModel {
     public func clearSelection() {
         selection = nil
         draftSelection = nil
+        comparison = nil
+        draftComparison = nil
+    }
+
+    /// Back to one range.
+    public func clearComparison() {
+        comparison = nil
+        draftComparison = nil
     }
 
     /// The selected range as an export document of displayed (possibly held)
@@ -953,8 +975,24 @@ public final class DashboardModel {
                 openFiles: openFileSnapshot?.files, traffic: trafficSnapshot
             )
         )
-        guard let scopedApp else { return rows }
-        return rows.filter { $0.appName == scopedApp }
+        let ranked = rangeRanked(rows)
+        guard let scopedApp else { return ranked }
+        return ranked.filter { $0.appName == scopedApp }
+    }
+
+    /// With a selection, sorting by CPU ranks apps by their CPU-seconds
+    /// inside it (plan P7: the pane re-ranks by usage inside the window).
+    /// Only grouped rows: the ledger counts apps, not single processes.
+    public var ranksBySelection: Bool { selection != nil && processSort == .cpu && processGrouping == .app }
+
+    private func rangeRanked(_ rows: [ProcessRow]) -> [ProcessRow] {
+        guard ranksBySelection, let report = rangeReport else { return rows }
+        let cpu = Dictionary(report.apps.map { ($0.name, $0.cpuSeconds) }) { first, _ in first }
+        return rows.enumerated().sorted { lhs, rhs in
+            let left = cpu[lhs.element.appName] ?? 0
+            let right = cpu[rhs.element.appName] ?? 0
+            return left != right ? left > right : lhs.offset < rhs.offset
+        }.map(\.element)
     }
 
     /// Filter terms that were not applied, named for the person who typed them.

@@ -13,6 +13,8 @@ public struct RangeReport: Sendable {
     /// Apps by bytes moved over the network; nil when no interval read network.
     public let topNetworkApps: [AppRangeTotal]?
     public let activeAppCount: Int
+    /// Every app the ledger saw in the range, for comparisons and re-ranking.
+    public let apps: [AppRangeTotal]
     public let cpuMeanPercent: Double?
     public let cpuPeakPercent: Double?
     public let memoryPeakBytes: Double?
@@ -61,6 +63,7 @@ public struct RangeReport: Sendable {
                 ? Array(apps.filter { ($0.networkBytes ?? 0) > 0 }.sorted { ($0.networkBytes ?? 0) > ($1.networkBytes ?? 0) }.prefix(appLimit))
                 : nil,
             activeAppCount: apps.count,
+            apps: apps,
             cpuMeanPercent: cpuCount == 0 ? nil : cpuTotal / Double(cpuCount),
             cpuPeakPercent: (storedCPU.map(\.maximum) + liveCPU).max(),
             memoryPeakBytes: memory.max(),
