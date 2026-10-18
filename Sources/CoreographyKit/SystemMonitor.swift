@@ -3,7 +3,6 @@ import CoreographyDrivers
 
 public actor SystemMonitor {
     private static let percentScale = 100.0
-    private static let attosecondsPerSecond = 1_000_000_000_000_000_000.0
     private static let cpuSource = MetricSource(
         provider: "cpu", driver: "Mach", channel: "HOST_CPU_LOAD_INFO"
     )
@@ -21,7 +20,6 @@ public actor SystemMonitor {
         provider: "thermal", driver: "notify", channel: "com.apple.system.thermalpressurelevel"
     )
     private let driver: any HostSampleReading
-    private let maximumGap: Duration
     private var user: CounterRateTracker
     private var system: CounterRateTracker
     private var idle: CounterRateTracker
@@ -30,7 +28,7 @@ public actor SystemMonitor {
     private var swapIns: CounterRateTracker
     private var swapOuts: CounterRateTracker
     private var buffer: SampleBuffer<SystemSnapshot>
-    private var previousStamp: SampleStamp?
+    private var continuity: ContinuityTracker
 
     public init() throws {
         try self.init(
@@ -44,7 +42,7 @@ public actor SystemMonitor {
         maximumGap: Duration = .seconds(3)
     ) throws {
         self.driver = driver
-        self.maximumGap = maximumGap
+        self.continuity = ContinuityTracker(maximumGap: maximumGap)
         self.user = try CounterRateTracker(maxGap: maximumGap, source: Self.cpuSource)
         self.system = try CounterRateTracker(maxGap: maximumGap, source: Self.cpuSource)
         self.idle = try CounterRateTracker(maxGap: maximumGap, source: Self.cpuSource)
@@ -65,24 +63,10 @@ public actor SystemMonitor {
         )
 
         // Uptime clocks can exclude sleep; wall-clock gaps must not become idle CPU.
-        var interrupted = false
-        if let previous = previousStamp {
-            let wallElapsed = stamp.wallTime.timeIntervalSince(previous.wallTime)
-            let components = maximumGap.components
-            let gapSeconds = Double(components.seconds)
-                + Double(components.attoseconds) / Self.attosecondsPerSecond
-            let monotonicBreak = stamp.monotonicNanoseconds <= previous.monotonicNanoseconds
-                || Duration.nanoseconds(
-                    stamp.monotonicNanoseconds - previous.monotonicNanoseconds
-                ) > maximumGap
-            interrupted = wallElapsed < 0 || wallElapsed > gapSeconds
-                || stamp.clockID != previous.clockID || monotonicBreak
-            if wallElapsed < 0 || stamp.clockID != previous.clockID {
-                buffer.removeAll()
-            }
-            if interrupted { resetCounters() }
-        }
-        previousStamp = stamp
+        let outcome = continuity.record(stamp)
+        if outcome == .discontinuous { buffer.removeAll() }
+        let interrupted = outcome != .continuous
+        if interrupted { resetCounters() }
 
         let cpu: MetricReading
         switch raw.cpu {
@@ -128,7 +112,7 @@ public actor SystemMonitor {
     public func history() -> [SystemSnapshot] { buffer.elements }
 
     public func reset() {
-        previousStamp = nil
+        continuity.reset()
         resetCounters()
         buffer.removeAll()
     }

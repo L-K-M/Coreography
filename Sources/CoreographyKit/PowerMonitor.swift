@@ -10,8 +10,7 @@ public actor PowerMonitor {
     private static let microwattsPerWatt = 1_000_000.0
     private static let percentScale = 100.0
     private let driver: any PowerSampleReading
-    private let maximumGap: Duration
-    private var previousStamp: SampleStamp?
+    private var continuity: ContinuityTracker
     private var buffer: SampleBuffer<PowerSnapshot>
 
     public init() throws { try self.init(driver: PowerSourceDriver(), historyCapacity: LiveHistory.capacity) }
@@ -19,12 +18,12 @@ public actor PowerMonitor {
     init(driver: any PowerSampleReading, maximumGap: Duration = .seconds(3), historyCapacity: Int = 60) throws {
         _ = try CounterRateTracker(maxGap: maximumGap)
         self.driver = driver
-        self.maximumGap = maximumGap
+        self.continuity = ContinuityTracker(maximumGap: maximumGap)
         self.buffer = try SampleBuffer(capacity: historyCapacity)
     }
 
     public func reset() {
-        previousStamp = nil
+        continuity.reset()
         buffer.removeAll()
     }
 
@@ -36,7 +35,9 @@ public actor PowerMonitor {
         let stamp = SampleStamp(
             clockID: raw.clockID, monotonicNanoseconds: raw.monotonicNanoseconds, wallTime: raw.wallTime
         )
-        let interrupted = updateContinuity(stamp)
+        let outcome = continuity.record(stamp)
+        if outcome == .discontinuous { buffer.removeAll() }
+        let interrupted = outcome != .continuous
 
         let battery = try? raw.battery.get()
         let charge: MetricReading
@@ -120,20 +121,6 @@ public actor PowerMonitor {
             Double(full) / Double(design) * Self.percentScale,
             method: "Full-charge capacity / design capacity", source: Self.gaugeSource
         )
-    }
-
-    private func updateContinuity(_ stamp: SampleStamp) -> Bool {
-        defer { previousStamp = stamp }
-        guard let previous = previousStamp else { return false }
-        let wallElapsed = stamp.wallTime.timeIntervalSince(previous.wallTime)
-        if wallElapsed < 0 || stamp.clockID != previous.clockID { buffer.removeAll() }
-        guard stamp.clockID == previous.clockID,
-              stamp.monotonicNanoseconds > previous.monotonicNanoseconds else { return true }
-        let components = maximumGap.components
-        let gapSeconds = Double(components.seconds)
-            + Double(components.attoseconds) / 1_000_000_000_000_000_000
-        return wallElapsed < 0 || wallElapsed > gapSeconds
-            || Duration.nanoseconds(stamp.monotonicNanoseconds - previous.monotonicNanoseconds) > maximumGap
     }
 
     private func missing(_ error: PowerDriverError, source: MetricSource) throws -> MetricReading {

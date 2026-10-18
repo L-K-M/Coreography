@@ -14,7 +14,7 @@ public actor ProcessMonitor {
     )
     private let driver: any ProcessSampleReading
     private let maximumGap: Duration
-    private var previousStamp: SampleStamp?
+    private var continuity: ContinuityTracker
     private var rates: [ProcessIdentity: ProcessRates] = [:]
 
     public init() throws { try self.init(driver: ProcessStatisticsDriver()) }
@@ -24,10 +24,11 @@ public actor ProcessMonitor {
         _ = try CounterRateTracker(maxGap: maximumGap)
         self.driver = driver
         self.maximumGap = maximumGap
+        self.continuity = ContinuityTracker(maximumGap: maximumGap)
     }
 
     public func reset() {
-        previousStamp = nil
+        continuity.reset()
         rates.removeAll()
     }
 
@@ -38,9 +39,8 @@ public actor ProcessMonitor {
             clockID: raw.clockID, monotonicNanoseconds: raw.monotonicNanoseconds,
             wallTime: raw.wallTime
         )
-        let interrupted = isInterrupted(stamp)
+        let interrupted = continuity.record(stamp) != .continuous
         if interrupted { rates.removeAll() }
-        previousStamp = stamp
 
         switch raw.enumeration {
         case .failure(let error):
@@ -111,18 +111,6 @@ public actor ProcessMonitor {
                 issues: issues, continuity: interrupted ? .interrupted : .continuous
             )
         }
-    }
-
-    private func isInterrupted(_ stamp: SampleStamp) -> Bool {
-        guard let previous = previousStamp else { return false }
-        guard stamp.clockID == previous.clockID,
-              stamp.monotonicNanoseconds > previous.monotonicNanoseconds else { return true }
-        let elapsed = Duration.nanoseconds(stamp.monotonicNanoseconds - previous.monotonicNanoseconds)
-        let components = maximumGap.components
-        let seconds = Double(components.seconds)
-            + Double(components.attoseconds) / 1_000_000_000_000_000_000
-        let wallElapsed = stamp.wallTime.timeIntervalSince(previous.wallTime)
-        return elapsed > maximumGap || wallElapsed < 0 || wallElapsed > seconds
     }
 
     private func missing(_ error: ProcessDriverError, source: MetricSource) throws -> MetricReading {

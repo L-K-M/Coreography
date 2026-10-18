@@ -8,7 +8,7 @@ public actor DiskMonitor {
     )
     private let driver: any DiskSampleReading
     private let maximumGap: Duration
-    private var previousStamp: SampleStamp?
+    private var continuity: ContinuityTracker
     private var rates: [StorageDeviceID: DeviceRates] = [:]
     private var buffer: SampleBuffer<DiskSnapshot>
 
@@ -20,11 +20,12 @@ public actor DiskMonitor {
         _ = try CounterRateTracker(maxGap: maximumGap)
         self.driver = driver
         self.maximumGap = maximumGap
+        self.continuity = ContinuityTracker(maximumGap: maximumGap)
         self.buffer = try SampleBuffer(capacity: historyCapacity)
     }
 
     public func reset() {
-        previousStamp = nil
+        continuity.reset()
         rates.removeAll()
         buffer.removeAll()
     }
@@ -37,7 +38,9 @@ public actor DiskMonitor {
         let stamp = SampleStamp(
             clockID: raw.clockID, monotonicNanoseconds: raw.monotonicNanoseconds, wallTime: raw.wallTime
         )
-        let interrupted = updateContinuity(stamp)
+        let outcome = continuity.record(stamp)
+        if outcome == .discontinuous { buffer.removeAll() }
+        let interrupted = outcome != .continuous
         if interrupted { rates.removeAll() }
         var devices: [DiskDeviceReading] = []
         var issues: [DiskCollectionIssue] = []
@@ -102,20 +105,6 @@ public actor DiskMonitor {
         )
         buffer.append(snapshot)
         return snapshot
-    }
-
-    private func updateContinuity(_ stamp: SampleStamp) -> Bool {
-        defer { previousStamp = stamp }
-        guard let previous = previousStamp else { return false }
-        let wallElapsed = stamp.wallTime.timeIntervalSince(previous.wallTime)
-        if wallElapsed < 0 || stamp.clockID != previous.clockID { buffer.removeAll() }
-        guard stamp.clockID == previous.clockID,
-              stamp.monotonicNanoseconds > previous.monotonicNanoseconds else { return true }
-        let components = maximumGap.components
-        let gapSeconds = Double(components.seconds)
-            + Double(components.attoseconds) / 1_000_000_000_000_000_000
-        return wallElapsed < 0 || wallElapsed > gapSeconds
-            || Duration.nanoseconds(stamp.monotonicNanoseconds - previous.monotonicNanoseconds) > maximumGap
     }
 
     private func missing(_ error: DiskDriverError) throws -> MetricReading {

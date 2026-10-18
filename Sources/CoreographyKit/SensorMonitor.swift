@@ -13,8 +13,7 @@ public actor SensorMonitor {
         "PDTR": "SMC PDTR DC-in power rail; per-chip validation pending"
     ]
     private let driver: any SensorSampleReading
-    private let maximumGap: Duration
-    private var previousStamp: SampleStamp?
+    private var continuity: ContinuityTracker
     private var buffer: SampleBuffer<SensorSnapshot>
 
     public init() throws { try self.init(driver: SensorDriver(), historyCapacity: LiveHistory.capacity) }
@@ -22,12 +21,12 @@ public actor SensorMonitor {
     init(driver: any SensorSampleReading, maximumGap: Duration = .seconds(3), historyCapacity: Int = 60) throws {
         _ = try CounterRateTracker(maxGap: maximumGap)
         self.driver = driver
-        self.maximumGap = maximumGap
+        self.continuity = ContinuityTracker(maximumGap: maximumGap)
         self.buffer = try SampleBuffer(capacity: historyCapacity)
     }
 
     public func reset() {
-        previousStamp = nil
+        continuity.reset()
         buffer.removeAll()
     }
 
@@ -39,7 +38,9 @@ public actor SensorMonitor {
         let stamp = SampleStamp(
             clockID: raw.clockID, monotonicNanoseconds: raw.monotonicNanoseconds, wallTime: raw.wallTime
         )
-        let interrupted = updateContinuity(stamp)
+        let outcome = continuity.record(stamp)
+        if outcome == .discontinuous { buffer.removeAll() }
+        let interrupted = outcome != .continuous
         let continuity: SamplingContinuity = interrupted ? .interrupted : .continuous
 
         let snapshot: SensorSnapshot
@@ -95,20 +96,6 @@ public actor SensorMonitor {
 
     private static func source(_ key: String) -> MetricSource {
         MetricSource(provider: "sensors", driver: "AppleSMC", channel: key)
-    }
-
-    private func updateContinuity(_ stamp: SampleStamp) -> Bool {
-        defer { previousStamp = stamp }
-        guard let previous = previousStamp else { return false }
-        let wallElapsed = stamp.wallTime.timeIntervalSince(previous.wallTime)
-        if wallElapsed < 0 || stamp.clockID != previous.clockID { buffer.removeAll() }
-        guard stamp.clockID == previous.clockID,
-              stamp.monotonicNanoseconds > previous.monotonicNanoseconds else { return true }
-        let components = maximumGap.components
-        let gapSeconds = Double(components.seconds)
-            + Double(components.attoseconds) / 1_000_000_000_000_000_000
-        return wallElapsed < 0 || wallElapsed > gapSeconds
-            || Duration.nanoseconds(stamp.monotonicNanoseconds - previous.monotonicNanoseconds) > maximumGap
     }
 
     private func missing(_ error: SensorDriverError) throws -> MetricReading {
