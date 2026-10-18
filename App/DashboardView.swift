@@ -496,13 +496,13 @@ private struct GPULane: View {
                     Text("Memory in use \(MetricText.bytes(device.inUseMemoryBytes.numericValue))")
                         .font(.caption).foregroundStyle(.secondary)
                 }
-                Text(GPUText.status(latest)).font(.caption).foregroundStyle(.secondary)
+                Text(GPUText.status(latest, cursor: model.cursorTime)).font(.caption).foregroundStyle(.secondary)
             }
             .monospacedDigit()
             .frame(width: Layout.headerWidth, alignment: .leading)
 
             if !hasVisiblePoints {
-                Text(GPUText.status(latest))
+                Text(GPUText.status(latest, cursor: model.cursorTime))
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, minHeight: Layout.graphHeight)
             } else {
@@ -557,8 +557,11 @@ private struct GPULane: View {
 }
 
 private enum GPUText {
-    static func status(_ frame: CapturedGPU?) -> String {
-        guard let frame else { return String(localized: "Collecting GPU readings…") }
+    static func status(_ frame: CapturedGPU?, cursor: Date?) -> String {
+        guard let frame else {
+            return cursor == nil
+                ? String(localized: "Collecting GPU readings…") : String(localized: "No GPU sample near the cursor")
+        }
         if let reason = frame.enumeration.reason { return reason }
         if frame.devices.isEmpty { return String(localized: "No GPU publishes utilization on this Mac") }
         if let reason = frame.devices.first?.utilizationPercent.reason { return reason }
@@ -1570,7 +1573,8 @@ private extension View {
                         case .active(let location):
                             guard let plot = proxy.plotFrame else { return }
                             let x = location.x - geometry[plot].origin.x
-                            model.cursorTime = proxy.value(atX: x, as: Date.self)
+                            // The axis margin maps to no date; keep the cursor rather than flicker to live.
+                            if let time = proxy.value(atX: x, as: Date.self) { model.cursorTime = time }
                         case .ended:
                             model.cursorTime = nil
                         }
