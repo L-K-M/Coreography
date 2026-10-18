@@ -126,6 +126,24 @@ final class ProcessFilterTests: XCTestCase {
         XCTAssertTrue(ProcessGroups.rows(in: snapshot, matching: "chrome cpu:>10", sortedBy: .cpu, grouping: .app).isEmpty)
     }
 
+    func testCPUBoundsFollowTheTableScale() throws {
+        // 25 % of an 8-core machine is two cores: 200 % on the one-core scale.
+        let busy = try process(name: "Build", cpu: 25, uid: 501, path: nil)
+        let oneCore = ProcessFacts(cpuFactor: ProcessCPUScale.oneCore.factor(logicalCPUs: 8))
+        XCTAssertTrue(ProcessFilter.parse("cpu:>150").matches(busy, isNew: false, facts: oneCore))
+        XCTAssertFalse(ProcessFilter.parse("cpu:>150").matches(busy, isNew: false))
+        XCTAssertTrue(ProcessFilter.parse("cpu:>20").matches(busy, isNew: false))
+        XCTAssertEqual(ProcessCPUScale.machine.factor(logicalCPUs: 8), 1)
+        XCTAssertEqual(ProcessCPUScale.oneCore.factor(logicalCPUs: 0), 1, "an unknown count never scales to zero")
+    }
+
+    func testTheScaleIsSaved() throws {
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: "cpu-scale-\(UUID().uuidString)"))
+        XCTAssertEqual(ProcessCPUScale.saved(in: defaults), .machine)
+        ProcessCPUScale.oneCore.save(in: defaults)
+        XCTAssertEqual(ProcessCPUScale.saved(in: defaults), .oneCore)
+    }
+
     func testNonFiniteBoundsAreReportedNotApplied() {
         let filter = ProcessFilter.parse("cpu:>nan mem:>=inf disk:1e400")
         XCTAssertTrue(filter.terms.isEmpty)

@@ -518,6 +518,11 @@ Implemented:
   shown in the process table and the inspector, and checked against the
   self-cost budget of 5 a second beyond the sampling tick. Gaps and
   restricted processes stay unknown, never zero.
+- Per-process CPU scale: Settings > Processes switches the table, the
+  inspector, the Startup tab and `cpu:` filters between whole-machine
+  shares and one core = 100 % (`top`'s convention, above 100 % for
+  multithreaded work). Lanes, reports, MCP and the CLI keep the
+  whole-machine scale.
 - Lane layout: each lane's menu moves it past its visible neighbours,
   sizes its graph (compact, regular, tall) or hides it; Settings > Lanes
   shows hidden lanes again and restores the default order. The last
@@ -658,6 +663,7 @@ outstanding. The store, MCP and model features above await stack delivery.
 | Native network MIB, wide-counter mapping and three-lane UI | Passed at `e62fac1`, including native C fixtures, live CLI and both executable architectures; integrated candidate pending |
 | Native IOKit storage counters and four-lane renderer | Passed [native CI](https://github.com/L-K-M/Coreography/actions/runs/39110306993) at `6434722`: 75 tests, 16 drivers, 32 measured rate fields, no inventory issues; owner checks pending |
 | On-disk history store and recorder | History slice: 148 Swift tests pass on Linux against the real system SQLite (round trip with gaps, duplicates, retention, reopen, permissions, WAL, batching); native CI checks the CLI and file permissions |
+| Per-process CPU scale | 303 Swift tests pass on Linux (filter bounds in the chosen scale, the factor never zero, the saved choice); the column titles, cells and Settings picker compile only in native CI |
 | History review fixes | 295 Swift tests pass on Linux against the system SQLite (retention deletes planned as key searches, a held write lock waited for, a newer store refused and left labelled, battery draw recorded without a sensors frame, buffered history written before quitting returns; each failed before its fix); the quit hand-off and the confirmation compile only in native CI |
 | Lane layout | 290 Swift tests pass on Linux (moves past hidden lanes, the last visible lane kept, sizes, saved layouts with unknown, duplicate and missing lanes); the lane menus and Settings section compile only in native CI |
 | CPU user and system | 286 Swift tests and 33 tooling tests pass on Linux (shares from one set of ticks, gaps breaking the area, old recordings decoding); the native snapshot gate requires a measured system share no larger than the total; the stacked area compiles only in native CI |

@@ -28,6 +28,8 @@ struct ProcessFacts: Sendable {
     var openFiles: [ProcessIdentity: [String]]?
     /// Per-process network rates of the same moment.
     var traffic: CapturedTraffic?
+    /// `cpu:` bounds are typed in the table's scale; this turns a whole-machine share into it.
+    var cpuFactor = 1.0
 }
 
 /// What connection data says about each process, for `#listening` and `port:`.
@@ -194,7 +196,7 @@ public struct ProcessFilter: Equatable, Sendable {
                     || appName?.localizedCaseInsensitiveContains(text) == true
                     || String(process.id.pid).contains(text) || String(process.uid).contains(text)
             case .cpu(let comparison):
-                return process.cpuPercentOfMachine.numericValue.map(comparison.holds) ?? false
+                return process.cpuPercentOfMachine.numericValue.map { comparison.holds($0 * facts.cpuFactor) } ?? false
             case .memory(let comparison):
                 return process.memoryFootprintBytes.numericValue.map(comparison.holds) ?? false
             case .disk(let comparison):

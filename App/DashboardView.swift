@@ -1511,9 +1511,9 @@ private struct ProcessPane: View {
                         .width(60)
                     TableColumn("UID") { Text($0.process?.uid.formatted(.number.grouping(.never)) ?? "") }
                         .width(65)
-                    TableColumn("CPU, machine") {
-                        ProcessMetricCell(reading: $0.cpuPercentOfMachine, format: .percent,
-                                          heat: heat.cpu($0), hue: .blue)
+                    TableColumn(ProcessText.cpuColumn(model.processCPUScale)) { (row: ProcessRow) in
+                        ProcessMetricCell(reading: row.cpuPercentOfMachine, format: .percent,
+                                          heat: heat.cpu(row), hue: .blue, scale: model.processCPUFactor)
                     }
                     TableColumn("Footprint") {
                         ProcessMetricCell(reading: $0.memoryFootprintBytes, format: .bytes,
@@ -1568,7 +1568,7 @@ private struct ProcessPane: View {
                         .help("Exit status is not available without the helper")
                 }
 
-                Text("CPU uses the whole-machine scale. App totals sum their members; footprint sums can count shared memory twice. Process sampling: 2 s; short-lived processes can be missed.")
+                Text("\(ProcessText.cpuScaleNote(model.processCPUScale)) App totals sum their members; footprint sums can count shared memory twice. Process sampling: 2 s; short-lived processes can be missed.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -1775,7 +1775,7 @@ private struct InspectorView: View {
         }
 
         InspectorSection("Now") {
-            Text("CPU \(MetricText.percent(process.cpuPercentOfMachine.numericValue)) of the machine")
+            Text(ProcessText.cpu(process.cpuPercentOfMachine.numericValue, model.processCPUScale, factor: model.processCPUFactor))
             Text("Footprint \(MetricText.bytes(process.memoryFootprintBytes.numericValue))")
             Text("Disk \(MetricText.bytes(process.diskReadBytesPerSecond.numericValue))/s read, \(MetricText.bytes(process.diskWriteBytesPerSecond.numericValue))/s written")
             Text(WakeupText.rate(process.wakeupsPerSecond.numericValue))
@@ -1935,6 +1935,28 @@ private struct HeatScale {
 }
 
 private enum ProcessText {
+    static func cpuColumn(_ scale: ProcessCPUScale) -> String {
+        switch scale {
+        case .machine: String(localized: "CPU, machine")
+        case .oneCore: String(localized: "CPU, one core")
+        }
+    }
+
+    static func cpuScaleNote(_ scale: ProcessCPUScale) -> String {
+        switch scale {
+        case .machine: String(localized: "CPU uses the whole-machine scale.")
+        case .oneCore: String(localized: "CPU counts one core as 100 %, so busy processes can exceed 100 %.")
+        }
+    }
+
+    static func cpu(_ percentOfMachine: Double?, _ scale: ProcessCPUScale, factor: Double) -> String {
+        let value = MetricText.percent(percentOfMachine.map { $0 * factor })
+        return switch scale {
+        case .machine: String(localized: "CPU \(value) of the machine")
+        case .oneCore: String(localized: "CPU \(value) of one core")
+        }
+    }
+
     /// A process often draws tens of milliwatts, so two decimals.
     static func power(_ watts: Double?) -> String {
         guard let watts, watts.isFinite else { return "–" }
@@ -2013,7 +2035,9 @@ private struct StartupPane: View {
                     TableColumn("Kind") { Text(StartupText.kind($0.item.kind)) }
                     TableColumn("State") { Text(StartupText.state($0.item)) }
                     TableColumn("Running") { Text($0.processCount == 0 ? "–" : "\($0.processCount)") }
-                    TableColumn("CPU, machine") { Text(MetricText.percent($0.cpuPercentOfMachine)) }
+                    TableColumn(ProcessText.cpuColumn(model.processCPUScale)) { (row: StartupRow) in
+                        Text(MetricText.percent(row.cpuPercentOfMachine.map { $0 * model.processCPUFactor }))
+                    }
                     TableColumn("Footprint") { Text(MetricText.bytes($0.memoryFootprintBytes)) }
                     TableColumn("App CPU, last hour") { Text($0.appCPUSecondsLastHour.map(RangeText.cpuSeconds) ?? "–") }
                 }
@@ -2301,6 +2325,8 @@ private struct ProcessMetricCell: View {
     /// 0-1 share of the column's largest value; shades the cell in its subsystem hue.
     var heat: Double = 0
     var hue: Color = .clear
+    /// Display multiplier, such as whole-machine CPU to one core = 100 %.
+    var scale = 1.0
 
     var body: some View {
         Text(label)
@@ -2312,7 +2338,7 @@ private struct ProcessMetricCell: View {
     }
 
     private var label: String {
-        guard let value = reading.numericValue else {
+        guard let value = reading.numericValue.map({ $0 * scale }) else {
             switch reading.availability {
             case .collecting: return String(localized: "Collecting…")
             case .restricted: return String(localized: "Restricted")

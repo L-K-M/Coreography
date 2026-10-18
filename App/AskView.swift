@@ -123,6 +123,14 @@ struct SettingsView: View {
                      : "A rule runs its Shortcut when it is raised, at most once every 15 minutes.")
                     .font(.caption).foregroundStyle(.secondary)
             }
+            Section("Processes") {
+                Picker("CPU per process", selection: $model.processCPUScale) {
+                    Text("Share of the whole machine").tag(ProcessCPUScale.machine)
+                    Text("One core = 100 %").tag(ProcessCPUScale.oneCore)
+                }
+                Text("Lanes always show the whole machine; the table, inspector and cpu: filters follow this choice.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             Section("Lanes") {
                 ForEach(model.laneLayout.order) { lane in
                     Toggle(LaneText.title(lane), isOn: Binding(

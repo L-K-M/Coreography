@@ -23,6 +23,9 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
   after the store first exceeds it.
 
 ### Added
+- Settings > Processes shows per-process CPU as one core = 100 %
+  (`top`-style) instead of a share of the whole machine; `cpu:` filters
+  follow the choice.
 - Each lane's menu moves, resizes or hides it; Settings > Lanes brings
   hidden lanes back and restores the default order.
 - The CPU lane stacks user time under system time, and its header
