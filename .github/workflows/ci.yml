@@ -347,7 +347,8 @@ jobs:
           md = subprocess.run(["/usr/bin/mdutil", "-s", "/"], capture_output=True, text=True, timeout=10)
           lowered = md.stdout.lower()
           disabled = ("indexing disabled", "indexing and searching disabled")
-          expected_md = ("unavailable" if md.returncode else "enabled" if "indexing enabled" in lowered
+          enabled = ("indexing enabled", "indexing and searching enabled")
+          expected_md = ("unavailable" if md.returncode else "enabled" if any(phrase in lowered for phrase in enabled)
                          else "disabled" if any(phrase in lowered for phrase in disabled) else "unavailable")
           assert maintenance["timeMachine"] == expected_tm, (maintenance, tm.stdout)
           assert maintenance["spotlightIndexing"] == expected_md, (maintenance, md.stdout)

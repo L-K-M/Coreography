@@ -95,9 +95,9 @@ Implemented:
 - Maintenance states: `tmutil status` (whether a backup runs, its phase,
   progress and time left) and `mdutil -s /` (only whether the startup
   disk is indexed) run with fixed paths and arguments, a 5-second limit
-  and a 64 KB cap, off the sampling path: every five minutes and when
-  `backupd` or a Spotlight process is selected with a status older than
-  10 s, never twice at once. The inspector shows the state under the
+  and a 64 KB cap, off the sampling path. Reads happen every five
+  minutes and when `backupd` or a Spotlight process is selected with a
+  status older than 10 s, never twice at once. The inspector shows the state under the
   role note with its read time. Only a reported running backup says it
   finishes on its own; Spotlight never does, because `mdutil` reports no
   progress. A cut-off, failed or unrecognised answer is unavailable, not
@@ -464,7 +464,7 @@ helper remain outstanding. The store, MCP and model features above await stack d
 | Apple Silicon power and frequency | 238 Swift tests pass on Linux (block sums without subtotals, units, residency weighting, idle and unfitting tables, hertz or kilohertz tables, legacy and `acc-clusters` assignment, baseline, frozen counters, virtual machines); the IOReport driver compiles only in native CI, whose virtual runner must report unsupported with its reason. Accuracy against `powermetrics` is an owner check (S1) |
 | Command palette | 229 Swift tests pass on Linux (ranking, unavailable reasons, target names, actions applied through the model, unconfirmed process actions ignored); the palette view compiles only in native CI; keyboard use is an owner check |
 | Automation | 227 Swift tests pass on Linux (every link form, refusals with reasons, holder lookups with their limits, commands applied through the model); intents and link delivery compile only in native CI, which checks the scheme and intent metadata |
-| Maintenance states | 222 Swift tests pass on Linux (running, unknown-progress, idle and unrecognised `tmutil` answers; `mdutil` states; cut-off and failed tools unavailable; path-qualified processes only; no end promised for Spotlight; the summary's state and signal; one read per refresh window through the model). Native CI compares `coreo diagnose` with independent `tmutil` and `mdutil` reads |
+| Maintenance states | 222 Swift tests pass on Linux (running, unknown-progress, idle and unrecognised `tmutil` answers; `mdutil` states; cut-off and failed tools unavailable; path-qualified processes only; no end promised for Spotlight; the summary's state and signal; one read per refresh window through the model). Native CI compares `coreo diagnose` with independent `tmutil` and `mdutil` reads; the inspector's display is an owner check |
 | Diagnostic context | 212 Swift tests pass on Linux; privacy and unsafe-quit regressions failed before the fix. One completed Devin review found the missing kernel note; its PID-0 regression also failed before the fix. Native compilation and current stack review remain pending |
 | Sample | Sample slice: 208 Swift tests pass on Linux (report and failure states through the model); the native tool run and the sheet are owner checks |
 | HUD | HUD slice: App-only, no Swift tests; the panel and its project registration compile only in native CI; staying above full-screen games is an owner check (S6) |

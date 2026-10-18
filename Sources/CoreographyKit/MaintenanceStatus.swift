@@ -53,7 +53,8 @@ public struct MaintenanceStatusProvider: Sendable {
         } catch MaintenanceStatusError.unavailable(let reason) {
             return .unavailable(reason)
         } catch {
-            return .unavailable("\(error)")
+            // Error text can carry paths; diagnostics must not.
+            return .unavailable("tmutil status could not be read")
         }
     }
 
@@ -65,7 +66,7 @@ public struct MaintenanceStatusProvider: Sendable {
         } catch MaintenanceStatusError.unavailable(let reason) {
             return .unavailable(reason)
         } catch {
-            return .unavailable("\(error)")
+            return .unavailable("mdutil status could not be read")
         }
     }
 
@@ -131,10 +132,11 @@ enum TimeMachineStatusParser {
 /// /:
 ///     Indexing enabled.
 /// ```
+/// Some volumes say "Indexing and searching enabled." instead.
 enum SpotlightStatusParser {
     static func parse(_ text: String) -> SpotlightIndexing {
         let lowered = text.lowercased()
-        if lowered.contains("indexing enabled") { return .enabled }
+        if lowered.contains("indexing enabled") || lowered.contains("indexing and searching enabled") { return .enabled }
         if lowered.contains("indexing disabled") || lowered.contains("indexing and searching disabled") { return .disabled }
         return .unavailable("mdutil printed an unrecognised status")
     }

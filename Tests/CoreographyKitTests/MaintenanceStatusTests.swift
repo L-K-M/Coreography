@@ -71,6 +71,7 @@ final class MaintenanceStatusTests: XCTestCase {
         XCTAssertEqual(SpotlightStatusParser.parse("/:\n\tIndexing enabled. \n"), .enabled)
         XCTAssertEqual(SpotlightStatusParser.parse("/:\n\tIndexing disabled.\n"), .disabled)
         XCTAssertEqual(SpotlightStatusParser.parse("/:\n\tIndexing and searching disabled.\n"), .disabled)
+        XCTAssertEqual(SpotlightStatusParser.parse("/:\n\tIndexing and searching enabled.\n"), .enabled, "the enabled form of the same wording")
         XCTAssertEqual(SpotlightStatusParser.parse("/:\n\tError: unknown indexing state.\n"), .unavailable("mdutil printed an unrecognised status"))
     }
 
