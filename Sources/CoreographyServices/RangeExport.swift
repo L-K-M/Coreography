@@ -24,7 +24,7 @@ public enum RangeExport {
 
     private static let csvColumns = [
         "time", "cpu_percent_of_machine", "memory_used_bytes", "memory_pressure_level",
-        "swap_used_bytes", "thermal_pressure_level", "gpu_busy_percent", "hottest_celsius",
+        "swap_used_bytes", "thermal_pressure_level", "gpu_busy_percent", "hottest_sensor", "hottest_celsius",
         "system_power_watts"
     ]
     /// A companion sample counts for a host row only within this distance.
@@ -65,20 +65,32 @@ public enum RangeExport {
             let power = nearest(document.power, to: time) { $0.stamp.wallTime }
             // Same qualified-source rule as the window: an SMC rail, else battery discharge.
             let system = sensors?.systemPowerWatts.numericValue ?? power?.systemPowerWatts.numericValue
-            let cells: [Double?] = [
-                frame.cpuPercentOfMachine.numericValue, frame.memoryUsedBytes.numericValue,
-                frame.memory.pressure.numericValue, frame.memory.swapUsedBytes.numericValue,
-                frame.thermalPressure.numericValue, gpu?.devices.first?.utilizationPercent.numericValue,
-                sensors?.hottest?.celsius.numericValue, system
+            func cell(_ value: Double?) -> String { value.map { String($0) } ?? "" }
+            // The sensor key travels with its reading: the hottest sensor can change between rows.
+            let hottest = sensors?.hottest
+            let cells = [
+                timeFormat.string(from: time),
+                cell(frame.cpuPercentOfMachine.numericValue), cell(frame.memoryUsedBytes.numericValue),
+                cell(frame.memory.pressure.numericValue), cell(frame.memory.swapUsedBytes.numericValue),
+                cell(frame.thermalPressure.numericValue), cell(gpu?.devices.first?.utilizationPercent.numericValue),
+                hottest?.celsius.numericValue == nil ? "" : (hottest?.key ?? ""),
+                cell(hottest?.celsius.numericValue), cell(system)
             ]
-            lines.append(([timeFormat.string(from: time)] + cells.map { $0.map { String($0) } ?? "" })
-                .joined(separator: ","))
+            lines.append(cells.joined(separator: ","))
         }
         return lines.joined(separator: "\n") + "\n"
     }
 
+    /// Frames are in time order, so a binary search finds the closest pairing.
     private static func nearest<Frame>(_ frames: [Frame], to time: Date, _ stamp: (Frame) -> Date) -> Frame? {
-        let candidate = frames.min { abs(stamp($0).timeIntervalSince(time)) < abs(stamp($1).timeIntervalSince(time)) }
+        var low = 0
+        var high = frames.count
+        while low < high {
+            let middle = (low + high) / 2
+            if stamp(frames[middle]) < time { low = middle + 1 } else { high = middle }
+        }
+        let candidates = [low - 1, low].filter { frames.indices.contains($0) }.map { frames[$0] }
+        let candidate = candidates.min { abs(stamp($0).timeIntervalSince(time)) < abs(stamp($1).timeIntervalSince(time)) }
         guard let candidate, abs(stamp(candidate).timeIntervalSince(time)) <= pairingTolerance else { return nil }
         return candidate
     }
