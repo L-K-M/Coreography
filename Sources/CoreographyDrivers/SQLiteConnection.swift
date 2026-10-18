@@ -18,6 +18,9 @@ public struct SQLiteError: Error, Equatable, Sendable {
 public final class SQLiteConnection {
     // SQLITE_TRANSIENT: SQLite copies bound text before the call returns.
     private static let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
+    /// coreo and the app open the same store; a writer waits this long for
+    /// the other's transaction instead of failing with SQLITE_BUSY at once.
+    private static let busyTimeoutMilliseconds: Int32 = 2_000
     private var handle: OpaquePointer?
 
     public init(path: String) throws {
@@ -29,6 +32,7 @@ public final class SQLiteConnection {
             handle = nil
             throw error
         }
+        sqlite3_busy_timeout(handle, Self.busyTimeoutMilliseconds)
     }
 
     deinit { sqlite3_close_v2(handle) }

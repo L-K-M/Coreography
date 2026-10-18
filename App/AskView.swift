@@ -70,6 +70,7 @@ struct SettingsView: View {
     @Bindable var hud: HUDController
     @State private var key = ""
     @State private var message: String?
+    @State private var confirmingDelete = false
 
     var body: some View {
         Form {
@@ -90,13 +91,19 @@ struct SettingsView: View {
                 if let problem = model.historyProblem, model.recordsHistory {
                     Text("Last write failed: \(problem)").font(.caption).foregroundStyle(.red)
                 }
-                Button("Delete history", role: .destructive) {
-                    Task {
-                        message = await model.deleteHistory() ?? String(localized: "History deleted.")
-                        await model.refreshHistorySize()
+                // Deleting cannot be undone, so one click only asks.
+                Button("Delete history…", role: .destructive) { confirmingDelete = true }
+                    .disabled(!model.recordsHistory)
+                    .confirmationDialog("Delete all recorded history?", isPresented: $confirmingDelete) {
+                        Button("Delete history", role: .destructive) {
+                            Task {
+                                message = await model.deleteHistory() ?? String(localized: "History deleted.")
+                                await model.refreshHistorySize()
+                            }
+                        }
+                    } message: {
+                        Text("Every stored sample, app total and day summary is removed from this Mac. This cannot be undone.")
                     }
-                }
-                .disabled(!model.recordsHistory)
             }
             MCPAccessSection(access: mcpAccess)
             Section("Alerts") {

@@ -1595,10 +1595,21 @@ public final class DashboardModel {
     }
 
     public func stop() {
+        halt()
+        if let historyRecorder { Task { await historyRecorder.flush() } }
+    }
+
+    /// Stops sampling and returns once buffered history is on disk, so
+    /// quitting does not lose the seconds since the last write.
+    public func stopForQuit() async {
+        halt()
+        await historyRecorder?.flush()
+    }
+
+    private func halt() {
         generation = UUID()
         worker?.cancel()
         worker = nil
-        if let historyRecorder { Task { await historyRecorder.flush() } }
     }
 
     public func toggleDisplayHold() {

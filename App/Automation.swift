@@ -84,6 +84,32 @@ final class AutomationRouter {
 final class AutomationAppDelegate: NSObject, NSApplicationDelegate {
     /// Work that must finish before the process ends, such as closing the MCP socket.
     static var onTerminate: (() -> Void)?
+    /// Asynchronous work quitting waits for, such as writing buffered history.
+    static var beforeTerminate: (@MainActor @Sendable () async -> Void)?
+    /// A stuck disk must not stop the app from quitting.
+    private static let terminationGrace: Duration = .seconds(3)
+    private static var terminationAnswered = false
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard let work = Self.beforeTerminate else { return .terminateNow }
+        Self.beforeTerminate = nil
+        // Whichever finishes first, the work or the grace period, lets the app quit.
+        Task { @MainActor in
+            await work()
+            Self.answerTermination()
+        }
+        Task { @MainActor in
+            try? await Task.sleep(for: Self.terminationGrace)
+            Self.answerTermination()
+        }
+        return .terminateLater
+    }
+
+    private static func answerTermination() {
+        guard !terminationAnswered else { return }
+        terminationAnswered = true
+        NSApplication.shared.reply(toApplicationShouldTerminate: true)
+    }
 
     func application(_ application: NSApplication, open urls: [URL]) {
         urls.forEach(AutomationRouter.receive)

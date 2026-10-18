@@ -188,8 +188,14 @@ enum HistorySamples {
             } else {
                 add(.hottestCelsius, sensors.hottest?.celsius, at: sensors.stamp.wallTime)
             }
-            let rail = sensors.systemPowerWatts
-            add(.systemPower, rail.numericValue != nil ? rail : (power?.systemPowerWatts ?? rail), at: sensors.stamp.wallTime)
+        }
+        // The window's choice: the SMC rail when it reads, else the power source's draw, else why neither does.
+        if let sensors, sensors.systemPowerWatts.numericValue != nil {
+            add(.systemPower, sensors.systemPowerWatts, at: sensors.stamp.wallTime)
+        } else if let power {
+            add(.systemPower, power.systemPowerWatts, at: power.stamp.wallTime)
+        } else if let sensors {
+            add(.systemPower, sensors.systemPowerWatts, at: sensors.stamp.wallTime)
         }
         return samples
     }
