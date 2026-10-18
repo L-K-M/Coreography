@@ -96,6 +96,14 @@ struct SettingsView: View {
                 }
                 .disabled(!model.recordsHistory)
             }
+            Section("Dock") {
+                Picker("Dock icon", selection: $model.dockIcon) {
+                    Text("App icon").tag(DockIconStyle.appIcon)
+                    Text("CPU graph").tag(DockIconStyle.cpu)
+                    Text("Memory graph").tag(DockIconStyle.memory)
+                }
+                Text("A graph redraws the Dock icon once a second.").font(.caption).foregroundStyle(.secondary)
+            }
             Section("Data sources") {
                 ForEach(model.dataSources, id: \.metric) { source in
                     VStack(alignment: .leading, spacing: 2) {

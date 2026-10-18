@@ -8,6 +8,7 @@ private struct CoreographyApp: App {
     @State private var dashboard: DashboardModel
     @State private var hud: HUDController
     private let automation: AutomationRouter
+    private let dockTile: DockTileController
 
     /// One sampler for every surface, running from launch, so the menu bar
     /// extra stays live while the window is closed.
@@ -19,6 +20,7 @@ private struct CoreographyApp: App {
         _hud = State(initialValue: hud)
         automation = AutomationRouter(model: model, hud: hud)
         automation.install()
+        dockTile = DockTileController(model: model)
     }
 
     var body: some Scene {

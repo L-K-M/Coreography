@@ -967,6 +967,45 @@ public final class DashboardModel {
     /// The command palette (plan: Command-Shift-P).
     public var paletteShown = false
 
+    /// When the newest live sample arrived, held display or not; surfaces
+    /// that always show live data (the Dock graph) redraw on it.
+    public private(set) var liveSampleTime: Date?
+
+    /// What the Dock icon shows; saved.
+    public var dockIcon = DockIconStyle.saved() {
+        didSet { if dockIcon != oldValue { dockIcon.save() } }
+    }
+
+    /// The Dock graph's last minute of live samples, even while the window is held;
+    /// missing readings and interruptions start new segments.
+    public var dockIconPoints: [DashboardPoint] {
+        guard let metric = dockIcon.metric, liveSampleTime != nil, let end = liveFrames.last?.stamp.wallTime else { return [] }
+        let start = end.addingTimeInterval(-Self.dockIconSeconds)
+        var segment = 0
+        var result: [DashboardPoint] = []
+        for frame in liveFrames {
+            if frame.continuity == .interrupted { segment += 1 }
+            let reading = metric == .cpu ? frame.cpuPercentOfMachine : frame.memoryUsedBytes
+            guard let value = reading.numericValue else {
+                segment += 1
+                continue
+            }
+            guard frame.stamp.wallTime >= start else { continue }
+            result.append(DashboardPoint(id: frame.id, time: frame.stamp.wallTime, value: value, segment: segment))
+        }
+        return result
+    }
+
+    /// The Dock graph's fixed top: the whole machine for CPU, physical memory for memory.
+    public var dockIconScale: Double? {
+        switch dockIcon {
+        case .appIcon: nil
+        case .cpu: 100
+        case .memory: liveFrames.last.map { Double($0.inventory.physicalMemoryBytes) }
+        }
+    }
+    private static let dockIconSeconds: TimeInterval = 60
+
     /// Every action by name, with why each unavailable one cannot run now.
     public var paletteEntries: [PaletteEntry] {
         func entry(_ title: String, _ action: PaletteAction, unavailable reason: String? = nil) -> PaletteEntry {
@@ -1203,6 +1242,7 @@ public final class DashboardModel {
                     }
                     guard let self, self.generation == run, !Task.isCancelled else { return }
                     self.liveFrames = history
+                    self.liveSampleTime = history.last?.stamp.wallTime
                     // An interrupted sample usually follows a wake; powerd may still be writing its record.
                     if history.last?.continuity == .interrupted { self.importSleepHistory(after: Self.wakeSettleDelay) }
                     if let processes {

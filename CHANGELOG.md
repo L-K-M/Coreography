@@ -13,6 +13,7 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
   after the store first exceeds it.
 
 ### Added
+- The Dock icon can show a live CPU or memory graph (Settings > Dock).
 - Per-process and per-app network: a Network in/out column and sort in
   the process table, the inspector's rate and `coreo traffic`, from the
   same source nettop uses.
