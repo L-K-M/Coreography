@@ -107,6 +107,18 @@ enum ProcessGroups {
 
     /// The responsible process owns a member only if it is observed and not
     /// younger; a later start means its PID was reused.
+    /// Each process's app, as the grouped table names it.
+    static func appNames(_ processes: CapturedProcesses) -> [ProcessIdentity: String] {
+        var names: [ProcessIdentity: String] = [:]
+        for row in rows(in: processes, matching: "", sortedBy: .name, grouping: .app) {
+            if let process = row.process { names[process.id] = row.appName }
+            for child in row.children ?? [] {
+                if let process = child.process { names[process.id] = row.appName }
+            }
+        }
+        return names
+    }
+
     private static func owner(
         of process: ObservedProcess, in byPID: [Int32: ObservedProcess]
     ) -> (ObservedProcess, ProcessGroupingMethod) {

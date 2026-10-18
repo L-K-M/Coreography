@@ -114,8 +114,12 @@ public final class DashboardModel {
         didSet {
             if wantsConnections { sampleConnections() }
             if detailPane == .sensors { publishSensorStats() }
+            if detailPane == .startup, startupInventory == nil { refreshStartupItems() }
         }
     }
+    /// Startup items as last read; definitions change rarely, so they load on request.
+    public private(set) var startupInventory: CapturedStartupInventory?
+    public var startupVisibility: StartupVisibility = .thirdParty
     /// The Sensors tab: each reading's current, minimum, maximum and mean since reset.
     public private(set) var sensorRows: [SensorStatRow] = []
     public private(set) var sensorStatsSince: Date?
@@ -159,6 +163,8 @@ public final class DashboardModel {
     @ObservationIgnored private var connectionSample: Task<Void, Never>?
     @ObservationIgnored private var liveConnections: CapturedConnections?
     @ObservationIgnored private var sensorStats = SensorStats()
+    @ObservationIgnored private let startupProvider: StartupProvider?
+    @ObservationIgnored private var startupLoad: Task<Void, Never>?
     /// The on-disk part of a range longer than live history; nil otherwise.
     private var storedHistory: StoredHistory?
     @ObservationIgnored private var storedLoad: Task<Void, Never>?
@@ -204,6 +210,7 @@ public final class DashboardModel {
         historyProblem = history.error
         sleepProvider = SleepHistoryProvider()
         connectionMonitor = ConnectionMonitor()
+        startupProvider = StartupProvider()
         interval = .seconds(1)
         processInterval = .seconds(2)
         do {
@@ -241,7 +248,7 @@ public final class DashboardModel {
         sensorMonitor: SensorMonitor? = nil, controller: ProcessController = ProcessController(),
         askService: AskService = AskService(), notifier: AlertDelivery? = nil,
         historyRecorder: HistoryRecorder? = nil, sleepProvider: SleepHistoryProvider? = nil,
-        connectionMonitor: ConnectionMonitor? = nil
+        connectionMonitor: ConnectionMonitor? = nil, startupProvider: StartupProvider? = nil
     ) {
         self.controller = controller
         self.askService = askService
@@ -249,6 +256,7 @@ public final class DashboardModel {
         self.historyRecorder = historyRecorder
         self.sleepProvider = sleepProvider
         self.connectionMonitor = connectionMonitor
+        self.startupProvider = startupProvider
         self.monitor = monitor
         self.interval = interval
         self.processMonitor = processMonitor
@@ -266,6 +274,7 @@ public final class DashboardModel {
         sleepImport?.cancel()
         storedLoad?.cancel()
         connectionSample?.cancel()
+        startupLoad?.cancel()
     }
 
     public var latest: CapturedSnapshot? { frames.last }
@@ -844,6 +853,26 @@ public final class DashboardModel {
         sensorFrames = liveSensorFrames
         connectionSnapshot = liveConnections
         if detailPane == .sensors { publishSensorStats() }
+    }
+
+    /// The Startup tab's rows, joined to displayed (possibly held) process data.
+    public var startupRows: [StartupRow] {
+        guard let startupInventory else { return [] }
+        return StartupRows.rows(
+            startupInventory, processes: processSnapshot, ledger: ledger,
+            now: processSnapshot?.stamp.wallTime ?? Date(), visibility: startupVisibility
+        )
+    }
+
+    /// Reread startup definitions and launchd's enable state; never two reads at once.
+    public func refreshStartupItems() {
+        guard let startupProvider, startupLoad == nil else { return }
+        startupLoad = Task { [weak self] in
+            let inventory = await startupProvider.load()
+            guard let self, !Task.isCancelled else { return }
+            self.startupLoad = nil
+            self.startupInventory = inventory
+        }
     }
 
     /// Start the Sensors tab's statistics over (plan P15).
