@@ -149,6 +149,26 @@ final class NetworkMonitorTests: XCTestCase {
         #endif
     }
 
+    func testNativeInterfaceScanPreservesTaskCancellationOnItsSerialExecutor() async throws {
+        let driver = NetworkInterfacesDriver()
+        let task = Task {
+            while !Task.isCancelled { await Task.yield() }
+            return await driver.read()
+        }
+        task.cancel()
+        let raw = await task.value
+        #if os(macOS)
+        let enumeration = try raw.enumeration.get()
+        XCTAssertTrue(enumeration.interfaces.isEmpty)
+        XCTAssertTrue(enumeration.isTruncated)
+        #else
+        switch raw.enumeration {
+        case .failure(.unsupportedPlatform): break
+        default: XCTFail("Linux must remain unsupported after a cancelled scan")
+        }
+        #endif
+    }
+
     private static let clock = UUID(uuidString: "AFAE41C6-793E-4A64-A545-66CFA34571EB")!
     private static let epoch = Date(timeIntervalSince1970: 1_700_000_000)
 
