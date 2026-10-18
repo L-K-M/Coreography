@@ -55,6 +55,7 @@ final class ProcessInspectionTests: XCTestCase {
         XCTAssertEqual(DiagnosticTools.processDetails(captured, pid: 10)?.explanation, "\(note.summary) \(note.quittingNote)")
         XCTAssertNil(DiagnosticTools.processDetails(captured, pid: 11)?.explanation)
         let encoded = try DiagnosticToolCatalog.run("get_process_details", arguments: ["pid": 10], snapshot: captured)
+        XCTAssertTrue(encoded.contains("Spotlight"), "the qualified note is exported")
         XCTAssertFalse(encoded.contains("/System/"), "path qualification must not export the path")
     }
 
