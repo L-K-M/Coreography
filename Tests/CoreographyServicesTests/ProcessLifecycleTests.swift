@@ -28,12 +28,37 @@ final class ProcessLifecycleTests: XCTestCase {
         XCTAssertTrue(lifecycle.exited.isEmpty)
     }
 
+    func testTruncatedListIsNotMistakenForExits() throws {
+        var lifecycle = ProcessLifecycle()
+        lifecycle.record(try snapshot(at: 0, pids: [1, 2]))
+        lifecycle.record(try snapshot(at: 1, pids: [1], truncated: true))
+        XCTAssertTrue(lifecycle.exited.isEmpty, "a truncated list omits live processes")
+
+        lifecycle.record(try snapshot(at: 2, pids: [1, 2]))
+        XCTAssertTrue(lifecycle.exited.isEmpty)
+        XCTAssertFalse(lifecycle.isNew(try identity(2), at: epoch.addingTimeInterval(2)), "left out is not new again")
+
+        lifecycle.record(try snapshot(at: 3, pids: [1]))
+        XCTAssertEqual(lifecycle.exited.map(\.identity.pid), [2])
+    }
+
+    func testReappearingProcessIsNotAGhost() throws {
+        var lifecycle = ProcessLifecycle()
+        lifecycle.record(try snapshot(at: 0, pids: [1, 2]))
+        lifecycle.record(try snapshot(at: 1, pids: [1]))
+        lifecycle.record(try snapshot(at: 2, pids: [1, 2]))
+        XCTAssertTrue(lifecycle.exited.isEmpty, "a process seen again is alive")
+
+        lifecycle.record(try snapshot(at: 3, pids: [1]))
+        XCTAssertEqual(lifecycle.exited.map(\.identity.pid), [2], "one ghost per identity")
+    }
+
     private func identity(_ pid: Int32) throws -> ProcessIdentity {
         try ProcessIdentity(pid: pid, startSeconds: 1, startMicroseconds: 0)
     }
 
     private func snapshot(
-        at second: TimeInterval, pids: [Int32], continuity: SamplingContinuity = .continuous
+        at second: TimeInterval, pids: [Int32], continuity: SamplingContinuity = .continuous, truncated: Bool = false
     ) throws -> CapturedProcesses {
         let stamp = SampleStamp(clockID: UUID(), monotonicNanoseconds: 1, wallTime: epoch.addingTimeInterval(second))
         let processes = try pids.map { pid in
@@ -45,7 +70,7 @@ final class ProcessLifecycleTests: XCTestCase {
             )
         }
         return ProcessSnapshot(
-            stamp: stamp, collectorPID: 1, enumeration: try .measured(Double(pids.count)), enumerationTruncated: false,
+            stamp: stamp, collectorPID: 1, enumeration: try .measured(Double(pids.count)), enumerationTruncated: truncated,
             processes: processes, issues: [], continuity: continuity
         )
     }
