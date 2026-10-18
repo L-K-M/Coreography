@@ -3,7 +3,7 @@
 Track actual delivery against the [product plan](plan.md). A stage is
 complete only after its relevant checks and review pass and its PR merges.
 
-## Current slice: maintenance states
+## Current slice: automation
 
 The native foundation merged in [PR #5](https://github.com/L-K-M/Coreography/pull/5)
 at `aee9494` after two GLM rounds and passing CI. Process monitoring merged
@@ -36,9 +36,28 @@ process change highlighting in [PR #27](https://github.com/L-K-M/Coreography/pul
 the filter grammar in [PR #28](https://github.com/L-K-M/Coreography/pull/28).
 Process role notes and current assertion facts are shared with
 diagnostic clients in [PR #52](https://github.com/L-K-M/Coreography/pull/52).
-This slice adds maintenance states where macOS reports them.
+Maintenance states follow in [PR #53](https://github.com/L-K-M/Coreography/pull/53).
+This slice adds automation.
 
 Implemented:
+
+- Automation: a `coreography://` scheme registered in the app's
+  Info.plist, received through the app delegate so links work with the
+  window closed. Links only navigate: `show`, `filter?q=`, `find?port=`
+  and `find?file=` (the filter's reverse lookups), `process?pid=`,
+  `range?seconds=` (the window's ranges only), `record/start?name=`,
+  `record/stop` and `hud/toggle`. Any app or page can open a link, so
+  nothing quits, signals, exports or reads data back; unknown commands,
+  out-of-range ports, control characters, texts over 256 characters and
+  paths with spaces (which the filter cannot hold) are refused with the
+  reason shown in the window. App Intents for Shortcuts and Spotlight:
+  the system summary, top apps over the last minute, start and stop a
+  recording, and who uses a port or has a file open, each from one
+  on-demand read with what it could not cover (other users' processes,
+  truncated or failed reads). An intent that launches the app waits up
+  to 5 s for first readings. Native CI checks the scheme and that Xcode
+  extracted every intent's metadata; running them in Shortcuts is an
+  owner check.
 
 - Maintenance states: `tmutil status` (whether a backup runs, its phase,
   progress and time left) and `mdutil -s /` (only whether the startup
@@ -409,6 +428,7 @@ outstanding. The store, MCP and model features above await stack delivery.
 | Native network MIB, wide-counter mapping and three-lane UI | Passed at `e62fac1`, including native C fixtures, live CLI and both executable architectures; integrated candidate pending |
 | Native IOKit storage counters and four-lane renderer | Passed [native CI](https://github.com/L-K-M/Coreography/actions/runs/39110306993) at `6434722`: 75 tests, 16 drivers, 32 measured rate fields, no inventory issues; owner checks pending |
 | On-disk history store and recorder | History slice: 148 Swift tests pass on Linux against the real system SQLite (round trip with gaps, duplicates, retention, reopen, permissions, WAL, batching); native CI checks the CLI and file permissions |
+| Automation | 227 Swift tests pass on Linux (every link form, refusals with reasons, holder lookups with their limits, commands applied through the model); intents and link delivery compile only in native CI, which checks the scheme and intent metadata |
 | Maintenance states | 222 Swift tests pass on Linux (running, unknown-progress, idle and unrecognised `tmutil` answers; `mdutil` states; cut-off and failed tools unavailable; path-qualified processes only; no end promised for Spotlight; the summary's state and signal; one read per refresh window through the model). Native CI compares `coreo diagnose` with independent `tmutil` and `mdutil` reads |
 | Diagnostic context | 212 Swift tests pass on Linux; privacy and unsafe-quit regressions failed before the fix. One completed Devin review found the missing kernel note; its PID-0 regression also failed before the fix. Native compilation and current stack review remain pending |
 | Sample | Sample slice: 208 Swift tests pass on Linux (report and failure states through the model); the native tool run and the sheet are owner checks |

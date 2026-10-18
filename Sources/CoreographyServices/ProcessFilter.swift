@@ -128,7 +128,7 @@ public struct ProcessFilter: Equatable, Sendable {
                 if let pid = Int32(value) { terms.append(.pid(pid)) } else { issues.append("Unreadable \(word)") }
             case "file", "path":
                 // A path or a file name; ~ means the home folder.
-                let expanded = value.hasPrefix("~") ? NSHomeDirectory() + value.dropFirst() : value
+                let expanded = expandingHome(value)
                 if expanded.isEmpty { issues.append("Unreadable \(word); try file:~/Downloads") } else { terms.append(.file(expanded)) }
             case "port":
                 if let port = UInt16(value), port > 0 { terms.append(.port(port)) } else { issues.append("Unreadable \(word); try port:443") }
@@ -144,6 +144,11 @@ public struct ProcessFilter: Equatable, Sendable {
             }
         }
         return ProcessFilter(terms: terms, issues: issues)
+    }
+
+    /// `~/Downloads` is the home folder's Downloads.
+    static func expandingHome(_ path: String) -> String {
+        path.hasPrefix("~") ? NSHomeDirectory() + path.dropFirst() : path
     }
 
     var isEmpty: Bool { terms.isEmpty }

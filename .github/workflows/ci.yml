@@ -163,6 +163,21 @@ jobs:
             done
           done
 
+      - name: Verify the URL scheme and App Intents metadata
+        run: |
+          set -euo pipefail
+          APP=dist/Coreography.app
+          scheme=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleURLTypes:0:CFBundleURLSchemes:0' "$APP/Contents/Info.plist")
+          test "$scheme" = coreography || { echo "::error::URL scheme is '$scheme'"; exit 1; }
+          # Xcode extracts intent metadata at build time; without it Shortcuts lists nothing.
+          metadata="$APP/Contents/Resources/Metadata.appintents"
+          test -d "$metadata" || { echo "::error::$metadata is missing"; exit 1; }
+          for intent in GetSystemSummaryIntent GetTopAppsIntent StartRecordingIntent StopRecordingIntent \
+                        FindPortHolderIntent FindFileHolderIntent; do
+            grep -rqa "$intent" "$metadata" || { echo "::error::$intent is not in the intent metadata"; exit 1; }
+          done
+          ls -R "$metadata"
+
       - name: Smoke-test embedded CLI
         run: |
           set -euo pipefail

@@ -13,6 +13,10 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
   after the store first exceeds it.
 
 ### Added
+- Shortcuts actions for the system summary, top apps, recording, and
+  who uses a port or has a file open; `coreography://` links that
+  navigate, filter, select a process, set the range, record or toggle
+  the HUD.
 - The inspector shows Time Machine backup progress for `backupd` and
   whether Spotlight indexes the startup disk for its processes;
   diagnostics report both and flag a running backup.

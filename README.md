@@ -52,6 +52,13 @@ read-only tools.
 The server samples in its own process for now; connecting it to the running
 app with per-client approval is planned.
 
+Shortcuts and Spotlight get actions for the system summary, top apps,
+starting and stopping a recording, and finding who uses a port or has a
+file open. `coreography://` links navigate only: `show`, `filter?q=`,
+`find?port=` or `find?file=`, `process?pid=`, `range?seconds=`,
+`record/start?name=`, `record/stop` and `hud/toggle`. No link or action
+quits, signals or exports anything.
+
 Dragging across any lane selects a range; a panel totals CPU-seconds and
 disk bytes per app over it, tail apps included.
 
