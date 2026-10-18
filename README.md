@@ -91,6 +91,7 @@ swift run coreo disks --once --json     # macOS only; per-storage-driver rates
 swift run coreo gpu --once --json       # macOS only; per-GPU utilization
 swift run coreo power --once --json     # macOS only; battery and adapter
 swift run coreo sensors --once --json   # macOS only; SMC temperatures, fans, power
+swift run coreo diagnose --json         # macOS only; summary, signals, top apps
 python3 tools/tests/test_buildscripts.py
 shellcheck scripts/*.sh
 python3 tools/doccheck/checkdocs.py .

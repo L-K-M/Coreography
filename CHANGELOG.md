@@ -7,6 +7,8 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
 ## [Unreleased]
 
 ### Added
+- The shared diagnostic contract and `coreo diagnose`: a summary with
+  fact-only signals, paged top apps, bounded history and data sources.
 - Menu bar extra with CPU in the title, mini lanes, the top CPU app, hold
   and Open Coreography; sampling continues while the window is closed.
 - App scope: a scoped app's CPU share overlays the CPU lane, its disk
