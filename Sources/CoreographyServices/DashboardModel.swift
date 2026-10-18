@@ -121,12 +121,17 @@ public final class DashboardModel {
     public var scopedApp: String?
     public private(set) var actionMessage: String?
     public private(set) var askState: AskState = .idle
+    /// Rules currently raised, by id; lanes tint while their rule is active.
+    public private(set) var activeAlerts: [AlertLane: String] = [:]
     public private(set) var hasProviderKey = false
     public private(set) var contributorHistory: [ContributorSnapshot] = []
 
     @ObservationIgnored private let monitor: SystemMonitor?
     @ObservationIgnored private let controller: ProcessController
     @ObservationIgnored private let askService: AskService
+    @ObservationIgnored private let notifier: AlertDelivery?
+    @ObservationIgnored private var alertEngine = AlertEngine(rules: AlertRules.shipped)
+    @ObservationIgnored private var alertCooldown = AlertCooldown()
     @ObservationIgnored private var askTask: Task<Void, Never>?
     @ObservationIgnored private let processMonitor: ProcessMonitor?
     @ObservationIgnored private let networkMonitor: NetworkMonitor?
@@ -149,9 +154,12 @@ public final class DashboardModel {
     @ObservationIgnored private var livePowerFrames: [CapturedPower] = []
     @ObservationIgnored private var liveSensorFrames: [CapturedSensors] = []
 
-    public init() {
+    /// - Parameter notifier: system notifications for actionable alerts; nil
+    ///   (as in command-line hosts) keeps alerts to tints and markers.
+    public init(notifier: AlertDelivery? = nil) {
         controller = ProcessController()
         askService = AskService()
+        self.notifier = notifier
         interval = .seconds(1)
         processInterval = .seconds(2)
         do {
@@ -187,10 +195,11 @@ public final class DashboardModel {
         networkMonitor: NetworkMonitor? = nil, diskMonitor: DiskMonitor? = nil,
         gpuMonitor: GPUMonitor? = nil, powerMonitor: PowerMonitor? = nil,
         sensorMonitor: SensorMonitor? = nil, controller: ProcessController = ProcessController(),
-        askService: AskService = AskService()
+        askService: AskService = AskService(), notifier: AlertDelivery? = nil
     ) {
         self.controller = controller
         self.askService = askService
+        self.notifier = notifier
         self.monitor = monitor
         self.interval = interval
         self.processMonitor = processMonitor
@@ -348,6 +357,31 @@ public final class DashboardModel {
         )
         let apps = ledger.totals(in: selection).apps.sorted { $0.cpuSeconds > $1.cpuSeconds }
         return RangeExport.document(range: selection, model: frames, apps: apps)
+    }
+
+    /// Rules read live data, so a held display never delays an alert.
+    private func evaluateAlerts() {
+        let host = liveFrames.last
+        let power = livePowerFrames.last
+        let inputs = AlertInputs(
+            memoryPressure: host?.memory.pressureLevel,
+            thermalPressure: host.flatMap { ThermalPressureLevel(reading: $0.thermalPressure) },
+            batteryPercent: power?.batteryChargePercent.numericValue,
+            onBattery: power?.powerSource.map { $0 == .battery }
+        )
+        let now = host?.stamp.wallTime ?? Date()
+        for event in alertEngine.evaluate(inputs, at: now) {
+            guard let rule = alertEngine.rules.first(where: { $0.id == event.ruleID }) else { continue }
+            switch event.kind {
+            case .raised:
+                activeAlerts[rule.lane] = rule.title
+                markers.append(TimelineMarker(id: UUID(), time: event.time, label: rule.title))
+                guard rule.notifies, let notifier, alertCooldown.admit(rule.id, at: event.time) else { continue }
+                Task { await notifier.deliver(ruleID: rule.id, title: rule.title, body: "Open Coreography to see what is using it.") }
+            case .cleared:
+                activeAlerts[rule.lane] = nil
+            }
+        }
     }
 
     /// Freeze the displayed data for one diagnostic question.
@@ -530,6 +564,7 @@ public final class DashboardModel {
                     if let gpus { self.liveGPUFrames = gpus }
                     if let power { self.livePowerFrames = power }
                     if let sensors { self.liveSensorFrames = sensors }
+                    self.evaluateAlerts()
                     if self.displayMode == .live {
                         self.frames = history
                         if let processes {

@@ -7,6 +7,8 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
 ## [Unreleased]
 
 ### Added
+- Alerts: critical memory pressure, heavy thermal pressure and low battery
+  tint their lanes and drop markers; memory and battery also notify.
 - Ask Coreography: plain-language questions answered by Claude through the
   diagnostic tools, with a Keychain-stored key and listed evidence.
 - `coreo mcp --stdio`: a read-only MCP server for the six diagnostic tools,

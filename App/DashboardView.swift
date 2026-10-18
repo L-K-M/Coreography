@@ -331,6 +331,7 @@ private struct MemoryLane: View {
         .overlay(RoundedRectangle(cornerRadius: Layout.cornerRadius).strokeBorder(
             Color(nsColor: .separatorColor), lineWidth: 0.5
         ))
+        .alertTint(model.activeAlerts[.memory])
     }
 
     // Layers stack under a dashed capacity line; the pressure band sits above it.
@@ -642,6 +643,7 @@ private struct PowerLane: View {
         .overlay(RoundedRectangle(cornerRadius: Layout.cornerRadius).strokeBorder(
             Color(nsColor: .separatorColor), lineWidth: 0.5
         ))
+        .alertTint(model.activeAlerts[.power])
     }
 
     // Battery charge on a fixed 0-100% scale; a grey band above marks external power.
@@ -853,6 +855,7 @@ private struct ThermalLane: View {
         .overlay(RoundedRectangle(cornerRadius: Layout.cornerRadius).strokeBorder(
             Color(nsColor: .separatorColor), lineWidth: 0.5
         ))
+        .alertTint(model.activeAlerts[.thermal])
     }
 }
 
@@ -1545,6 +1548,27 @@ private struct SelectionBand: ChartContent {
                 xEnd: .value("Selection end", min(selection.upperBound, range.upperBound))
             )
             .foregroundStyle(Color.accentColor.opacity(0.15))
+        }
+    }
+}
+
+private extension View {
+    /// Silent alert (plan: most rules tint the lane rather than notify).
+    func alertTint(_ title: String?) -> some View {
+        overlay {
+            if title != nil {
+                RoundedRectangle(cornerRadius: Layout.cornerRadius)
+                    .fill(Color.red.opacity(0.07))
+                    .allowsHitTesting(false)
+            }
+        }
+        .overlay(alignment: .topTrailing) {
+            if let title {
+                Label(title, systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.red)
+                    .padding(8)
+            }
         }
     }
 }

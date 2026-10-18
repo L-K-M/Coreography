@@ -3,7 +3,7 @@
 Track actual delivery against the [product plan](plan.md). A stage is
 complete only after its relevant checks and review pass and its PR merges.
 
-## Current slice: Ask Coreography
+## Current slice: alerts
 
 The native foundation merged in [PR #5](https://github.com/L-K-M/Coreography/pull/5)
 at `aee9494` after two GLM rounds and passing CI. Process monitoring merged
@@ -29,8 +29,9 @@ process actions in [PR #20](https://github.com/L-K-M/Coreography/pull/20);
 app scope in [PR #21](https://github.com/L-K-M/Coreography/pull/21);
 the menu bar extra in [PR #22](https://github.com/L-K-M/Coreography/pull/22);
 the diagnostic contract in [PR #23](https://github.com/L-K-M/Coreography/pull/23);
-MCP over stdio in [PR #24](https://github.com/L-K-M/Coreography/pull/24).
-This slice adds the optional in-app assistant with a bring-your-own key.
+MCP over stdio in [PR #24](https://github.com/L-K-M/Coreography/pull/24);
+Ask Coreography in [PR #25](https://github.com/L-K-M/Coreography/pull/25).
+This slice adds alerts.
 
 Implemented:
 
@@ -169,6 +170,15 @@ Implemented:
   Monitoring does not wait on the model, and nothing is sent until asked.
   Both clients now share one tool catalog. S9 still owns model evaluation
   on recorded fixtures and the on-device option.
+- Alerts: the plan's shipped rules with durations and hysteresis
+  (critical memory pressure for 30 s, heavy thermal pressure for 30 s,
+  battery under 15% while discharging), evaluated on live data even while
+  the display is held. A raised rule tints its lane, names itself and drops
+  a marker; unknown readings pause the clocks rather than count. Only the
+  memory and battery rules notify, through UserNotifications (so Focus
+  applies), with a 15-minute cooldown and one banner per rule. The
+  startup-disk rule waits for a volume capacity provider; user-defined
+  rules and Shortcut actions remain M6.
 - A thermal lane showing system thermal pressure as a band, from the public
   `com.apple.system.thermalpressurelevel` notify state. Temperatures, fans
   and the hottest-sensor line wait for the sensor provider.
@@ -191,6 +201,7 @@ time, helper, MCP or model integration in this slice.
 | Native process collection, cancellation and CPU units | Passed [native review-fix CI](https://github.com/L-K-M/Coreography/actions/runs/39105964147) at `7df03ec`, including cancellation, saturation and `getrusage` cross-checks |
 | Native network MIB, wide-counter mapping and three-lane UI | Passed at `e62fac1`, including native C fixtures, live CLI and both executable architectures; integrated candidate pending |
 | Native IOKit storage counters and four-lane renderer | Passed [native CI](https://github.com/L-K-M/Coreography/actions/runs/39110306993) at `6434722`: 75 tests, 16 drivers, 32 measured rate fields, no inventory issues; owner checks pending |
+| Alerts | Alerts slice: 137 Swift tests pass on Linux (debounce, hysteresis, unknown readings, cooldown, permission-once delivery, end-to-end tint, marker and notification); native notification permission and banners are owner checks |
 | Ask Coreography | Ask slice: 131 Swift tests pass on Linux with a scripted transport (tool loop echo, batched results, request shape, every failure path, key handling); live provider calls and the UI are owner checks |
 | MCP stdio server | MCP slice: 128 Swift tests pass on Linux (handshake, version negotiation, notifications, catalog, cursor reuse of one snapshot, protocol and tool errors, call budget); native CI smoke drives a real stdio session |
 | Diagnostic contract and `coreo diagnose` | Contract slice: 125 Swift tests pass on Linux (signals, cursor binding, bounds, gaps, no paths, unavailable sleep history); native CI smoke checks units, evidence and that no path leaks |
