@@ -38,6 +38,9 @@ coreo_copy_ifname(char *dst, size_t dst_size, const char *src,
     const char *nul = memchr(src, '\0', src_size);
     size_t len = (nul != NULL) ? (size_t)(nul - src) : src_size;
 
+    if (dst_size == 0) {
+        return;
+    }
     if (len >= dst_size) {
         len = dst_size - 1;
     }
