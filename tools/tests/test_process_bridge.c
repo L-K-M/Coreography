@@ -333,6 +333,7 @@ test_platform(void)
     assert(sample.physical_footprint_bytes == 0);
     assert(sample.disk_read_bytes == 0);
     assert(sample.disk_write_bytes == 0);
+    assert(sample.wakeups == 0);
     assert(sample.name[0] == '\0');
     assert(sample.path_error == ENOTSUP);
     assert(sample.path[0] == '\0');

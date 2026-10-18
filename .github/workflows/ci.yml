@@ -188,7 +188,7 @@ jobs:
           assert cpu["availability"] == "measured" and 0 <= cpu["numericValue"] <= 100
           memory = own["memoryFootprintBytes"]
           assert memory["availability"] == "measured" and memory["numericValue"] > 0
-          for field in ("diskReadBytesPerSecond", "diskWriteBytesPerSecond"):
+          for field in ("diskReadBytesPerSecond", "diskWriteBytesPerSecond", "wakeupsPerSecond"):
               assert own[field]["availability"] == "measured" and own[field]["numericValue"] >= 0
           assert own["executablePath"].endswith("/Coreography.app/Contents/Helpers/coreo")
           # The responsibility SPI is optional by design; record whether it resolved.

@@ -96,6 +96,7 @@ public actor ProcessMonitor {
                     name: process.name, stamp: processStamp,
                     cpuPercentOfMachine: readings.cpu, memoryFootprintBytes: readings.memory,
                     diskReadBytesPerSecond: readings.read, diskWriteBytesPerSecond: readings.write,
+                    wakeupsPerSecond: readings.wakeups,
                     executablePath: process.executablePath, responsiblePID: process.responsiblePID
                 ))
             }
@@ -133,16 +134,18 @@ public actor ProcessMonitor {
         let memory: MetricReading
         let read: MetricReading
         let write: MetricReading
+        let wakeups: MetricReading
 
-        init(cpu: MetricReading, memory: MetricReading, read: MetricReading, write: MetricReading) {
+        init(cpu: MetricReading, memory: MetricReading, read: MetricReading, write: MetricReading, wakeups: MetricReading) {
             self.cpu = cpu
             self.memory = memory
             self.read = read
             self.write = write
+            self.wakeups = wakeups
         }
 
         init(missing: MetricReading) {
-            self.init(cpu: missing, memory: missing, read: missing, write: missing)
+            self.init(cpu: missing, memory: missing, read: missing, write: missing, wakeups: missing)
         }
     }
 
@@ -150,11 +153,13 @@ public actor ProcessMonitor {
         var cpu: CounterRateTracker
         var read: CounterRateTracker
         var write: CounterRateTracker
+        var wakeups: CounterRateTracker
 
         init(maximumGap: Duration) throws {
             cpu = try CounterRateTracker(maxGap: maximumGap, source: usageSource)
             read = try CounterRateTracker(maxGap: maximumGap, source: usageSource)
             write = try CounterRateTracker(maxGap: maximumGap, source: usageSource)
+            wakeups = try CounterRateTracker(maxGap: maximumGap, source: usageSource)
         }
 
         mutating func record(
@@ -179,11 +184,13 @@ public actor ProcessMonitor {
             }
             let readReading = read.record(counters.diskReadBytes, at: stamp)
             let writeReading = write.record(counters.diskWriteBytes, at: stamp)
+            let wakeupReading = wakeups.record(counters.wakeups, at: stamp)
             let gap = MetricReading.gap(reason: "Sampling interrupted", source: usageSource)
             return UsageReadings(
                 cpu: interrupted ? gap : cpuReading,
                 memory: try .measured(Double(counters.physicalFootprintBytes), source: usageSource),
-                read: interrupted ? gap : readReading, write: interrupted ? gap : writeReading
+                read: interrupted ? gap : readReading, write: interrupted ? gap : writeReading,
+                wakeups: interrupted ? gap : wakeupReading
             )
         }
     }

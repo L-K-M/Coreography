@@ -7,12 +7,20 @@ public struct SelfCost: Sendable {
     public static let cpuBudgetPercentOfOneCore = 1.0
     /// Plan budget: under 150 MB footprint.
     public static let footprintBudgetBytes = 150_000_000.0
+    /// Plan budget: under 5 wakeups per second beyond the sampling rate.
+    public static let wakeupBudgetBeyondSampling = 5.0
+    /// The window samples once a second, so one wakeup a second is the sampling itself.
+    static let samplingWakeupsPerSecond = 1.0
 
     public let cpuPercentOfOneCore: MetricReading
     public let footprintBytes: MetricReading
+    public let wakeupsPerSecond: MetricReading
 
     public var cpuOverBudget: Bool { (cpuPercentOfOneCore.numericValue ?? 0) > Self.cpuBudgetPercentOfOneCore }
     public var footprintOverBudget: Bool { (footprintBytes.numericValue ?? 0) > Self.footprintBudgetBytes }
+    public var wakeupsOverBudget: Bool {
+        (wakeupsPerSecond.numericValue ?? 0) - Self.samplingWakeupsPerSecond > Self.wakeupBudgetBeyondSampling
+    }
 
     /// The collector's own process row, converted from whole-machine CPU
     /// share to the budget's one-core scale.
@@ -28,6 +36,6 @@ public struct SelfCost: Sendable {
         } else {
             cpu = own.cpuPercentOfMachine
         }
-        return SelfCost(cpuPercentOfOneCore: cpu, footprintBytes: own.memoryFootprintBytes)
+        return SelfCost(cpuPercentOfOneCore: cpu, footprintBytes: own.memoryFootprintBytes, wakeupsPerSecond: own.wakeupsPerSecond)
     }
 }
