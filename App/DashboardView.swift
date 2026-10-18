@@ -226,6 +226,7 @@ struct DashboardView: View {
                     }
                     CursorRule(time: model.cursorTime, range: start...end)
                     SelectionBand(selection: model.selection, range: start...end)
+                    MarkerRules(markers: model.markers, range: start...end)
                 }
                 .chartCursor(model)
                 .chartLegend(.hidden)
@@ -339,6 +340,7 @@ private struct MemoryLane: View {
             }
             CursorRule(time: model.cursorTime, range: start...end)
             SelectionBand(selection: model.selection, range: start...end)
+            MarkerRules(markers: model.markers, range: start...end)
         }
         .chartCursor(model)
         .chartLegend(.hidden)
@@ -508,6 +510,7 @@ private struct GPULane: View {
             }
             CursorRule(time: model.cursorTime, range: start...end)
             SelectionBand(selection: model.selection, range: start...end)
+            MarkerRules(markers: model.markers, range: start...end)
         }
         .chartCursor(model)
         .chartLegend(.hidden)
@@ -639,6 +642,7 @@ private struct PowerLane: View {
             }
             CursorRule(time: model.cursorTime, range: start...end)
             SelectionBand(selection: model.selection, range: start...end)
+            MarkerRules(markers: model.markers, range: start...end)
         }
         .chartCursor(model)
         .chartLegend(.hidden)
@@ -804,6 +808,7 @@ private struct ThermalLane: View {
                     }
                     CursorRule(time: model.cursorTime, range: start...end)
                     SelectionBand(selection: model.selection, range: start...end)
+                    MarkerRules(markers: model.markers, range: start...end)
                 }
                 .chartCursor(model)
                 .chartLegend(.hidden)
@@ -850,6 +855,7 @@ private extension ThermalLane {
             }
             CursorRule(time: model.cursorTime, range: start...end)
             SelectionBand(selection: model.selection, range: start...end)
+            MarkerRules(markers: model.markers, range: start...end)
         }
         .chartCursor(model)
         .chartLegend(.hidden)
@@ -1147,6 +1153,7 @@ private struct TransferChart: View {
             }
             CursorRule(time: model.cursorTime, range: start...end)
             SelectionBand(selection: model.selection, range: start...end)
+            MarkerRules(markers: model.markers, range: start...end)
         }
         .chartCursor(model)
         .chartLegend(.hidden)
@@ -1228,6 +1235,7 @@ private struct TransferChartAccessibility: AXChartDescriptorRepresentable {
 private struct ProcessPane: View {
     @Bindable var model: DashboardModel
     var filterFocused: FocusState<Bool>.Binding
+    @State private var pendingAction: ProcessActionRequest?
 
     var body: some View {
         DisclosureGroup("Processes") {
@@ -1270,6 +1278,12 @@ private struct ProcessPane: View {
                     TableColumn("Process") { row in
                         Text(row.children == nil ? row.name : "\(row.name) (\(row.memberCount))")
                             .help(ProcessText.grouping(row.groupingMethod))
+                            .contextMenu {
+                                if let process = row.process {
+                                    Button("Quit") { pendingAction = model.actionRequest(for: process, mode: .graceful) }
+                                    Button("Force Quit…") { pendingAction = model.actionRequest(for: process, mode: .forced) }
+                                }
+                            }
                     }
                     TableColumn("PID") { Text($0.process?.id.pid.formatted(.number.grouping(.never)) ?? "") }
                         .width(60)
@@ -1291,11 +1305,26 @@ private struct ProcessPane: View {
                 .frame(height: 260)
                 .textSelection(.enabled)
 
+                if let message = model.actionMessage {
+                    Text(message).font(.caption)
+                }
+
                 Text("CPU uses the whole-machine scale. App totals sum their members; footprint sums can count shared memory twice. Process sampling: 2 s; short-lived processes can be missed.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
             .padding(.top, 8)
+        }
+        // Destructive actions confirm with their consequences; the identity is re-checked on send.
+        .confirmationDialog(
+            pendingAction.map { "\($0.mode == .forced ? "Force quit" : "Quit") “\($0.name)” (PID \($0.target.pid))?" } ?? "",
+            isPresented: Binding(get: { pendingAction != nil }, set: { if !$0 { pendingAction = nil } }),
+            titleVisibility: .visible, presenting: pendingAction
+        ) { request in
+            Button(request.mode == .forced ? "Force Quit" : "Quit", role: .destructive) { model.perform(request) }
+            Button("Cancel", role: .cancel) {}
+        } message: { request in
+            Text(request.consequences.joined(separator: "\n"))
         }
     }
 }
@@ -1456,6 +1485,20 @@ private enum RangeText {
             return String(localized: "No process samples fall in this range.")
         }
         return String(localized: "\(report.activeAppCount) active apps; process samples cover \(span(covered)). Own-user processes only; \"est.\" marks lower bounds.")
+    }
+}
+
+/// Dashed rules where the person acted, so the effect shows on every graph.
+private struct MarkerRules: ChartContent {
+    let markers: [TimelineMarker]
+    let range: ClosedRange<Date>
+
+    var body: some ChartContent {
+        ForEach(markers.filter { range.contains($0.time) }) { marker in
+            RuleMark(x: .value("Marker", marker.time))
+                .foregroundStyle(Color.secondary)
+                .lineStyle(StrokeStyle(lineWidth: 1, dash: [2, 3]))
+        }
     }
 }
 
