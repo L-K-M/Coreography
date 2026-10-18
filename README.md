@@ -113,6 +113,7 @@ swift run coreo disks --once --json     # macOS only; per-storage-driver rates
 swift run coreo gpu --once --json       # macOS only; per-GPU utilization
 swift run coreo power --once --json     # macOS only; battery and adapter
 swift run coreo sensors --once --json   # macOS only; SMC temperatures, fans, power
+swift run coreo connections --once --json # macOS only; your processes' sockets
 swift run coreo diagnose --json         # macOS only; summary, signals, top apps
 swift run coreo mcp --stdio             # macOS only; read-only MCP server
 swift run coreo history --json cpu      # recorded history for one metric

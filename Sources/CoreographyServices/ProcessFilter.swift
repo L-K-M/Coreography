@@ -3,7 +3,8 @@ import CoreographyKit
 
 /// A parsed process filter (plan P22). Whitespace separates terms; every
 /// term must match. Examples: `safari`, `cpu:>10`, `mem:>1GB`, `disk:>5MB`,
-/// `pid:42`, `user:root`, `user:me`, `#apps`, `#mine`, `#third-party`, `#new`.
+/// `pid:42`, `user:root`, `user:me`, `#apps`, `#mine`, `#third-party`, `#new`,
+/// `#listening`.
 /// Terms that cannot be evaluated are reported, never silently dropped.
 public struct ProcessFilter: Equatable, Sendable {
     enum Comparison: Equatable, Sendable {
@@ -21,7 +22,7 @@ public struct ProcessFilter: Equatable, Sendable {
     }
 
     enum Token: String, Sendable {
-        case apps, mine, root, thirdParty = "third-party", new
+        case apps, mine, root, thirdParty = "third-party", new, listening
     }
 
     enum Term: Equatable, Sendable {
@@ -36,7 +37,6 @@ public struct ProcessFilter: Equatable, Sendable {
 
     /// Tokens the plan names whose data sources do not exist yet.
     private static let pendingTokens: [String: String] = [
-        "listening": "needs the Connections data source",
         "not-responding": "needs the helper's responsiveness check",
         "preventing-sleep": "needs power assertions",
         "exited": "exited processes are listed below the table"
@@ -99,6 +99,8 @@ public struct ProcessFilter: Equatable, Sendable {
     }
 
     var isEmpty: Bool { terms.isEmpty }
+    /// Matching needs connection data, which is read only on demand.
+    var usesListening: Bool { terms.contains(.token(.listening)) }
     /// Only free text: a matching app name shows the whole group.
     var isTextOnly: Bool { terms.allSatisfy { if case .text = $0 { true } else { false } } }
 
@@ -110,7 +112,12 @@ public struct ProcessFilter: Equatable, Sendable {
     }
 
     /// Unknown readings never match a numeric predicate: they are not zero.
-    func matches(_ process: ObservedProcess, isNew: Bool, currentUser: UInt32 = UInt32(getuid())) -> Bool {
+    /// - Parameter listening: processes holding a listening socket; nil
+    ///   until connection data exists, when `#listening` matches nothing.
+    func matches(
+        _ process: ObservedProcess, isNew: Bool, listening: Set<ProcessIdentity>? = nil,
+        currentUser: UInt32 = UInt32(getuid())
+    ) -> Bool {
         terms.allSatisfy { term in
             switch term {
             case .text(let text):
@@ -139,6 +146,8 @@ public struct ProcessFilter: Equatable, Sendable {
                 return !Self.systemPrefixes.contains { path.hasPrefix($0) }
             case .token(.new):
                 return isNew
+            case .token(.listening):
+                return listening?.contains(process.id) ?? false
             }
         }
     }

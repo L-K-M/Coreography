@@ -26,6 +26,9 @@
 #endif
 
 #if defined(__APPLE__)
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
 #include <signal.h>
 #include <sys/resource.h>
 #include <sys/wait.h>
@@ -56,6 +59,17 @@ test_invalid_args(void)
     assert(coreo_process_signal(42, 1, 0, 99) == EINVAL);
     assert(coreo_process_read(1, NULL) == EINVAL);
     assert(count == -1 && truncated == -1);
+
+    {
+        coreo_socket_sample sockets[4];
+
+        assert(coreo_process_sockets(0, 1, 0, sockets, 4, &count, &truncated) == EINVAL);
+        assert(coreo_process_sockets(1, 1, 0, NULL, 4, &count, &truncated) == EINVAL);
+        assert(coreo_process_sockets(1, 1, 0, sockets, 0, &count, &truncated) == EINVAL);
+        assert(coreo_process_sockets(1, 1, 0, sockets, 4, NULL, &truncated) == EINVAL);
+        assert(coreo_process_sockets(1, 1, 0, sockets, 4, &count, NULL) == EINVAL);
+        assert(count == -1 && truncated == -1);
+    }
 }
 
 #if defined(__APPLE__)
@@ -150,6 +164,67 @@ test_platform(void)
     assert(rc == ESRCH);
 }
 
+
+/* A listening TCP socket and a bound UDP socket of this process must be
+   reported with their ports and states; a wrong start time must not read. */
+static void
+test_sockets(void)
+{
+    struct sockaddr_in address;
+    socklen_t length = sizeof(address);
+    coreo_process_sample self;
+    coreo_socket_sample sockets[64];
+    int32_t count = 0;
+    int32_t truncated = 0;
+    int listener = socket(AF_INET, SOCK_STREAM, 0);
+    int datagram = socket(AF_INET, SOCK_DGRAM, 0);
+    uint16_t tcp_port;
+    uint16_t udp_port;
+    int found_tcp = 0;
+    int found_udp = 0;
+
+    assert(listener >= 0 && datagram >= 0);
+    memset(&address, 0, sizeof(address));
+    address.sin_family = AF_INET;
+    address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    assert(bind(listener, (struct sockaddr *)&address, sizeof(address)) == 0);
+    assert(listen(listener, 4) == 0);
+    assert(getsockname(listener, (struct sockaddr *)&address, &length) == 0);
+    tcp_port = ntohs(address.sin_port);
+    address.sin_port = 0;
+    assert(bind(datagram, (struct sockaddr *)&address, sizeof(address)) == 0);
+    length = sizeof(address);
+    assert(getsockname(datagram, (struct sockaddr *)&address, &length) == 0);
+    udp_port = ntohs(address.sin_port);
+
+    assert(coreo_process_read(getpid(), &self) == 0);
+    assert(coreo_process_sockets(getpid(), self.start_seconds, self.start_microseconds,
+                                 sockets, 64, &count, &truncated) == 0);
+    for (int32_t i = 0; i < count; i++) {
+        if (sockets[i].kind == COREO_SOCKET_TCP && sockets[i].local_port == tcp_port) {
+            assert(sockets[i].tcp_state == COREO_TCP_STATE_LISTEN);
+            assert(sockets[i].ip_version == 4);
+            assert(sockets[i].local_address[0] == 127 && sockets[i].remote_port == 0);
+            found_tcp = 1;
+        }
+        if (sockets[i].kind == COREO_SOCKET_UDP && sockets[i].local_port == udp_port) {
+            assert(sockets[i].tcp_state == COREO_TCP_STATE_NONE);
+            found_udp = 1;
+        }
+    }
+    assert(found_tcp && found_udp);
+
+    assert(coreo_process_sockets(getpid(), self.start_seconds + 1, self.start_microseconds,
+                                 sockets, 64, &count, &truncated) == EAGAIN);
+    assert(count == 0);
+    assert(coreo_process_sockets(getpid(), self.start_seconds, self.start_microseconds,
+                                 sockets, 1, &count, &truncated) == 0);
+    assert(count == 1 && truncated == 1);
+
+    close(listener);
+    close(datagram);
+}
+
 #else
 
 static void
@@ -189,6 +264,13 @@ test_platform(void)
     /* PID 0 names kernel_task on macOS; it is a valid identity, not EINVAL. */
     assert(coreo_process_read(0, &sample) == ENOTSUP);
     assert(sample.usage_error == ENOTSUP);
+
+    {
+        coreo_socket_sample sockets[4];
+
+        assert(coreo_process_sockets(42, 1, 0, sockets, 4, &count, &truncated) == ENOTSUP);
+        assert(count == 0 && truncated == 0);
+    }
 }
 
 #endif
@@ -198,6 +280,9 @@ main(void)
 {
     test_invalid_args();
     test_platform();
+#if defined(__APPLE__)
+    test_sockets();
+#endif
     puts("test_process_bridge: all assertions passed");
     return 0;
 }

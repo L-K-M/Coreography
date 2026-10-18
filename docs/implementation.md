@@ -230,6 +230,14 @@ Implemented:
   app's overlay extends into stored history. Export still covers live
   data only and says so; cursor readouts and contributors over the
   stored part, exporting it, and the 24 h range (the Day tier) remain.
+- Connections, first part: a Processes | Connections switch under the
+  lanes. The Connections tab lists each app's TCP and UDP sockets
+  (listening first, then connected by peer) with state and endpoints,
+  read through public libproc calls only for the exact process identity
+  seen, and only while the tab shows or the filter uses `#listening`,
+  which now works. Other users' processes are counted as needing the
+  helper, not dropped. `coreo connections --once --json` prints the same
+  data. Per-connection traffic, domain names and the helper remain.
 - Sleep and wake history, first part: `pmset -g log` runs with a fixed
   path and arguments, a 20-second limit and an 8 MB tail cap, off the
   sampling path: once at launch and 10 s after each wake (an interrupted
@@ -264,6 +272,7 @@ time, helper, MCP or model integration in this slice.
 | Native network MIB, wide-counter mapping and three-lane UI | Passed at `e62fac1`, including native C fixtures, live CLI and both executable architectures; integrated candidate pending |
 | Native IOKit storage counters and four-lane renderer | Passed [native CI](https://github.com/L-K-M/Coreography/actions/runs/39110306993) at `6434722`: 75 tests, 16 drivers, 32 measured rate fields, no inventory issues; owner checks pending |
 | On-disk history store and recorder | History slice: 148 Swift tests pass on Linux against the real system SQLite (round trip with gaps, duplicates, retention, reopen, permissions, WAL, batching); native CI checks the CLI and file permissions |
+| Connections and `#listening` | Connections slice: 173 Swift tests and the Linux C contract pass (identity-checked reads, restricted, exited, failed and truncated processes counted, UDP and TCP listening, `inet_ntop` text, on-demand reads, the filter token); the native contract opens TCP and UDP sockets and checks ports, state, a wrong start time and truncation, and native CI finds a real listener through `coreo connections`; UI compile pending |
 | Reports and scope over stored history | Stored-range slice: 168 Swift tests pass on Linux (stored and live ledger totals without double counting, true means from raw readings, keyless stored peaks, scoped overlay and report through the model, export clamped to live data); native compile pending |
 | App ledger on disk | Ledger slice: 166 Swift tests pass on Linux against the system SQLite (round trip with idle intervals, whole-interval replacement, retention with name sweep, deletion, rebuilt totals equal live ones, the size-cap regression observed failing first); native CI smoke reads `coreo apps` |
 | 6 h replay | Replay slice: 162 Swift tests pass on Linux (reduction keeps peaks, gaps and silences; stack alignment; bands do not bridge silences; the model puts stored points behind live without joining them and drops them for short ranges or on deletion; source changes recorded as gaps; a missing store is named); native compile and the owner's look at a long range are pending |

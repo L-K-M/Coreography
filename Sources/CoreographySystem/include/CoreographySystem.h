@@ -58,6 +58,51 @@ enum {
 int32_t coreo_process_signal(int32_t pid, uint64_t start_seconds, uint64_t start_microseconds,
                              int32_t signal_kind);
 
+/* Internet socket kinds the connection bridge reports. */
+enum {
+    COREO_SOCKET_TCP = 1,
+    COREO_SOCKET_UDP = 2
+};
+
+/* TCP states numbered as xnu's TSI_S_* (sys/proc_info.h); the bridge
+   asserts them against the SDK. UDP sockets carry COREO_TCP_STATE_NONE. */
+enum {
+    COREO_TCP_STATE_NONE = -1,
+    COREO_TCP_STATE_CLOSED = 0,
+    COREO_TCP_STATE_LISTEN = 1,
+    COREO_TCP_STATE_SYN_SENT = 2,
+    COREO_TCP_STATE_SYN_RECEIVED = 3,
+    COREO_TCP_STATE_ESTABLISHED = 4,
+    COREO_TCP_STATE_CLOSE_WAIT = 5,
+    COREO_TCP_STATE_FIN_WAIT_1 = 6,
+    COREO_TCP_STATE_CLOSING = 7,
+    COREO_TCP_STATE_LAST_ACK = 8,
+    COREO_TCP_STATE_FIN_WAIT_2 = 9,
+    COREO_TCP_STATE_TIME_WAIT = 10
+};
+
+typedef struct {
+    int32_t fd;
+    int32_t kind;          /* COREO_SOCKET_* */
+    int32_t ip_version;    /* 4 or 6; IPv4 addresses fill the first four bytes */
+    int32_t tcp_state;     /* COREO_TCP_STATE_* */
+    uint8_t local_address[16];
+    uint8_t remote_address[16];
+    uint16_t local_port;   /* host byte order; 0 when unbound */
+    uint16_t remote_port;  /* 0 when not connected */
+} coreo_socket_sample;
+
+/* One process's IPv4 and IPv6 TCP and UDP sockets, read only while pid
+   still has the given start time (EAGAIN otherwise, also when the pid is
+   reused during the read). Count never exceeds capacity; truncated is 1
+   when the process held more internet sockets than fit. A socket closed
+   between listing and reading is skipped. Returns EINVAL for pid <= 0 or
+   bad buffers, EPERM for another user's process, ESRCH once it is gone,
+   ENOTSUP off macOS. */
+int32_t coreo_process_sockets(int32_t pid, uint64_t start_seconds, uint64_t start_microseconds,
+                              coreo_socket_sample *sockets, int32_t capacity,
+                              int32_t *count, int32_t *truncated);
+
 typedef struct {
     uint32_t index;
     uint32_t flags;

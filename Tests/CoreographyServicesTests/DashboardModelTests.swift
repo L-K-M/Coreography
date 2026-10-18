@@ -201,6 +201,36 @@ final class DashboardModelTests: XCTestCase {
         XCTAssertNil(model.rangeExport, "a selection entirely in stored history has no live data to export")
     }
 
+    func testConnectionsAreReadOnlyWhenShownOrFilteredOn() async throws {
+        let sockets = ScriptedSockets()
+        let model = DashboardModel(
+            monitor: try SystemMonitor(driver: IncreasingHostDriver()), interval: .milliseconds(10),
+            processMonitor: try ProcessMonitor(driver: IncreasingProcessDriver()), processInterval: .milliseconds(10),
+            connectionMonitor: ConnectionMonitor(driver: sockets)
+        )
+        model.start()
+        defer { model.stop() }
+        try await eventually { model.processSnapshot != nil }
+        let idle = await sockets.reads
+        XCTAssertEqual(idle, 0, "no socket reads while connections are neither shown nor filtered on")
+        XCTAssertEqual(model.processFilterIssues, [])
+
+        model.processFilter = "#listening"
+        try await eventually { model.connectionSnapshot != nil }
+        XCTAssertEqual(model.visibleProcessRows.map(\.name), ["Fixture"])
+        XCTAssertEqual(model.processFilterIssues, [])
+
+        model.processFilter = ""
+        model.detailPane = .connections
+        let apps = model.appConnections
+        XCTAssertEqual(apps.map(\.app), ["Fixture"])
+        XCTAssertEqual(apps.first?.listening.first?.local, ConnectionEndpoint(address: "127.0.0.1", port: 8080))
+        XCTAssertEqual(apps.first?.connected.first?.remote?.port, 443)
+        model.connectionFilter = "443"
+        XCTAssertEqual(model.appConnections.first?.listening.count, 0)
+        XCTAssertEqual(model.appConnections.first?.connected.count, 1)
+    }
+
     func testSixHourRangeWithoutRecordingNamesTheMissingHistory() async throws {
         let model = DashboardModel(monitor: try SystemMonitor(driver: IncreasingHostDriver()), interval: .milliseconds(10))
         model.timeRange = .sixHours
@@ -543,6 +573,19 @@ private actor IncreasingProcessDriver: ProcessSampleReading {
                 ))
             )]))
         )
+    }
+}
+
+private actor ScriptedSockets: ProcessSocketReading {
+    private(set) var reads = 0
+
+    func sockets(pid: Int32, startSeconds: UInt64, startMicroseconds: UInt64) async -> Result<RawProcessSockets, SocketReadError> {
+        reads += 1
+        guard pid == 42 else { return .failure(.notPermitted) }
+        return .success(RawProcessSockets(sockets: [
+            RawSocket(descriptor: 3, transport: .tcp, tcpState: 1, localAddress: "127.0.0.1", localPort: 8080, remoteAddress: "", remotePort: 0),
+            RawSocket(descriptor: 4, transport: .tcp, tcpState: 4, localAddress: "10.0.0.2", localPort: 50000, remoteAddress: "17.253.144.10", remotePort: 443)
+        ], truncated: false))
     }
 }
 

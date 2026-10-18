@@ -11,6 +11,8 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
   after the store first exceeds it.
 
 ### Added
+- A Connections tab listing each app's TCP and UDP sockets, the
+  `#listening` filter token and `coreo connections`.
 - On the 6 h range, range reports and the scoped app's overlay include
   recorded history; export says it covers live data only.
 - The per-app ledger is recorded to the history store for six hours;
