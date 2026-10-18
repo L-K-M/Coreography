@@ -30,14 +30,12 @@ struct DashboardView: View {
                     .foregroundStyle(.secondary)
                 }
 
-                lane(.cpu)
-                MemoryLane(model: model)
-                GPULane(model: model)
-                PowerLane(model: model)
-
-                DiskLane(model: model)
-                NetworkLane(model: model)
-                ThermalLane(model: model)
+                // The person's order, sizes and hidden lanes (plan: each lane's menu).
+                ForEach(model.laneLayout.visible) { kind in
+                    laneView(kind)
+                        .environment(\.laneGraphHeight, Layout.graphHeight(model.laneLayout.size(of: kind)))
+                        .overlay(alignment: .topTrailing) { LaneMenu(model: model, lane: kind) }
+                }
 
                 AskPanel(model: model)
 
@@ -269,8 +267,21 @@ struct DashboardView: View {
         .onAppear { model.start() }
     }
 
+    @ViewBuilder private func laneView(_ kind: LaneKind) -> some View {
+        switch kind {
+        case .cpu: lane(.cpu)
+        case .memory: MemoryLane(model: model)
+        case .gpu: GPULane(model: model)
+        case .power: PowerLane(model: model)
+        case .disk: DiskLane(model: model)
+        case .network: NetworkLane(model: model)
+        case .thermal: ThermalLane(model: model)
+        }
+    }
+
     private func lane(_ metric: DashboardMetric) -> some View {
         let reading = model.reading(for: metric)
+        let graphHeight = Layout.graphHeight(model.laneLayout.size(of: .cpu))
         let title = metric == .cpu ? String(localized: "CPU") : String(localized: "Memory")
         let maximum = metric == .cpu
             ? MetricText.percentScale
@@ -324,7 +335,7 @@ struct DashboardView: View {
                 Text(reading?.reason ?? String(localized: "Collecting samples…"))
                     .font(.callout)
                     .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, minHeight: Layout.graphHeight)
+                    .frame(maxWidth: .infinity, minHeight: graphHeight)
             } else {
                 Chart {
                     // User under system (plan: CPU lane); position, not hue, tells them apart.
@@ -384,7 +395,7 @@ struct DashboardView: View {
                         AxisValueLabel(format: .dateTime.hour().minute().second())
                     }
                 }
-                .frame(height: Layout.graphHeight)
+                .frame(height: graphHeight)
                 .accessibilityChartDescriptor(MetricChartAccessibility(
                     title: title, metric: metric, points: points,
                     start: start, end: end, maximum: max(1, maximum)
@@ -400,6 +411,7 @@ struct DashboardView: View {
 }
 
 private struct MemoryLane: View {
+    @Environment(\.laneGraphHeight) private var graphHeight
     @Bindable var model: DashboardModel
 
     var body: some View {
@@ -436,7 +448,7 @@ private struct MemoryLane: View {
             if stack.isEmpty {
                 Text(used?.reason ?? String(localized: "Collecting samples…"))
                     .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, minHeight: Layout.graphHeight)
+                    .frame(maxWidth: .infinity, minHeight: graphHeight)
             } else {
                 chart(stack: stack, pressure: pressure, capacity: capacity, start: start, end: end)
             }
@@ -500,7 +512,7 @@ private struct MemoryLane: View {
                 AxisValueLabel(format: .dateTime.hour().minute().second())
             }
         }
-        .frame(height: Layout.graphHeight)
+        .frame(height: graphHeight)
         .accessibilityChartDescriptor(MemoryChartAccessibility(
             stack: stack, pressure: model.displayedFrame?.memory.pressure,
             start: start, end: end, capacity: capacity
@@ -590,6 +602,7 @@ private struct MemoryChartAccessibility: AXChartDescriptorRepresentable {
 }
 
 private struct GPULane: View {
+    @Environment(\.laneGraphHeight) private var graphHeight
     @Bindable var model: DashboardModel
 
     var body: some View {
@@ -622,7 +635,7 @@ private struct GPULane: View {
             if !hasVisiblePoints {
                 Text(GPUText.status(latest, cursor: model.cursorTime))
                     .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, minHeight: Layout.graphHeight)
+                    .frame(maxWidth: .infinity, minHeight: graphHeight)
             } else {
                 chart(series, start: start, end: end)
             }
@@ -670,7 +683,7 @@ private struct GPULane: View {
                 AxisValueLabel(format: .dateTime.hour().minute().second())
             }
         }
-        .frame(height: Layout.graphHeight)
+        .frame(height: graphHeight)
         .accessibilityChartDescriptor(GPUChartAccessibility(series: series, start: start, end: end))
     }
 }
@@ -723,6 +736,7 @@ private struct GPUChartAccessibility: AXChartDescriptorRepresentable {
 }
 
 private struct PowerLane: View {
+    @Environment(\.laneGraphHeight) private var graphHeight
     @Bindable var model: DashboardModel
 
     var body: some View {
@@ -755,7 +769,7 @@ private struct PowerLane: View {
             if points.isEmpty {
                 Text(latest?.batteryChargePercent.reason ?? String(localized: "Collecting samples…"))
                     .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, minHeight: Layout.graphHeight)
+                    .frame(maxWidth: .infinity, minHeight: graphHeight)
             } else {
                 chart(points: points, plugged: plugged, start: start, end: end)
             }
@@ -812,7 +826,7 @@ private struct PowerLane: View {
                 AxisValueLabel(format: .dateTime.hour().minute().second())
             }
         }
-        .frame(height: Layout.graphHeight)
+        .frame(height: graphHeight)
         .accessibilityChartDescriptor(PowerChartAccessibility(
             points: points, pluggedSpans: plugged.count, start: start, end: end
         ))
@@ -937,6 +951,7 @@ private struct PowerChartAccessibility: AXChartDescriptorRepresentable {
 }
 
 private struct ThermalLane: View {
+    @Environment(\.laneGraphHeight) private var graphHeight
     @Bindable var model: DashboardModel
 
     var body: some View {
@@ -1053,7 +1068,7 @@ private extension ThermalLane {
                 AxisValueLabel(format: .dateTime.hour().minute().second())
             }
         }
-        .frame(height: Layout.graphHeight)
+        .frame(height: graphHeight)
         .accessibilityChartDescriptor(TemperatureChartAccessibility(points: points, start: start, end: end))
     }
 }
@@ -1168,6 +1183,7 @@ private struct ThermalChartAccessibility: AXChartDescriptorRepresentable {
 }
 
 private struct NetworkLane: View {
+    @Environment(\.laneGraphHeight) private var graphHeight
     @Bindable var model: DashboardModel
 
     var body: some View {
@@ -1206,7 +1222,7 @@ private struct NetworkLane: View {
             if received.isEmpty && sent.isEmpty {
                 Text(receiveReading?.reason ?? String(localized: "Collecting samples…"))
                     .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, minHeight: Layout.graphHeight)
+                    .frame(maxWidth: .infinity, minHeight: graphHeight)
             } else {
                 TransferChart(
                     title: String(localized: "Network"), aboveLabel: String(localized: "Received"),
@@ -1242,6 +1258,7 @@ private struct NetworkLane: View {
 }
 
 private struct DiskLane: View {
+    @Environment(\.laneGraphHeight) private var graphHeight
     @Bindable var model: DashboardModel
 
     var body: some View {
@@ -1272,7 +1289,7 @@ private struct DiskLane: View {
             .frame(width: Layout.headerWidth, alignment: .leading)
             if read.isEmpty && written.isEmpty {
                 Text(model.storageSelectionMessage).foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, minHeight: Layout.graphHeight)
+                    .frame(maxWidth: .infinity, minHeight: graphHeight)
             } else {
                 TransferChart(
                     title: String(localized: "Disk"), aboveLabel: String(localized: "Read"),
@@ -1307,6 +1324,7 @@ private struct DiskLane: View {
 }
 
 private struct TransferChart: View {
+    @Environment(\.laneGraphHeight) private var graphHeight
     let title: String
     let aboveLabel: String
     let belowLabel: String
@@ -1359,7 +1377,7 @@ private struct TransferChart: View {
                 AxisValueLabel(format: .dateTime.hour().minute().second())
             }
         }
-        .frame(height: Layout.graphHeight)
+        .frame(height: graphHeight)
         .accessibilityChartDescriptor(TransferChartAccessibility(
             title: title, aboveLabel: aboveLabel, belowLabel: belowLabel,
             above: above, below: below, start: start, end: end, maximum: maximum
@@ -2807,7 +2825,15 @@ private enum Layout {
     static let cornerRadius: CGFloat = 10
     static let headerWidth: CGFloat = 180
     static let axisLabelWidth: CGFloat = 96
-    static let graphHeight: CGFloat = 120
+    static let regularGraphHeight: CGFloat = 120
+
+    static func graphHeight(_ size: LaneSize) -> CGFloat {
+        switch size {
+        case .compact: 72
+        case .regular: regularGraphHeight
+        case .tall: 200
+        }
+    }
     static let bandHeight: CGFloat = 48
 }
 
@@ -2954,5 +2980,70 @@ private struct MetricChartAccessibility: AXChartDescriptorRepresentable {
             title: title, summary: String(localized: "Visible range; missing readings leave gaps."),
             xAxis: x, yAxis: y, additionalAxes: [], series: series
         )
+    }
+}
+
+private struct LaneGraphHeightKey: EnvironmentKey {
+    static let defaultValue = Layout.regularGraphHeight
+}
+
+private extension EnvironmentValues {
+    /// The graph height the person chose for the lane being drawn.
+    var laneGraphHeight: CGFloat {
+        get { self[LaneGraphHeightKey.self] }
+        set { self[LaneGraphHeightKey.self] = newValue }
+    }
+}
+
+/// Each lane's menu (plan: hide, reorder and resize from the lane itself).
+private struct LaneMenu: View {
+    @Bindable var model: DashboardModel
+    let lane: LaneKind
+
+    var body: some View {
+        Menu {
+            Button("Move Up") { model.laneLayout.move(lane, .up) }
+                .disabled(!model.laneLayout.canMove(lane, .up))
+            Button("Move Down") { model.laneLayout.move(lane, .down) }
+                .disabled(!model.laneLayout.canMove(lane, .down))
+            Picker("Size", selection: Binding(
+                get: { model.laneLayout.size(of: lane) }, set: { model.laneLayout.set(lane, $0) }
+            )) {
+                ForEach(LaneSize.allCases) { Text(LaneText.size($0)).tag($0) }
+            }
+            Divider()
+            Button("Hide Lane") { model.laneLayout.set(lane, .hidden) }
+                .disabled(model.laneLayout.visible == [lane])
+        } label: {
+            Image(systemName: "ellipsis.circle")
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .padding(6)
+        .help("Move, resize or hide this lane; Settings shows hidden lanes again")
+        .accessibilityLabel("\(LaneText.title(lane)) lane options")
+    }
+}
+
+enum LaneText {
+    static func title(_ lane: LaneKind) -> String {
+        switch lane {
+        case .cpu: String(localized: "CPU")
+        case .memory: String(localized: "Memory")
+        case .gpu: String(localized: "GPU")
+        case .power: String(localized: "Power")
+        case .disk: String(localized: "Disk")
+        case .network: String(localized: "Network")
+        case .thermal: String(localized: "Thermal")
+        }
+    }
+
+    static func size(_ size: LaneSize) -> String {
+        switch size {
+        case .compact: String(localized: "Compact")
+        case .regular: String(localized: "Regular")
+        case .tall: String(localized: "Tall")
+        }
     }
 }

@@ -1177,6 +1177,11 @@ public final class DashboardModel {
     /// that always show live data (the Dock graph) redraw on it.
     public private(set) var liveSampleTime: Date?
 
+    /// Lane order, hidden lanes and sizes; saved as they change.
+    public var laneLayout = LaneLayout.saved() {
+        didSet { if laneLayout != oldValue { laneLayout.save() } }
+    }
+
     /// The menu bar extra's items; saved, at most three.
     public var menuBarItems = MenuBarLayout.saved() {
         didSet {
