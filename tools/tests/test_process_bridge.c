@@ -77,6 +77,15 @@ test_platform(void)
     assert(sample.name[0] != '\0');
     assert(strlen(sample.name) < sizeof(sample.name));
 
+    /* Path and responsibility belong to the same identity bracket. */
+    assert(sample.path_error == 0);
+    assert(sample.path[0] == '/');
+    assert(strlen(sample.path) < sizeof(sample.path));
+    assert(strstr(sample.path, "test_process_bridge") != NULL);
+    assert(sample.responsible_error == 0 || sample.responsible_error == ENOTSUP);
+    assert(sample.responsible_error != 0 || sample.responsible_pid >= 0);
+    assert(sample.responsible_error == 0 || sample.responsible_pid == 0);
+
     /* kernel_task must reach libproc rather than a fabricated argument error. */
     rc = coreo_process_read(0, &sample);
     assert(rc == 0 || rc == EPERM || rc == EACCES);
@@ -140,6 +149,10 @@ test_platform(void)
     assert(sample.disk_read_bytes == 0);
     assert(sample.disk_write_bytes == 0);
     assert(sample.name[0] == '\0');
+    assert(sample.path_error == ENOTSUP);
+    assert(sample.path[0] == '\0');
+    assert(sample.responsible_error == ENOTSUP);
+    assert(sample.responsible_pid == 0);
 
     /* PID 0 names kernel_task on macOS; it is a valid identity, not EINVAL. */
     assert(coreo_process_read(0, &sample) == ENOTSUP);

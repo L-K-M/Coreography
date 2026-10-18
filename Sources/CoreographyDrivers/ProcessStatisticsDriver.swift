@@ -42,12 +42,16 @@ public struct RawProcessInfo: Sendable {
     public let name: String
     public let monotonicNanoseconds: UInt64
     public let counters: Result<ProcessCounters, ProcessDriverError>
+    /// Absent when the path or the private responsibility lookup is unreadable.
+    public let executablePath: String?
+    public let responsiblePID: Int32?
 
     public init(
         pid: Int32, parentPID: UInt32, uid: UInt32,
         startSeconds: UInt64, startMicroseconds: UInt64, name: String,
         monotonicNanoseconds: UInt64,
-        counters: Result<ProcessCounters, ProcessDriverError>
+        counters: Result<ProcessCounters, ProcessDriverError>,
+        executablePath: String? = nil, responsiblePID: Int32? = nil
     ) {
         self.pid = pid
         self.parentPID = parentPID
@@ -57,6 +61,8 @@ public struct RawProcessInfo: Sendable {
         self.name = name
         self.monotonicNanoseconds = monotonicNanoseconds
         self.counters = counters
+        self.executablePath = executablePath
+        self.responsiblePID = responsiblePID
     }
 }
 
@@ -162,6 +168,9 @@ public actor ProcessStatisticsDriver: ProcessSampleReading {
             let name = withUnsafeBytes(of: sample.name) { bytes in
                 String(decoding: bytes.prefix(while: { $0 != 0 }), as: UTF8.self)
             }
+            let path = sample.path_error != 0 ? nil : withUnsafeBytes(of: sample.path) { bytes in
+                String(decoding: bytes.prefix(while: { $0 != 0 }), as: UTF8.self)
+            }
             let counters: Result<ProcessCounters, ProcessDriverError>
             if sample.usage_error == 0 {
                 counters = .success(ProcessCounters(
@@ -177,7 +186,9 @@ public actor ProcessStatisticsDriver: ProcessSampleReading {
                 pid: pid, parentPID: sample.parent_pid, uid: sample.uid,
                 startSeconds: sample.start_seconds, startMicroseconds: sample.start_microseconds,
                 name: name.isEmpty ? "PID \(pid)" : name,
-                monotonicNanoseconds: time, counters: counters
+                monotonicNanoseconds: time, counters: counters,
+                executablePath: path?.isEmpty == false ? path : nil,
+                responsiblePID: sample.responsible_error == 0 ? sample.responsible_pid : nil
             ))
         }
         return .success(ProcessEnumeration(

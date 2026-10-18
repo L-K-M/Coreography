@@ -19,7 +19,9 @@ numeric table add swap use, swap and page-in rates, and compression ratio.
 The process pane adds PID/start-time-safe CPU share, physical footprint
 and disk read/write rates, with filtering, sorting and explicit restricted
 or unreadable coverage. It refreshes every two seconds using public libproc
-APIs. Footprints are not an additive system memory total.
+APIs. Footprints are not an additive system memory total. By default it
+folds helpers into their app, using the process macOS holds responsible
+or the enclosing app bundle; group totals mark unreadable members.
 
 The network lane uses full-width interface MIB counters, with receive/send
 graphs on the same time axis. It defaults to the published primary IPv4
@@ -31,7 +33,7 @@ selection requires one identified device and complete inventory; otherwise
 choose a device. Registry identities keep physical and virtual drivers
 separate, with missing data and inventory limits shown explicitly.
 
-App grouping and attribution, SoC providers, persistent history, power tools,
+Attribution history, SoC providers, persistent history, power tools,
 MCP and Ask are tracked in the [implementation ledger](docs/implementation.md).
 The full product is still in progress.
 

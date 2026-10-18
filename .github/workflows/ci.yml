@@ -162,6 +162,12 @@ jobs:
           assert memory["availability"] == "measured" and memory["numericValue"] > 0
           for field in ("diskReadBytesPerSecond", "diskWriteBytesPerSecond"):
               assert own[field]["availability"] == "measured" and own[field]["numericValue"] >= 0
+          assert own["executablePath"].endswith("/Coreography.app/Contents/Helpers/coreo")
+          # The responsibility SPI is optional by design; record whether it resolved.
+          responsible = own.get("responsiblePID")
+          assert responsible is None or (type(responsible) is int and responsible >= 0)
+          resolved = sum(1 for row in snapshot["processes"] if "responsiblePID" in row)
+          print(f"responsiblePID for coreo: {responsible}; resolved for {resolved} of {len(snapshot['processes'])} processes")
           PY
 
       - name: Smoke-test native network counters

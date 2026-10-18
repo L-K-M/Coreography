@@ -148,6 +148,19 @@ final class ProcessMonitorTests: XCTestCase {
         XCTAssertTrue(result.enumerationTruncated)
     }
 
+    func testOwnershipFieldsPassThroughWithoutBecomingMetrics() async throws {
+        let helper = RawProcessInfo(
+            pid: 43, parentPID: 1, uid: 501, startSeconds: 100, startMicroseconds: 0,
+            name: "Helper", monotonicNanoseconds: 1, counters: .failure(.restricted(code: 1)),
+            executablePath: "/Applications/Host.app/Contents/MacOS/Helper", responsiblePID: 42
+        )
+        let result = try await makeMonitor([fixture(time: 1, rows: [helper])]).sample()
+        let reading = try XCTUnwrap(result.processes.first)
+        XCTAssertEqual(reading.executablePath, "/Applications/Host.app/Contents/MacOS/Helper")
+        XCTAssertEqual(reading.responsiblePID, 42)
+        XCTAssertEqual(reading.cpuPercentOfMachine.availability, .restricted)
+    }
+
     func testMalformedIdentitiesAndOverflowCannotProduceMetrics() async throws {
         let invalid = RawProcessInfo(
             pid: -1, parentPID: 0, uid: 0, startSeconds: 0,

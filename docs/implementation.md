@@ -3,7 +3,7 @@
 Track actual delivery against the [product plan](plan.md). A stage is
 complete only after its relevant checks and review pass and its PR merges.
 
-## Current slice: memory composition, swap and pressure
+## Current slice: app grouping
 
 The native foundation merged in [PR #5](https://github.com/L-K-M/Coreography/pull/5)
 at `aee9494` after two GLM rounds and passing CI. Process monitoring merged
@@ -13,8 +13,9 @@ after two GLM rounds and passing CI. The network slice in
 `e62fac1` and now integrates the reviewed process fixes. Its latest
 integration checks and GLM review still gate delivery.
 Scoped storage-driver rates and a fourth lane follow in
-[PR #8](https://github.com/L-K-M/Coreography/pull/8). This slice deepens
-the memory lane with composition, swap, paging and pressure.
+[PR #8](https://github.com/L-K-M/Coreography/pull/8); memory composition,
+swap and pressure in [PR #9](https://github.com/L-K-M/Coreography/pull/9).
+This slice groups processes by app in the process pane.
 
 Implemented:
 
@@ -51,12 +52,18 @@ Implemented:
   compressed and cached bytes, compression ratio, and page-in, swap-in
   and swap-out byte rates over the real interval. Swap use comes from
   `vm.swapusage`; pressure from `kern.memorystatus_vm_pressure_level`.
+- App grouping: each process carries its `proc_pidpath` executable and
+  the PID macOS holds responsible for it. Helpers fold under a live
+  responsible process that started no later, otherwise under their
+  outermost `.app` bundle. Group CPU and disk totals are measured only
+  when every member is readable; otherwise they are labelled lower
+  bounds. Footprint sums are always estimates. A flat view remains.
 - The memory lane stacks the composition under the physical-memory line,
   draws a pressure band above it, and has a ten-column numeric table and
   per-layer chart accessibility. `coreo snapshot` exports the same detail.
 
 This is not the seven-lane product yet. The live buffer currently holds
-60 host, network and disk frames. App grouping, process history/attribution,
+60 host, network and disk frames. Process history/attribution,
 per-volume disk accounting and per-process network attribution remain outstanding.
 There is no disk store,
 GPU/power/thermal provider, helper, MCP or model integration in this slice.
@@ -74,6 +81,7 @@ GPU/power/thermal provider, helper, MCP or model integration in this slice.
 | Native process collection, cancellation and CPU units | Passed [native review-fix CI](https://github.com/L-K-M/Coreography/actions/runs/39105964147) at `7df03ec`, including cancellation, saturation and `getrusage` cross-checks |
 | Native network MIB, wide-counter mapping and three-lane UI | Passed at `e62fac1`, including native C fixtures, live CLI and both executable architectures; integrated candidate pending |
 | Native IOKit storage counters and four-lane renderer | Pending storage-slice CI and owner checks; a virtual runner may expose no matching driver |
+| Native executable paths, responsibility lookup and grouped table | App-grouping slice: 87 Swift tests and the Linux C contract pass; native CI records how many processes resolved a responsible PID |
 | Native swap/pressure sysctls, memory composition and stacked lane | Memory slice: 81 Swift and 32 tooling tests pass on Linux; native CI pending. CI validates that app, wired and compressed sum to used memory |
 | CPU, memory and wakeup budgets | Unmeasured; S2 pending |
 | Developer ID, notarization and signed update delivery | Pending credentials and M7 |
@@ -119,7 +127,10 @@ Coreography uses the whole machine, so divide Activity Monitor's process
 CPU by the logical CPU count before comparing. Check CPU/memory/disk sort,
 filters containing spaces, display hold, and unreadable/restricted counts.
 Enumeration can miss short-lived processes and is capped at 16,384 PIDs.
-No per-process network or app grouping is claimed yet.
+No per-process network is claimed yet. With grouping by app, check that
+Safari's web content and Chrome's helpers fold under their apps, that a
+filter matching one helper still shows its app's full totals, and that
+totals with unreadable members read "est." with a lower-bound tooltip.
 
 For a verified network candidate, check primary/interface selection with
 and without a VPN, receive/send direction and byte units, interface
@@ -157,6 +168,21 @@ The [libproc wrapper](https://github.com/apple-oss-distributions/xnu/blob/f6217f
 calls `__proc_info` directly, and
 [proc_get_rusage](https://github.com/apple-oss-distributions/xnu/blob/f6217f891ac0bb64f3d375211650a4c1ff8ca1ea/bsd/kern/kern_resource.c)
 copies the gathered record without a hidden nanosecond conversion.
+
+## App grouping sources
+
+`proc_pidpath` is public and has no same-user check. The responsible PID
+comes from `responsibility_get_pid_responsible_for_pid`, private libsystem
+SPI that Activity Monitor-style tools such as Stats resolve at runtime.
+The bridge resolves it once with `dlsym`; a missing symbol or failed
+lookup leaves the PID absent, and grouping falls back to the app bundle.
+Both reads sit inside the existing PID/start-time bracket. A responsible
+PID is a bare PID, so grouping requires that process to be observed and
+to have started no later than its member; otherwise the PID was reused.
+
+CLI tools launched from a terminal are its responsibility, so they fold
+under that terminal app, as macOS attributes them. Group footprints add
+member physical footprints and can count shared pages more than once.
 
 ## Network source and units
 

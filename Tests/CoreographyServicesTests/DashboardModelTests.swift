@@ -232,7 +232,8 @@ final class DashboardModelTests: XCTestCase {
             parentPID: 0, uid: uid, name: name,
             stamp: SampleStamp(clockID: UUID(), monotonicNanoseconds: 1, wallTime: Date()),
             cpuPercentOfMachine: cpu, memoryFootprintBytes: try .measured(memory),
-            diskReadBytesPerSecond: .collecting(), diskWriteBytesPerSecond: .collecting()
+            diskReadBytesPerSecond: .collecting(), diskWriteBytesPerSecond: .collecting(),
+            executablePath: nil, responsiblePID: nil
         )
     }
 

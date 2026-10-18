@@ -15,10 +15,7 @@ enum ProcessList {
         in snapshot: CapturedProcesses?, matching filter: String, sortedBy sort: ProcessSort
     ) -> [ObservedProcess] {
         let query = filter.trimmingCharacters(in: .whitespacesAndNewlines)
-        let rows = (snapshot?.processes ?? []).filter {
-            query.isEmpty || $0.name.localizedCaseInsensitiveContains(query)
-                || String($0.id.pid).contains(query) || String($0.uid).contains(query)
-        }
+        let rows = (snapshot?.processes ?? []).filter { matches($0, query: query) }
         return rows.sorted { lhs, rhs in
             if sort == .name {
                 let order = lhs.name.localizedStandardCompare(rhs.name)
@@ -33,6 +30,12 @@ enum ProcessList {
             }
             return lhs.id.pid < rhs.id.pid
         }
+    }
+
+    /// Match a trimmed query against name, PID or UID; empty matches all.
+    static func matches(_ process: ObservedProcess, query: String) -> Bool {
+        query.isEmpty || process.name.localizedCaseInsensitiveContains(query)
+            || String(process.id.pid).contains(query) || String(process.uid).contains(query)
     }
 
     private static func value(_ row: ObservedProcess, sort: ProcessSort) -> Double? {

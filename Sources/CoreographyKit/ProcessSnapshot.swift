@@ -38,6 +38,10 @@ public struct ProcessReading: Identifiable, Codable, Sendable {
     public let memoryFootprintBytes: MetricReading
     public let diskReadBytesPerSecond: MetricReading
     public let diskWriteBytesPerSecond: MetricReading
+    public let executablePath: String?
+    /// PID the OS holds responsible (e.g. Safari for a WebContent helper).
+    /// A bare PID; consumers must check it against a live identity.
+    public let responsiblePID: Int32?
 }
 
 public struct ProcessCollectionIssue: Codable, Sendable {

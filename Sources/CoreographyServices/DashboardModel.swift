@@ -68,6 +68,7 @@ public final class DashboardModel {
     public var storageScope: StorageScope = .automatic
     public var processFilter = ""
     public var processSort: ProcessSort = .cpu
+    public var processGrouping: ProcessGrouping = .app
 
     @ObservationIgnored private let monitor: SystemMonitor?
     @ObservationIgnored private let processMonitor: ProcessMonitor?
@@ -163,8 +164,10 @@ public final class DashboardModel {
         return "Selected storage device is not observed"
     }
 
-    public var visibleProcesses: [ObservedProcess] {
-        ProcessList.rows(in: processSnapshot, matching: processFilter, sortedBy: processSort)
+    public var visibleProcessRows: [ProcessRow] {
+        ProcessGroups.rows(
+            in: processSnapshot, matching: processFilter, sortedBy: processSort, grouping: processGrouping
+        )
     }
 
     public func start() {
