@@ -13,6 +13,10 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
   after the store first exceeds it.
 
 ### Added
+- MCP access through the running app: off by default, one approval per
+  client app (identified by its signature, not by the name it sends),
+  revocable in Settings, with session and call limits. `coreo mcp --stdio`
+  now bridges to the app; `--standalone` keeps in-process sampling.
 - Network bytes per app in the ledger, stored history, range reports
   ("Top network"), daily totals, `get_top_processes` and `coreo diagnose`.
 - An alert for a startup disk under 10% free, and Settings > Alerts to

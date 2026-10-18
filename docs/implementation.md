@@ -3,7 +3,7 @@
 Track actual delivery against the [product plan](plan.md). A stage is
 complete only after its relevant checks and review pass and its PR merges.
 
-## Current slice: network in the ledger
+## Current slice: MCP access through the app
 
 The native foundation merged in [PR #5](https://github.com/L-K-M/Coreography/pull/5)
 at `aee9494` after two GLM rounds and passing CI. Process monitoring merged
@@ -46,9 +46,32 @@ The Month tier follows in [PR #58](https://github.com/L-K-M/Coreography/pull/58)
 Per-process network (S3) follows in [PR #59](https://github.com/L-K-M/Coreography/pull/59).
 The Dock icon follows in [PR #60](https://github.com/L-K-M/Coreography/pull/60).
 Alert actions follow in [PR #61](https://github.com/L-K-M/Coreography/pull/61).
-This slice carries per-app network into the ledger.
+Network in the ledger follows in [PR #62](https://github.com/L-K-M/Coreography/pull/62).
+This slice connects MCP clients to the running app (M5).
 
 Implemented:
+
+- MCP access through the app: off by default (Settings > MCP access).
+  When on, the app listens on a Unix socket in a 0700 Application
+  Support directory, the socket file 0600. A connection is checked with
+  the kernel's peer credentials: another user's process is refused
+  before anything else. The client is identified by walking up from the
+  connecting process to the first ancestor inside an app bundle, whose
+  outermost bundle's signature names it (team and identifier, Apple's
+  identifier, or for unsigned code its location); without an app
+  ancestor, the top of its tree. Names a client sends are never used.
+  An unknown client waits for the person's answer in the window (120 s,
+  one request shown at a time); approval is saved per identity, so the
+  same app does not ask again, and Settings lists approved clients with
+  their last use, live sessions and Revoke. Each session gets its own
+  MCP server over the app's shared sampler and store, at most four
+  sessions and 20 tool calls a second across them (10 per session). The
+  grant is checked when a call is dispatched and again before its result
+  goes out; revoking closes the client's sessions and disabling closes
+  them all and removes the socket. `coreo mcp --stdio` only pipes stdio
+  to the app and fails with the reason when the app is not running, the
+  switch is off or the client was refused; `--standalone` keeps sampling
+  in its own process, without history.
 
 - Network in the ledger: each interval integrates every app's TCP and
   UDP rates (in plus out) from the traffic sample of the same moment
@@ -547,6 +570,7 @@ helper remain outstanding. The store, MCP and model features above await stack d
 | Native network MIB, wide-counter mapping and three-lane UI | Passed at `e62fac1`, including native C fixtures, live CLI and both executable architectures; integrated candidate pending |
 | Native IOKit storage counters and four-lane renderer | Passed [native CI](https://github.com/L-K-M/Coreography/actions/runs/39110306993) at `6434722`: 75 tests, 16 drivers, 32 measured rate fields, no inventory issues; owner checks pending |
 | On-disk history store and recorder | History slice: 148 Swift tests pass on Linux against the real system SQLite (round trip with gaps, duplicates, retention, reopen, permissions, WAL, batching); native CI checks the CLI and file permissions |
+| MCP access through the app | 263 Swift tests pass on Linux with real Unix sockets (off by default, 0700 directory and 0600 socket, approval once per identity, refusal and denial, another user's peer refused first, revocation closing sessions, disabling removing the socket, the bridge client's refusals and a piped session, identity from signed, unsigned and app-less trees); native CI checks the bridge fails without the app; approving a real assistant is an owner check |
 | Network in the ledger | 259 Swift tests pass on Linux against the system SQLite (a schema-4 store migrated in place with its rows kept, network per interval and per day, unknown without coverage, the diagnostic ranking and its unavailable case) |
 | Alert actions | 257 Swift tests pass on Linux (the disk rule's thresholds and unknown readings, saved Shortcuts per rule, name validation, one run per raise through the model with its failure named, the listed Shortcuts); running real Shortcuts is an owner check |
 | Dock icon | 254 Swift tests pass on Linux (saved choice, live points while the window is held, fixed scale); the tile view compiles only in native CI and its look is an owner check |

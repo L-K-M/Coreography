@@ -16,7 +16,7 @@ private struct Coreo {
            coreo connections --once --json
            coreo traffic --once --json
            coreo diagnose --json [--seconds N]
-           coreo mcp --stdio
+           coreo mcp --stdio [--standalone]
            coreo history --json METRIC [--minutes N]
            coreo sleep --json [--hours N]
            coreo apps --json [--minutes N | --days N]
@@ -42,8 +42,10 @@ private struct Coreo {
     per-app totals for each of the last N local days (up to 60).
     sleep imports the power-management log and reports sleep periods and
     sleep, wake and dark-wake records over the last N hours (1-168, default 24).
-    mcp serves the read-only diagnostic tools to an MCP client over stdio,
-    sampling in this process; add it to the client's MCP server list.
+    mcp serves the read-only diagnostic tools to an MCP client over stdio
+    through the running app, which asks you once to approve each client
+    (turn on Settings > MCP access first); add it to the client's MCP server
+    list. --standalone samples in this process instead, without history.
     Native host sampling requires macOS 26 or later.
     """
 
@@ -119,6 +121,8 @@ private struct Coreo {
                 let service = try DiagnosticService()
                 try emit(await service.captureConnectionsOnce())
             case ["mcp", "--stdio"]:
+                await bridgeMCP()
+            case ["mcp", "--stdio", "--standalone"], ["mcp", "--standalone", "--stdio"]:
                 guard DiagnosticService.nativeSamplingSupport == .supported else {
                     throw CommandError.unsupportedPlatform
                 }
@@ -176,6 +180,21 @@ private struct Coreo {
         } catch {
             let message = "coreo: \(error)\n"
             FileHandle.standardError.write(Data(message.utf8))
+            exit(EXIT_FAILURE)
+        }
+    }
+
+    /// Pipe stdio to the running app's MCP session; the app approves the client.
+    private static func bridgeMCP() async {
+        let outcome = await MCPBridgeClient.run(
+            input: { readLine(strippingNewline: true) },
+            output: { FileHandle.standardOutput.write(Data(($0 + "\n").utf8)) }
+        )
+        switch outcome {
+        case .finished:
+            return
+        case .unavailable(let reason), .refused(let reason):
+            FileHandle.standardError.write(Data("coreo: \(reason)\n".utf8))
             exit(EXIT_FAILURE)
         }
     }
