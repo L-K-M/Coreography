@@ -66,6 +66,15 @@ final class PowerMonitorTests: XCTestCase {
         XCTAssertEqual(power.batteryMinutesRemaining.availability, .unavailable)
     }
 
+    func testOnBatteryWithoutDischargeCurrentSaysSoRatherThanExternalPower() async throws {
+        let monitor = try PowerMonitor(driver: FixturePowerDriver([
+            raw(source: .battery, charging: false, amperage: 0)
+        ]))
+        let power = try await monitor.sample()
+        XCTAssertEqual(power.systemPowerWatts.availability, .unavailable)
+        XCTAssertEqual(power.systemPowerWatts.reason, "On battery, but the gas gauge reports no discharge current")
+    }
+
     func testDesktopWithoutBatteryIsUnsupportedNotZero() async throws {
         let monitor = try PowerMonitor(driver: FixturePowerDriver([RawPowerSnapshot(
             clockID: Self.clock, monotonicNanoseconds: 1, wallTime: Self.epoch,

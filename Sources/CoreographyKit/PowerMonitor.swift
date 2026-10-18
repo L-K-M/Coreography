@@ -70,18 +70,21 @@ public actor PowerMonitor {
         }
 
         let system: MetricReading
-        if battery?.powerSource == .battery, let dischargeWatts {
-            system = try .estimated(
-                dischargeWatts, method: "Battery discharge while unplugged", source: Self.gaugeSource
-            )
-        } else if battery == nil {
+        switch (battery?.powerSource, dischargeWatts) {
+        case (.battery, let watts?):
+            system = try .estimated(watts, method: "Battery discharge while unplugged", source: Self.gaugeSource)
+        case (.battery, nil):
             system = try .unavailable(
-                reason: "System power needs the SMC power provider on Macs without a battery reading",
-                source: Self.gaugeSource
+                reason: "On battery, but the gas gauge reports no discharge current", source: Self.gaugeSource
             )
-        } else {
+        case (.externalPower, _):
             system = try .unavailable(
                 reason: "On external power, system draw needs the SMC power provider", source: Self.gaugeSource
+            )
+        case (nil, _):
+            system = try .unavailable(
+                reason: "System power needs the SMC power provider without a known battery source",
+                source: Self.gaugeSource
             )
         }
 
