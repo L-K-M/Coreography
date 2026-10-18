@@ -271,7 +271,19 @@ coreo_process_signal(int32_t pid, uint64_t start_seconds, uint64_t start_microse
 
 _Static_assert(COREO_TCP_STATE_CLOSED == TSI_S_CLOSED, "TCP state numbering");
 _Static_assert(COREO_TCP_STATE_LISTEN == TSI_S_LISTEN, "TCP state numbering");
+_Static_assert(COREO_TCP_STATE_SYN_SENT == TSI_S_SYN_SENT, "TCP state numbering");
+_Static_assert(COREO_TCP_STATE_SYN_RECEIVED == TSI_S_SYN_RECEIVED, "TCP state numbering");
 _Static_assert(COREO_TCP_STATE_ESTABLISHED == TSI_S_ESTABLISHED, "TCP state numbering");
+/* xnu spells this one with two underscores; accept either spelling. */
+#if defined(TSI_S__CLOSE_WAIT)
+_Static_assert(COREO_TCP_STATE_CLOSE_WAIT == TSI_S__CLOSE_WAIT, "TCP state numbering");
+#else
+_Static_assert(COREO_TCP_STATE_CLOSE_WAIT == TSI_S_CLOSE_WAIT, "TCP state numbering");
+#endif
+_Static_assert(COREO_TCP_STATE_FIN_WAIT_1 == TSI_S_FIN_WAIT_1, "TCP state numbering");
+_Static_assert(COREO_TCP_STATE_CLOSING == TSI_S_CLOSING, "TCP state numbering");
+_Static_assert(COREO_TCP_STATE_LAST_ACK == TSI_S_LAST_ACK, "TCP state numbering");
+_Static_assert(COREO_TCP_STATE_FIN_WAIT_2 == TSI_S_FIN_WAIT_2, "TCP state numbering");
 _Static_assert(COREO_TCP_STATE_TIME_WAIT == TSI_S_TIME_WAIT, "TCP state numbering");
 
 /* in_sockinfo keeps ports in network byte order inside an int. */
