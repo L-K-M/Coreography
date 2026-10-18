@@ -34,11 +34,12 @@ final class RangeExportTests: XCTestCase {
         XCTAssertTrue(lines[0].hasPrefix("time,cpu_percent_of_machine,memory_used_bytes"))
         // The first sample has no CPU baseline yet, and no GPU, sensor or power frames exist.
         let first = lines[1].split(separator: ",", omittingEmptySubsequences: false)
-        XCTAssertEqual(first.count, 9)
+        XCTAssertEqual(first.count, 10)
         XCTAssertEqual(first[1], "")
         XCTAssertNotEqual(first[2], "")
         XCTAssertEqual(first[6], "")
-        XCTAssertEqual(first[8], "")
+        XCTAssertEqual(first[7], "", "no sensor name without a reading")
+        XCTAssertEqual(first[9], "")
     }
 
     private func hostFrames(count: Int) async throws -> [CapturedSnapshot] {
