@@ -42,3 +42,95 @@ jobs:
         run: |
           npm --prefix tools/doccheck install --no-save mermaid@11 jsdom@25
           node tools/doccheck/mmdcheck.mjs .
+
+  scripts:
+    name: Build-script checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # The scripts must stay bash-3.2-compatible for macOS's /bin/bash.
+      - name: Syntax-check all scripts
+        run: bash -n scripts/*.sh
+
+      # Mock-engine tests: they assert the stub's argument handling, never that
+      # a Mac build succeeded — xcodebuild cannot run on Linux.
+      - name: Run build-script tests
+        run: python3 tools/tests/test_buildscripts.py
+
+      - name: Shellcheck
+        run: |
+          command -v shellcheck >/dev/null || sudo apt-get install -y shellcheck
+          shellcheck scripts/*.sh
+
+  macos:
+    name: macOS build
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Pinned toolchain: runner-image bumps must not change the Xcode version.
+      - uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
+        with:
+          xcode-version: '26.6'
+
+      # No Xcode test target yet: the SwiftPM suite is the test gate.
+      - name: Run SwiftPM tests
+        run: swift test
+
+      # Builds dist/Coreography.app universal (both slices in app AND embedded
+      # CLI are verified by assemble-app.sh before packaging) and zips it to
+      # dist/Coreography-v<version>-macos-universal.zip.
+      - name: Build universal app (ad-hoc signed)
+        # Hosted runners do not have the developer's shared lkm-build installation.
+        run: COREO_ARCH=universal ./scripts/assemble-app.sh
+
+      # Independent slice check: if the assemble script's own verification ever
+      # regressed, this still stops a wrong-arch artifact from being published.
+      - name: Verify universal slices
+        run: |
+          for bin in dist/Coreography.app/Contents/MacOS/Coreography \
+                     dist/Coreography.app/Contents/Helpers/coreo; do
+            arches="$(lipo -archs "$bin")"
+            echo "$bin: $arches"
+            for want in arm64 x86_64; do
+              case " $arches " in *" $want "*) ;; *)
+                echo "::error::$bin lacks the $want slice (has: $arches)"
+                exit 1 ;;
+              esac
+            done
+          done
+
+      - name: Smoke-test embedded CLI
+        run: |
+          set -euo pipefail
+          CLI="dist/Coreography.app/Contents/Helpers/coreo"
+          "$CLI" doctor
+          "$CLI" snapshot --once --json > "$RUNNER_TEMP/snapshot.json"
+          python3 tools/check_snapshot.py "$RUNNER_TEMP/snapshot.json"
+
+      - name: Package tested app
+        run: |
+          set -euo pipefail
+          version=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' dist/Coreography.app/Contents/Info.plist)
+          archive="dist/Coreography-v${version}-macos-universal.zip"
+          ditto -c -k --keepParent dist/Coreography.app "$archive"
+          unzip -t "$archive"
+
+      - name: Resolve package name
+        id: pkg
+        run: |
+          zip="$(ls dist/Coreography-v*-macos-universal.zip)"
+          echo "name=$(basename "$zip" .zip)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ${{ steps.pkg.outputs.name }}
+          path: dist/Coreography-v*-macos-universal.zip
+          if-no-files-found: error
