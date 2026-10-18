@@ -193,12 +193,12 @@ public actor ProcessTrafficDriver: ProcessTrafficSampleReading {
 /// delivers callbacks on the queue it was created with).
 final class NetworkStatisticsSession: @unchecked Sendable {
     fileprivate typealias ManagerCreate = @convention(c) (
-        UnsafeRawPointer?, UnsafeMutableRawPointer, @convention(block) (UnsafeMutableRawPointer?, UnsafeMutableRawPointer?) -> Void
+        UnsafeRawPointer?, UnsafeMutableRawPointer, @escaping @convention(block) (UnsafeMutableRawPointer?, UnsafeMutableRawPointer?) -> Void
     ) -> UnsafeMutableRawPointer?
     fileprivate typealias ManagerAction = @convention(c) (UnsafeMutableRawPointer) -> Void
-    fileprivate typealias ManagerQuery = @convention(c) (UnsafeMutableRawPointer, @convention(block) () -> Void) -> Void
-    fileprivate typealias SourceDictionary = @convention(c) (UnsafeMutableRawPointer, @convention(block) (CFDictionary?) -> Void) -> Void
-    fileprivate typealias SourceRemoved = @convention(c) (UnsafeMutableRawPointer, @convention(block) () -> Void) -> Void
+    fileprivate typealias ManagerQuery = @convention(c) (UnsafeMutableRawPointer, @escaping @convention(block) () -> Void) -> Void
+    fileprivate typealias SourceDictionary = @convention(c) (UnsafeMutableRawPointer, @escaping @convention(block) (CFDictionary?) -> Void) -> Void
+    fileprivate typealias SourceRemoved = @convention(c) (UnsafeMutableRawPointer, @escaping @convention(block) () -> Void) -> Void
 
     private static let path = "/System/Library/PrivateFrameworks/NetworkStatistics.framework/NetworkStatistics"
     // Dictionary keys as the framework publishes them on macOS 26.
