@@ -27,6 +27,25 @@ final class ProcessGroupsTests: XCTestCase {
         XCTAssertEqual(daemon.groupingMethod, .standalone)
     }
 
+    func testGPUAndPowerSumPerAppAndSort() throws {
+        let main = try process(pid: 10, name: "Game", cpu: 1, path: "/Applications/Game.app/Contents/MacOS/Game",
+                               gpu: 40, power: 1.5)
+        let helper = try process(pid: 11, name: "Game Helper", cpu: 1,
+                                 path: "/Applications/Game.app/Contents/MacOS/Game Helper", gpu: 20, power: nil)
+        let editor = try process(pid: 12, name: "Editor", cpu: 5, gpu: 5, power: 2)
+
+        let byGPU = try ProcessGroups.rows(in: snapshot([main, helper, editor]), matching: "", sortedBy: .gpu, grouping: .app)
+        XCTAssertEqual(byGPU.map(\.name), ["Game", "Editor"])
+        let game = try XCTUnwrap(byGPU.first)
+        XCTAssertEqual(game.gpuMillisecondsPerSecond.numericValue, 60)
+        XCTAssertEqual(game.gpuMillisecondsPerSecond.availability, .measured)
+        XCTAssertEqual(game.cpuPowerWatts.numericValue, 1.5)
+        XCTAssertEqual(game.cpuPowerWatts.availability, .estimated, "one member has no energy counter: a lower bound")
+
+        let byPower = try ProcessGroups.rows(in: snapshot([main, helper, editor]), matching: "", sortedBy: .power, grouping: .flat)
+        XCTAssertEqual(byPower.map(\.name), ["Editor", "Game", "Game Helper"], "unknown power sorts last")
+    }
+
     func testNestedHelperBundlesFoldIntoTheOutermostApp() throws {
         let main = try process(pid: 10, name: "Google Chrome", cpu: 1,
                                path: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome")
@@ -145,7 +164,7 @@ final class ProcessGroupsTests: XCTestCase {
 
     private func process(
         pid: Int32, name: String, cpu: Double?, start: UInt64 = 10,
-        path: String? = nil, responsible: Int32? = nil
+        path: String? = nil, responsible: Int32? = nil, gpu: Double = 0, power: Double? = 0
     ) throws -> ObservedProcess {
         let source = MetricSource(provider: "processes", driver: "libproc")
         return ProcessReading(
@@ -156,6 +175,9 @@ final class ProcessGroupsTests: XCTestCase {
             memoryFootprintBytes: try .measured(1_048_576, source: source),
             diskReadBytesPerSecond: try .measured(1024, source: source),
             diskWriteBytesPerSecond: try .measured(0, source: source),
+            gpuMillisecondsPerSecond: try .measured(gpu, source: source),
+            cpuPowerWatts: try power.map { try .estimated($0, method: "Energy model", source: source) }
+                ?? .unsupported(reason: "No energy counter for this process", source: source),
             executablePath: path, responsiblePID: responsible
         )
     }

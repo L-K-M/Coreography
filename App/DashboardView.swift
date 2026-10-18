@@ -1421,6 +1421,8 @@ private struct ProcessPane: View {
                         Text("Disk read").tag(ProcessSort.diskRead)
                         Text("Disk write").tag(ProcessSort.diskWrite)
                         Text("Network").tag(ProcessSort.network)
+                        Text("GPU time").tag(ProcessSort.gpu)
+                        Text("CPU power").tag(ProcessSort.power)
                         Text("Name").tag(ProcessSort.name)
                     }
                     .frame(width: 180)
@@ -1491,6 +1493,21 @@ private struct ProcessPane: View {
                             .monospacedDigit()
                             .help(row.networkReceivedBytesPerSecond.method ?? row.networkReceivedBytesPerSecond.reason
                                   ?? String(localized: "TCP and UDP bytes per second; no open socket reads as zero"))
+                    }
+                    // A table takes ten columns per block; the group adds the rest.
+                    Group {
+                        TableColumn("GPU ms/s") { row in
+                            Text(ProcessText.gpuTime(row.gpuMillisecondsPerSecond.numericValue))
+                                .monospacedDigit()
+                                .help(row.gpuMillisecondsPerSecond.reason
+                                      ?? String(localized: "GPU time per second, not the GPU lane's busy percentage; overlapping work can exceed 1000"))
+                        }
+                        TableColumn("CPU power") { row in
+                            Text(ProcessText.power(row.cpuPowerWatts.numericValue))
+                                .monospacedDigit()
+                                .help(row.cpuPowerWatts.reason
+                                      ?? String(localized: "Estimated by the kernel's CPU energy model; GPU work is not included"))
+                        }
                     }
                 }
                 .frame(height: 260)
@@ -1723,6 +1740,7 @@ private struct InspectorView: View {
             Text(WakeupText.rate(process.wakeupsPerSecond.numericValue))
             let network = model.networkRates(for: process)
             Text("Network \(NetworkText.rates(network.received, network.sent))")
+            Text("GPU \(ProcessText.gpuTime(process.gpuMillisecondsPerSecond.numericValue)) ms/s · CPU power \(ProcessText.power(process.cpuPowerWatts.numericValue))")
             if let threads = inspection.detail?.threads {
                 Text("\(threads) threads")
             } else if let problem = inspection.detail?.threadsProblem {
@@ -1876,6 +1894,17 @@ private struct HeatScale {
 }
 
 private enum ProcessText {
+    /// A process often draws tens of milliwatts, so two decimals.
+    static func power(_ watts: Double?) -> String {
+        guard let watts, watts.isFinite else { return "–" }
+        return watts.formatted(.number.precision(.fractionLength(2))) + " W"
+    }
+
+    static func gpuTime(_ milliseconds: Double?) -> String {
+        guard let milliseconds, milliseconds.isFinite else { return "–" }
+        return milliseconds.formatted(.number.precision(.fractionLength(milliseconds < 10 ? 1 : 0)))
+    }
+
     static func grouping(_ method: ProcessGroupingMethod?) -> String {
         switch method {
         case .responsibleProcess: return String(localized: "Grouped under the process macOS holds responsible")

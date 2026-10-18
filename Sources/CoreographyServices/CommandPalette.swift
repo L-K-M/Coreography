@@ -115,6 +115,8 @@ public enum CommandPalette {
         case .diskRead: "Sort by Disk Read"
         case .diskWrite: "Sort by Disk Write"
         case .network: "Sort by Network"
+        case .gpu: "Sort by GPU Time"
+        case .power: "Sort by CPU Power"
         case .name: "Sort by Name"
         }
     }

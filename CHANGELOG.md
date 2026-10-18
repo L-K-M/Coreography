@@ -13,6 +13,9 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
   after the store first exceeds it.
 
 ### Added
+- The process table and inspector show GPU time (ms/s) for every
+  process and estimated CPU power from the kernel's energy model;
+  both sum per app and sort the table.
 - Save Recording… keeps a selected range as a `.coreotrace` file that
   opens back in Coreography (Command-O, Finder or the Dock) for replay,
   range reports and comparison; redacted by default.

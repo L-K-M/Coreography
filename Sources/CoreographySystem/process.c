@@ -6,10 +6,10 @@
  *   pids; a completely filled buffer means the table may hold more.
  * - PROC_PIDTBSDINFO carries pid/ppid/uid/start time/name and requires
  *   the same uid as the target; arg=1 also matches zombies.
- * - proc_pid_rusage(RUSAGE_INFO_V2) is same-uid checked (EPERM for other
+ * - proc_pid_rusage(RUSAGE_INFO_V6) is same-uid checked (EPERM for other
  *   users, ESRCH once reaped) and reports CPU times in Mach timebase
  *   ticks, not nanoseconds (rm_time_mach); convert via
- *   mach_timebase_info().
+ *   mach_timebase_info(). ri_energy_nj is already in nanojoules.
  * - PROC_PIDLISTFDS and proc_pidfdinfo(PROC_PIDFDSOCKETINFO) are public
  *   and same-uid checked; socket_fdinfo carries family, kind (TCP or plain
  *   internet), TCP state and endpoints with ports in network byte order.
@@ -160,7 +160,7 @@ coreo_process_read(int32_t pid, coreo_process_sample *sample)
 {
     struct proc_bsdinfo before;
     struct proc_bsdinfo after;
-    struct rusage_info_v2 usage;
+    struct rusage_info_v6 usage;
     int32_t err;
 
     if (pid < 0 || sample == NULL) {
@@ -175,7 +175,7 @@ coreo_process_read(int32_t pid, coreo_process_sample *sample)
 
     memset(&usage, 0, sizeof(usage));
     errno = 0;
-    if (proc_pid_rusage(pid, RUSAGE_INFO_V2, (rusage_info_t *)&usage) != 0) {
+    if (proc_pid_rusage(pid, RUSAGE_INFO_V6, (rusage_info_t *)&usage) != 0) {
         sample->usage_error = errno ? errno : EIO;
     }
     sample->path_error = coreo_read_path(pid, sample->path, sizeof(sample->path));
@@ -231,6 +231,7 @@ coreo_process_read(int32_t pid, coreo_process_sample *sample)
             sample->disk_read_bytes = usage.ri_diskio_bytesread;
             sample->disk_write_bytes = usage.ri_diskio_byteswritten;
             sample->wakeups = usage.ri_pkg_idle_wkups + usage.ri_interrupt_wkups;
+            sample->energy_nanojoules = usage.ri_energy_nj;
         }
     }
     return 0;

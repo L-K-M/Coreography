@@ -22,6 +22,9 @@ typedef struct {
     uint64_t disk_write_bytes;
     /* Cumulative wakeups: package idle exits plus interrupt wakeups. */
     uint64_t wakeups;
+    /* Cumulative energy the kernel's model attributes to the process, in
+       nanojoules; zero where the OS keeps no energy counter. */
+    uint64_t energy_nanojoules;
     int32_t path_error;
     char path[COREO_PROCESS_PATH_CAPACITY];
     int32_t responsible_error;

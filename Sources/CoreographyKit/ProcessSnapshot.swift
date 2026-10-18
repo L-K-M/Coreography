@@ -40,17 +40,23 @@ public struct ProcessReading: Identifiable, Codable, Sendable {
     public let diskWriteBytesPerSecond: MetricReading
     /// Package-idle and interrupt wakeups per second (plan: wakeups beside CPU).
     public let wakeupsPerSecond: MetricReading
+    /// GPU time the process's command queues used, in ms per second; not a busy %.
+    public let gpuMillisecondsPerSecond: MetricReading
+    /// CPU power the kernel's energy model attributes to the process; an estimate.
+    public let cpuPowerWatts: MetricReading
     public let executablePath: String?
     /// PID the OS holds responsible (e.g. Safari for a WebContent helper).
     /// A bare PID; consumers must check it against a live identity.
     public let responsiblePID: Int32?
 
-    /// Wakeups default to "not collected" for readings built without them.
+    /// Wakeups, GPU and power default to "not collected" for readings built without them.
     init(
         id: ProcessIdentity, parentPID: UInt32, uid: UInt32, name: String, stamp: SampleStamp,
         cpuPercentOfMachine: MetricReading, memoryFootprintBytes: MetricReading,
         diskReadBytesPerSecond: MetricReading, diskWriteBytesPerSecond: MetricReading,
         wakeupsPerSecond: MetricReading = .unsupported(reason: "Wakeups were not collected"),
+        gpuMillisecondsPerSecond: MetricReading = .unsupported(reason: "GPU time was not collected"),
+        cpuPowerWatts: MetricReading = .unsupported(reason: "Energy was not collected"),
         executablePath: String?, responsiblePID: Int32?
     ) {
         self.id = id
@@ -63,6 +69,8 @@ public struct ProcessReading: Identifiable, Codable, Sendable {
         self.diskReadBytesPerSecond = diskReadBytesPerSecond
         self.diskWriteBytesPerSecond = diskWriteBytesPerSecond
         self.wakeupsPerSecond = wakeupsPerSecond
+        self.gpuMillisecondsPerSecond = gpuMillisecondsPerSecond
+        self.cpuPowerWatts = cpuPowerWatts
         self.executablePath = executablePath
         self.responsiblePID = responsiblePID
     }
