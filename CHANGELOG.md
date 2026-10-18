@@ -13,6 +13,9 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
   after the store first exceeds it.
 
 ### Added
+- Settings > Menu bar shows up to three readings (CPU, memory, GPU,
+  download, upload, temperature), each a value, a one-minute graph or
+  both.
 - Command-drag a second range to compare it with the selection: CPU
   and memory, and the apps that changed most. With a selection, sorting
   by CPU ranks apps by their use inside it.

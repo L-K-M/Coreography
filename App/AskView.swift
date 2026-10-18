@@ -116,6 +116,13 @@ struct SettingsView: View {
                      : "A rule runs its Shortcut when it is raised, at most once every 15 minutes.")
                     .font(.caption).foregroundStyle(.secondary)
             }
+            Section("Menu bar") {
+                ForEach(0..<MenuBarLayout.maximumItems, id: \.self) { slot in
+                    MenuBarSlot(model: model, slot: slot)
+                }
+                Text("Up to three readings, each a value, a one-minute graph or both.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             Section("HUD") {
                 Picker("Shows", selection: $hud.settings.density) {
                     Text("One value").tag(HUDDensity.single)
@@ -196,5 +203,69 @@ private enum RetentionText {
         let used = ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
         let cap = ByteCountFormatter.string(fromByteCount: HistoryRetention.sizeCap, countStyle: .file)
         return String(localized: "Now \(used) on disk; never more than \(cap)")
+    }
+}
+
+/// One menu bar slot: a reading (the first slot always has one) and its style.
+private struct MenuBarSlot: View {
+    @Bindable var model: DashboardModel
+    let slot: Int
+
+    var body: some View {
+        HStack {
+            Picker("Item \(slot + 1)", selection: metric) {
+                if slot > 0 { Text("None").tag(MenuBarMetric?.none) }
+                ForEach(MenuBarMetric.allCases) { metric in Text(MenuBarText.name(metric)).tag(MenuBarMetric?.some(metric)) }
+            }
+            if slot < model.menuBarItems.count {
+                Picker("Style", selection: style) {
+                    Text("Value").tag(MenuBarStyle.value)
+                    Text("Graph").tag(MenuBarStyle.graph)
+                    Text("Both").tag(MenuBarStyle.both)
+                }
+                .labelsHidden()
+                .frame(width: 100)
+            }
+        }
+    }
+
+    private var metric: Binding<MenuBarMetric?> {
+        Binding(
+            get: { slot < model.menuBarItems.count ? model.menuBarItems[slot].metric : nil },
+            set: { chosen in
+                var items = model.menuBarItems
+                if let chosen {
+                    let item = MenuBarItem(metric: chosen, style: slot < items.count ? items[slot].style : .value)
+                    items.removeAll { $0.metric == chosen }
+                    if slot < items.count { items[slot] = item } else { items.append(item) }
+                } else if slot < items.count {
+                    items.remove(at: slot)
+                }
+                model.menuBarItems = items
+            }
+        )
+    }
+
+    private var style: Binding<MenuBarStyle> {
+        Binding(
+            get: { slot < model.menuBarItems.count ? model.menuBarItems[slot].style : .value },
+            set: { style in
+                guard slot < model.menuBarItems.count else { return }
+                model.menuBarItems[slot].style = style
+            }
+        )
+    }
+}
+
+private enum MenuBarText {
+    static func name(_ metric: MenuBarMetric) -> String {
+        switch metric {
+        case .cpu: String(localized: "CPU")
+        case .memory: String(localized: "Memory")
+        case .gpu: String(localized: "GPU")
+        case .download: String(localized: "Download")
+        case .upload: String(localized: "Upload")
+        case .temperature: String(localized: "Temperature")
+        }
     }
 }

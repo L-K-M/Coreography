@@ -1085,6 +1085,43 @@ public final class DashboardModel {
     /// that always show live data (the Dock graph) redraw on it.
     public private(set) var liveSampleTime: Date?
 
+    /// The menu bar extra's items; saved, at most three.
+    public var menuBarItems = MenuBarLayout.saved() {
+        didSet {
+            let normalized = MenuBarLayout.normalized(menuBarItems)
+            if normalized != menuBarItems { menuBarItems = normalized; return }
+            if menuBarItems != oldValue { MenuBarLayout.save(menuBarItems) }
+        }
+    }
+
+    /// One menu bar item's current value: displayed, so a held window holds it too.
+    public func menuBarValue(_ metric: MenuBarMetric) -> DashboardReading? {
+        switch metric {
+        case .cpu: reading(for: .cpu)
+        case .memory: reading(for: .memory)
+        case .gpu: displayedGPUFrame?.devices.max { ($0.utilizationPercent.numericValue ?? -1) < ($1.utilizationPercent.numericValue ?? -1) }?.utilizationPercent
+        case .download: reading(for: .networkReceived)
+        case .upload: reading(for: .networkSent)
+        case .temperature: displayedSensorFrame?.hottest?.celsius
+        }
+    }
+
+    /// The last minute of one item's series, for its sparkline.
+    public func menuBarPoints(_ metric: MenuBarMetric) -> [DashboardPoint] {
+        let series: [DashboardPoint] = switch metric {
+        case .cpu: points(for: .cpu)
+        case .memory: points(for: .memory)
+        case .gpu: gpuSeries().first?.points ?? []
+        case .download: points(for: .networkReceived)
+        case .upload: points(for: .networkSent)
+        case .temperature: hottestTemperaturePoints()
+        }
+        guard let end = series.last?.time else { return [] }
+        let start = end.addingTimeInterval(-Self.menuBarSeconds)
+        return series.filter { $0.time >= start }
+    }
+    private static let menuBarSeconds: TimeInterval = 60
+
     /// What the Dock icon shows; saved.
     public var dockIcon = DockIconStyle.saved() {
         didSet { if dockIcon != oldValue { dockIcon.save() } }
