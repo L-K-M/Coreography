@@ -2252,6 +2252,10 @@ private struct RangePanel: View {
                 .font(.callout)
             Text(RangeText.apps(String(localized: "Top disk"), report.topDiskApps) { MetricText.bytes($0.diskBytes) })
                 .font(.callout)
+            if let network = report.topNetworkApps {
+                Text(RangeText.apps(String(localized: "Top network"), network) { MetricText.bytes($0.networkBytes) })
+                    .font(.callout)
+            }
             Text(RangeText.coverage(report)).font(.caption).foregroundStyle(.secondary)
             let inside = model.timelineMarkers.filter { report.requested.contains($0.time) }
             if !inside.isEmpty {

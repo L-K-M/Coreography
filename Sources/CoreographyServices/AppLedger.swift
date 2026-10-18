@@ -7,8 +7,18 @@ public struct AppRangeTotal: Identifiable, Codable, Sendable {
     public let name: String
     public let cpuSeconds: Double
     public let diskBytes: Double
+    /// TCP and UDP bytes in and out; nil when no interval in the range read network.
+    public let networkBytes: Double?
     /// Some member was unreadable in some sample, so the totals are lower bounds.
     public let isLowerBound: Bool
+
+    init(name: String, cpuSeconds: Double, diskBytes: Double, networkBytes: Double? = nil, isLowerBound: Bool) {
+        self.name = name
+        self.cpuSeconds = cpuSeconds
+        self.diskBytes = diskBytes
+        self.networkBytes = networkBytes
+        self.isLowerBound = isLowerBound
+    }
 }
 
 /// Per-app activity per process interval for the live hour (plan: the
@@ -25,6 +35,7 @@ struct AppLedger: Sendable {
         let app: Int
         let cpuSeconds: Double
         let diskBytes: Double
+        var networkBytes: Double = 0
         let isLowerBound: Bool
     }
 
@@ -32,6 +43,7 @@ struct AppLedger: Sendable {
         let start: Date
         let end: Date
         let cores: Double
+        var coversNetwork = false
         let entries: [Entry]
     }
 
@@ -49,9 +61,14 @@ struct AppLedger: Sendable {
         self.init(capacity: max(stored.count, 1))
         for interval in stored {
             let entries = interval.entries.map {
-                Entry(app: index(of: $0.app), cpuSeconds: $0.cpuSeconds, diskBytes: $0.diskBytes, isLowerBound: $0.isLowerBound)
+                Entry(
+                    app: index(of: $0.app), cpuSeconds: $0.cpuSeconds, diskBytes: $0.diskBytes,
+                    networkBytes: $0.networkBytes, isLowerBound: $0.isLowerBound
+                )
             }
-            intervals.append(Interval(start: interval.start, end: interval.end, cores: interval.cores, entries: entries))
+            intervals.append(Interval(
+                start: interval.start, end: interval.end, cores: interval.cores, coversNetwork: interval.coversNetwork, entries: entries
+            ))
         }
         previousTime = stored.last?.end
     }
@@ -60,8 +77,12 @@ struct AppLedger: Sendable {
     /// a delta over that interval, so rate × interval restores the delta.
     /// Returns the new interval in its stored form, or nil when the sample
     /// opened no interval (the first one, or one after an interruption).
+    /// Network counts only with a traffic sample of the same moment; a
+    /// process's first interval with traffic has no rate yet and adds nothing.
     @discardableResult
-    mutating func record(_ processes: CapturedProcesses, logicalCPUCount: Int?) -> LedgerInterval? {
+    mutating func record(
+        _ processes: CapturedProcesses, traffic: CapturedTraffic? = nil, logicalCPUCount: Int?
+    ) -> LedgerInterval? {
         let end = processes.stamp.wallTime
         defer { previousTime = end }
         guard let start = previousTime, processes.continuity == .continuous, end > start else { return nil }
@@ -69,26 +90,35 @@ struct AppLedger: Sendable {
         let cores = Double(logicalCPUCount ?? 0)
 
         var entries: [Entry] = []
-        let rows = ProcessGroups.rows(in: processes, matching: "", sortedBy: .name, grouping: .app)
+        let coversNetwork = traffic.map { $0.unavailableReason == nil } ?? false
+        let rows = ProcessGroups.rows(
+            in: processes, matching: "", sortedBy: .name, grouping: .app,
+            facts: ProcessFacts(traffic: coversNetwork ? traffic : nil)
+        )
         for row in rows {
             let disk = ProcessGroups.total([row.diskReadBytesPerSecond, row.diskWriteBytesPerSecond], overlap: nil)
             let share = row.cpuPercentOfMachine.numericValue ?? 0
             // Without a core count, CPU share cannot become CPU-seconds: record a lower bound.
             let cpuSeconds = cores > 0 ? share / Self.percentScale * cores * seconds : 0
             let diskBytes = (disk.numericValue ?? 0) * seconds
-            guard cpuSeconds > 0 || diskBytes > 0 || share > 0 else { continue }
+            let network = coversNetwork
+                ? (ProcessNetwork.total(row.networkReceivedBytesPerSecond, row.networkSentBytesPerSecond) ?? 0) * seconds : 0
+            guard cpuSeconds > 0 || diskBytes > 0 || share > 0 || network > 0 else { continue }
             entries.append(Entry(
-                app: index(of: row.name), cpuSeconds: cpuSeconds, diskBytes: diskBytes,
+                app: index(of: row.name), cpuSeconds: cpuSeconds, diskBytes: diskBytes, networkBytes: network,
                 isLowerBound: cores <= 0 || row.cpuPercentOfMachine.availability != .measured
                     || disk.availability != .measured
             ))
         }
-        intervals.append(Interval(start: start, end: end, cores: cores, entries: entries))
+        intervals.append(Interval(start: start, end: end, cores: cores, coversNetwork: coversNetwork, entries: entries))
         if intervals.count > capacity { intervals.removeFirst(intervals.count - capacity) }
         return LedgerInterval(
-            start: start, end: end, cores: cores,
+            start: start, end: end, cores: cores, coversNetwork: coversNetwork,
             entries: entries.map {
-                LedgerEntry(app: names[$0.app], cpuSeconds: $0.cpuSeconds, diskBytes: $0.diskBytes, isLowerBound: $0.isLowerBound)
+                LedgerEntry(
+                    app: names[$0.app], cpuSeconds: $0.cpuSeconds, diskBytes: $0.diskBytes,
+                    networkBytes: $0.networkBytes, isLowerBound: $0.isLowerBound
+                )
             }
         )
     }
@@ -105,16 +135,20 @@ struct AppLedger: Sendable {
 
         var cpu: [Int: Double] = [:]
         var disk: [Int: Double] = [:]
+        var network: [Int: Double] = [:]
         var lowerBound: Set<Int> = []
         for entry in included.flatMap(\.entries) {
             cpu[entry.app, default: 0] += entry.cpuSeconds
             disk[entry.app, default: 0] += entry.diskBytes
+            network[entry.app, default: 0] += entry.networkBytes
             if entry.isLowerBound { lowerBound.insert(entry.app) }
         }
+        // Without one interval that read network, zero would be a claim the ledger cannot make.
+        let coversNetwork = included.contains(where: \.coversNetwork)
         let apps = Set(cpu.keys).union(disk.keys).map { app in
             AppRangeTotal(
                 name: names[app], cpuSeconds: cpu[app] ?? 0, diskBytes: disk[app] ?? 0,
-                isLowerBound: lowerBound.contains(app)
+                networkBytes: coversNetwork ? network[app] ?? 0 : nil, isLowerBound: lowerBound.contains(app)
             )
         }
         return (apps, first.start...last.end)
@@ -154,9 +188,12 @@ struct AppLedger: Sendable {
                 merged[app.name] = app
                 continue
             }
+            let network = existing.networkBytes == nil && app.networkBytes == nil
+                ? nil : (existing.networkBytes ?? 0) + (app.networkBytes ?? 0)
             merged[app.name] = AppRangeTotal(
                 name: app.name, cpuSeconds: existing.cpuSeconds + app.cpuSeconds,
-                diskBytes: existing.diskBytes + app.diskBytes, isLowerBound: existing.isLowerBound || app.isLowerBound
+                diskBytes: existing.diskBytes + app.diskBytes, networkBytes: network,
+                isLowerBound: existing.isLowerBound || app.isLowerBound
             )
         }
         let spans = [older.covered, newer.covered].compactMap { $0 }

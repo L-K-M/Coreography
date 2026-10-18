@@ -205,7 +205,7 @@ public struct ProcessDetails: Codable, Sendable {
 /// window, CLI, MCP and the optional assistant). Every tool is bounded
 /// server-side; nothing exposes paths, arguments or process control.
 public enum DiagnosticTools {
-    public enum ActivityMetric: String, Codable, Sendable { case cpu, disk }
+    public enum ActivityMetric: String, Codable, CaseIterable, Sendable { case cpu, disk, network }
     public enum HistoryMetric: String, Codable, CaseIterable, Sendable {
         case cpu, memoryUsed, networkReceived, networkSent, gpuBusy, hottestCelsius, systemPower
     }
@@ -324,10 +324,17 @@ public enum DiagnosticTools {
         let window = try boundedRange(range, snapshot: snapshot)
         let offset = try cursorOffset(cursor, snapshot: snapshot, metric: metric, range: window)
         let (apps, covered) = snapshot.ledger.totals(in: window)
+        if metric == .network, !apps.contains(where: { $0.networkBytes != nil }), covered != nil {
+            throw DiagnosticError.unavailable("Per-process network was not read in this range")
+        }
         let unit = metric == .cpu ? "CPU-seconds" : "bytes"
         let activity: [AppActivity] = apps.map { app in
-            AppActivity(app: app.name, value: metric == .cpu ? app.cpuSeconds : app.diskBytes,
-                        unit: unit, isLowerBound: app.isLowerBound)
+            switch metric {
+            case .cpu: AppActivity(app: app.name, value: app.cpuSeconds, unit: unit, isLowerBound: app.isLowerBound)
+            case .disk: AppActivity(app: app.name, value: app.diskBytes, unit: unit, isLowerBound: app.isLowerBound)
+            // NetworkStatistics sees every user's sockets, so readable membership does not bound it.
+            case .network: AppActivity(app: app.name, value: app.networkBytes ?? 0, unit: unit, isLowerBound: false)
+            }
         }
         let ranked = activity.filter { $0.value > 0 }.sorted { lhs, rhs in
             lhs.value != rhs.value ? lhs.value > rhs.value : lhs.app < rhs.app
@@ -339,7 +346,9 @@ public enum DiagnosticTools {
             remaining: max(0, ranked.count - next),
             nextCursor: next < ranked.count ? makeCursor(snapshot: snapshot, metric: metric, range: window, offset: next) : nil,
             coveredStart: covered?.lowerBound, coveredEnd: covered?.upperBound,
-            coverageNote: "Own-user processes grouped by app; other users' processes are not readable without the helper."
+            coverageNote: metric == .network
+                ? "TCP and UDP bytes in and out per app, every user's processes; a process's first interval with traffic is not counted."
+                : "Own-user processes grouped by app; other users' processes are not readable without the helper."
         )
     }
 

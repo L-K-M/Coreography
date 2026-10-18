@@ -30,9 +30,9 @@ enum DiagnosticToolCatalog {
             ),
             Definition(
                 name: "get_top_processes",
-                description: "Apps ranked by CPU-seconds or disk bytes over a range, paged, with coverage. Own-user processes only.",
+                description: "Apps ranked by CPU-seconds, disk bytes or network bytes (in and out) over a range, paged, with coverage. CPU and disk cover own-user processes only.",
                 properties: [
-                    "metric": ["type": "string", "enum": ["cpu", "disk"]], "range_seconds": range,
+                    "metric": ["type": "string", "enum": DiagnosticTools.ActivityMetric.allCases.map(\.rawValue)], "range_seconds": range,
                     "limit": ["type": "integer", "minimum": 1, "maximum": DiagnosticTools.maximumRows],
                     "cursor": string("nextCursor from a previous page"), "snapshot_id": snapshotID
                 ], required: []

@@ -1323,7 +1323,9 @@ public final class DashboardModel {
                         self.liveProcesses = processes
                         self.liveContributorHistory.append(Contributors.snapshot(from: processes))
                         self.liveContributorHistory = Array(self.liveContributorHistory.suffix(Self.contributorCapacity))
-                        let interval = self.liveLedger.record(processes, logicalCPUCount: history.last?.inventory.logicalCPUCount)
+                        let interval = self.liveLedger.record(
+                            processes, traffic: traffic, logicalCPUCount: history.last?.inventory.logicalCPUCount
+                        )
                         if let interval, let recorder = self.historyRecorder { Task { await recorder.recordLedger(interval) } }
                         if let interval { self.sessionRecording?.record(interval) }
                         self.liveLifecycle.record(processes)

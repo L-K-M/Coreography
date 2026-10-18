@@ -167,7 +167,10 @@ public enum SessionExport {
             schemaVersion: session.schemaVersion, id: session.id, name: session.name, start: session.start,
             end: session.end, summaries: session.summaries,
             topApps: session.topApps.enumerated().map { index, app in
-                AppRangeTotal(name: "App \(index + 1)", cpuSeconds: app.cpuSeconds, diskBytes: app.diskBytes, isLowerBound: app.isLowerBound)
+                AppRangeTotal(
+                    name: "App \(index + 1)", cpuSeconds: app.cpuSeconds, diskBytes: app.diskBytes,
+                    networkBytes: app.networkBytes, isLowerBound: app.isLowerBound
+                )
             },
             series: session.series
         )

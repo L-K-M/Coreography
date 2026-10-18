@@ -62,7 +62,7 @@ public enum RangeExport {
             apps: naming == .named ? apps : apps.enumerated().map { index, app in
                 AppRangeTotal(
                     name: "App \(index + 1)", cpuSeconds: app.cpuSeconds, diskBytes: app.diskBytes,
-                    isLowerBound: app.isLowerBound
+                    networkBytes: app.networkBytes, isLowerBound: app.isLowerBound
                 )
             }
         )

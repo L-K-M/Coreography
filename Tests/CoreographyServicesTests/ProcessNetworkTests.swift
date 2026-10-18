@@ -45,6 +45,36 @@ final class ProcessNetworkTests: XCTestCase {
         XCTAssertEqual(rates.received.reason, "Per-process network needs macOS")
     }
 
+    func testTheLedgerTotalsNetworkOnlyWhereItWasRead() throws {
+        var ledger = AppLedger(capacity: 10)
+        let first = try snapshot([(10, "Safari", "/Applications/Safari.app/Contents/MacOS/Safari", nil)], at: 0)
+        let second = try snapshot([(10, "Safari", "/Applications/Safari.app/Contents/MacOS/Safari", nil)], at: 2)
+        ledger.record(first, traffic: try trafficSnapshot([(10, "Safari", 1_000, 500)]), logicalCPUCount: 4)
+        let interval = try XCTUnwrap(ledger.record(second, traffic: try trafficSnapshot([(10, "Safari", 1_000, 500)]), logicalCPUCount: 4))
+        XCTAssertTrue(interval.coversNetwork)
+        XCTAssertEqual(interval.entries.first?.networkBytes, 3_000, "1500 B/s for 2 s")
+        let range = stamp.wallTime.addingTimeInterval(-10)...stamp.wallTime.addingTimeInterval(10)
+        XCTAssertEqual(ledger.totals(in: range).apps.first?.networkBytes, 3_000)
+
+        var unread = AppLedger(capacity: 10)
+        unread.record(first, logicalCPUCount: 4)
+        unread.record(second, logicalCPUCount: 4)
+        XCTAssertNil(unread.totals(in: range).apps.first?.networkBytes, "no network read is unknown, not zero")
+        let snapshot = DiagnosticSnapshot(
+            takenAt: stamp.wallTime.addingTimeInterval(2), host: [], network: [], gpu: [], power: [], sensors: [],
+            processes: second, ledger: unread
+        )
+        XCTAssertThrowsError(try DiagnosticTools.topApps(snapshot, metric: .network)) {
+            XCTAssertEqual($0 as? DiagnosticError, .unavailable("Per-process network was not read in this range"))
+        }
+        let ranked = try DiagnosticTools.topApps(DiagnosticSnapshot(
+            takenAt: stamp.wallTime.addingTimeInterval(2), host: [], network: [], gpu: [], power: [], sensors: [],
+            processes: second, ledger: ledger
+        ), metric: .network)
+        XCTAssertEqual(ranked.rows.map(\.app), ["Safari"])
+        XCTAssertEqual(ranked.rows.first?.value, 3_000)
+    }
+
     // MARK: Fixtures
 
     private func trafficSnapshot(_ rows: [(Int32, String, Double, Double)]) throws -> CapturedTraffic {
@@ -61,7 +91,10 @@ final class ProcessNetworkTests: XCTestCase {
         )
     }
 
-    private func snapshot(_ rows: [(Int32, String, String?, Int32?)]) throws -> CapturedProcesses {
+    private func snapshot(_ rows: [(Int32, String, String?, Int32?)], at second: TimeInterval = 0) throws -> CapturedProcesses {
+        let stamp = SampleStamp(
+            clockID: self.stamp.clockID, monotonicNanoseconds: UInt64(1 + second * 1e9), wallTime: self.stamp.wallTime.addingTimeInterval(second)
+        )
         let processes = try rows.map { pid, name, path, responsible in
             ProcessReading(
                 id: try ProcessIdentity(pid: pid, startSeconds: 1, startMicroseconds: 0), parentPID: 1, uid: 501, name: name,

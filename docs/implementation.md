@@ -3,7 +3,7 @@
 Track actual delivery against the [product plan](plan.md). A stage is
 complete only after its relevant checks and review pass and its PR merges.
 
-## Current slice: alert actions
+## Current slice: network in the ledger
 
 The native foundation merged in [PR #5](https://github.com/L-K-M/Coreography/pull/5)
 at `aee9494` after two GLM rounds and passing CI. Process monitoring merged
@@ -45,9 +45,24 @@ bottleneck hints in [PR #57](https://github.com/L-K-M/Coreography/pull/57).
 The Month tier follows in [PR #58](https://github.com/L-K-M/Coreography/pull/58).
 Per-process network (S3) follows in [PR #59](https://github.com/L-K-M/Coreography/pull/59).
 The Dock icon follows in [PR #60](https://github.com/L-K-M/Coreography/pull/60).
-This slice completes the shipped alert rules and adds Shortcut actions.
+Alert actions follow in [PR #61](https://github.com/L-K-M/Coreography/pull/61).
+This slice carries per-app network into the ledger.
 
 Implemented:
+
+- Network in the ledger: each interval integrates every app's TCP and
+  UDP rates (in plus out) from the traffic sample of the same moment
+  and records whether network was read; a process's first interval with
+  traffic has no rate yet and adds nothing. Range totals give network
+  bytes only when some interval in the range read network, so a range
+  without coverage says unknown rather than zero. Stored intervals,
+  entries and the Month tier's daily totals keep the figures; an older
+  store gains the columns in place on open, its earlier rows reading as
+  not covering network. The range panel lists the top network apps,
+  `get_top_processes` and `coreo diagnose` rank by network (every user's
+  processes, since NetworkStatistics sees them all), and `coreo apps`
+  and `--days` include it. Exports and session reports keep it under
+  redaction.
 
 - Alert actions: the fourth shipped rule, startup disk under 10% free
   (public URL resource values, read once a minute off the sampling path;
@@ -513,8 +528,8 @@ Implemented:
   `com.apple.system.thermalpressurelevel` notify state. Temperatures, fans
   and the hottest-sensor line wait for the sensor provider.
 
-The live buffers hold one hour per monitor. Per-volume disk accounting and
-network in the per-app ledger remain outstanding.
+The live buffers hold one hour per monitor. Per-volume disk accounting
+remains outstanding.
 IOReport fallback rungs (CLPC, PMP), per-app GPU time and the privileged
 helper remain outstanding. The store, MCP and model features above await stack delivery.
 
@@ -532,6 +547,7 @@ helper remain outstanding. The store, MCP and model features above await stack d
 | Native network MIB, wide-counter mapping and three-lane UI | Passed at `e62fac1`, including native C fixtures, live CLI and both executable architectures; integrated candidate pending |
 | Native IOKit storage counters and four-lane renderer | Passed [native CI](https://github.com/L-K-M/Coreography/actions/runs/39110306993) at `6434722`: 75 tests, 16 drivers, 32 measured rate fields, no inventory issues; owner checks pending |
 | On-disk history store and recorder | History slice: 148 Swift tests pass on Linux against the real system SQLite (round trip with gaps, duplicates, retention, reopen, permissions, WAL, batching); native CI checks the CLI and file permissions |
+| Network in the ledger | 259 Swift tests pass on Linux against the system SQLite (a schema-4 store migrated in place with its rows kept, network per interval and per day, unknown without coverage, the diagnostic ranking and its unavailable case) |
 | Alert actions | 257 Swift tests pass on Linux (the disk rule's thresholds and unknown readings, saved Shortcuts per rule, name validation, one run per raise through the model with its failure named, the listed Shortcuts); running real Shortcuts is an owner check |
 | Dock icon | 254 Swift tests pass on Linux (saved choice, live points while the window is held, fixed scale); the tile view compiles only in native CI and its look is an owner check |
 | Per-process network | 252 Swift tests pass on Linux (totals that survive closed connections, retired processes leaving once reported, unattributed bytes, rates per unique process, reused PIDs, PID and name joins, idle zero, unavailable reasons, group sums and sort); the NetworkStatistics session compiles and runs only in native CI |
