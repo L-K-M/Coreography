@@ -61,25 +61,34 @@ enum MaintenanceNotes {
     /// mdutil reports whether the disk is indexed, never progress, so no end is promised.
     static func spotlight(_ indexing: SpotlightIndexing) -> String {
         switch indexing {
-        case .enabled: "Spotlight indexing is on for the startup disk. macOS reports no indexing progress."
+        case .enabled: "Spotlight indexing is on for the startup disk. macOS does not report indexing progress."
         case .disabled: "Spotlight indexing is off for the startup disk."
         case .unavailable(let reason): "Spotlight's status could not be read: \(reason)."
         }
     }
 
-    /// "FindingChanges" reads as "finding changes".
-    private static func phaseText(_ phase: String) -> String {
+    /// "FindingChanges" reads as "finding changes"; an acronym stays one
+    /// word, so "HealthCheckCopyHFSMeta" reads as "health check copy HFS meta".
+    static func phaseText(_ phase: String) -> String {
+        let characters = Array(phase)
         var words: [String] = []
         var word = ""
-        for character in phase {
-            if character.isUppercase, !word.isEmpty {
+        for (index, character) in characters.enumerated() {
+            let previous = index > 0 ? characters[index - 1] : nil
+            let next = index + 1 < characters.count ? characters[index + 1] : nil
+            // A new word starts at a capital after a lowercase letter, or at
+            // the last capital of an acronym that a lowercase letter follows.
+            let startsWord = character.isUppercase && (
+                previous?.isLowercase == true || (previous?.isUppercase == true && next?.isLowercase == true)
+            )
+            if startsWord, !word.isEmpty {
                 words.append(word)
                 word = ""
             }
             word.append(character)
         }
         if !word.isEmpty { words.append(word) }
-        return words.joined(separator: " ").lowercased()
+        return words.map { $0.allSatisfy(\.isUppercase) && $0.count > 1 ? $0 : $0.lowercased() }.joined(separator: " ")
     }
 
     private static func remainingText(_ seconds: Int) -> String {

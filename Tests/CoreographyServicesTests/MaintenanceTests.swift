@@ -25,7 +25,7 @@ final class MaintenanceTests: XCTestCase {
             text: "Time Machine is backing up: copying, 42% done, about 5 min left. It finishes on its own.", readAt: stamp.wallTime
         ))
         XCTAssertNil(notes[1], "a name alone does not identify backupd")
-        XCTAssertEqual(notes[2]?.text, "Spotlight indexing is on for the startup disk. macOS reports no indexing progress.")
+        XCTAssertEqual(notes[2]?.text, "Spotlight indexing is on for the startup disk. macOS does not report indexing progress.")
         XCTAssertNil(notes[3], "Finder does no reported maintenance")
     }
 
@@ -35,6 +35,9 @@ final class MaintenanceTests: XCTestCase {
             MaintenanceNotes.timeMachine(.backingUp(BackupProgress(phase: nil, fraction: nil, remainingSeconds: 20))),
             "Time Machine is backing up: under a minute left. It finishes on its own."
         )
+        XCTAssertEqual(MaintenanceNotes.phaseText("FindingChanges"), "finding changes")
+        XCTAssertEqual(MaintenanceNotes.phaseText("HealthCheckCopyHFSMeta"), "health check copy HFS meta")
+        XCTAssertEqual(MaintenanceNotes.phaseText("Copying"), "copying")
         for indexing in [SpotlightIndexing.enabled, .disabled, .unavailable("x")] {
             XCTAssertFalse(MaintenanceNotes.spotlight(indexing).contains("finish"), "mdutil reports no progress")
         }
