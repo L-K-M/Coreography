@@ -15,6 +15,8 @@ public struct SystemSnapshot: Codable, Equatable, Identifiable, Sendable {
     public let cpuPercentOfMachine: MetricReading
     public let memoryUsedBytes: MetricReading
     public let memory: MemoryDetail
+    /// Measured `ThermalPressureLevel` ordinal.
+    public let thermalPressure: MetricReading
     public let cpuSource: String
     public let memorySource: String
     public let continuity: SamplingContinuity
@@ -22,7 +24,7 @@ public struct SystemSnapshot: Codable, Equatable, Identifiable, Sendable {
     init(
         stamp: SampleStamp, inventory: SystemInventory,
         cpuPercentOfMachine: MetricReading, memoryUsedBytes: MetricReading,
-        memory: MemoryDetail, continuity: SamplingContinuity
+        memory: MemoryDetail, thermalPressure: MetricReading, continuity: SamplingContinuity
     ) {
         self.id = UUID()
         self.stamp = stamp
@@ -30,6 +32,7 @@ public struct SystemSnapshot: Codable, Equatable, Identifiable, Sendable {
         self.cpuPercentOfMachine = cpuPercentOfMachine
         self.memoryUsedBytes = memoryUsedBytes
         self.memory = memory
+        self.thermalPressure = thermalPressure
         self.cpuSource = "Mach CPU tick counters; percent of the whole machine"
         self.memorySource = "Mach VM composition; bytes; excludes cached files"
         self.continuity = continuity

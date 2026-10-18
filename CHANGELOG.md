@@ -7,6 +7,8 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
 ## [Unreleased]
 
 ### Added
+- GPU lane with per-GPU busy, renderer and tiler percentages and memory in
+  use, `coreo gpu`, and a thermal-pressure lane from the public notify key.
 - App grouping in the process pane: helpers fold under their responsible
   app or enclosing app bundle, with honest group totals and a flat view.
   Estimated values show "est." with their method on hover.

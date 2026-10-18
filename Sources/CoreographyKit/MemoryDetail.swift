@@ -15,6 +15,20 @@ public enum MemoryPressureLevel: Int, Codable, CaseIterable, Sendable {
     }
 }
 
+/// System thermal pressure, ordered by severity; stored as a measured ordinal.
+public enum ThermalPressureLevel: Int, Codable, CaseIterable, Sendable {
+    case nominal = 0
+    case moderate = 1
+    case heavy = 2
+    case trapping = 3
+    case sleeping = 4
+
+    public init?(reading: MetricReading) {
+        guard let value = reading.numericValue, let level = Int(exactly: value) else { return nil }
+        self.init(rawValue: level)
+    }
+}
+
 /// Memory composition, swap and paging for one host sample.
 ///
 /// ```text

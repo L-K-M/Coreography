@@ -380,6 +380,7 @@ class TestReleaseSmoke(unittest.TestCase):
             "cpuPercentOfMachine": {"availability": "measured", "numericValue": 25},
             "memoryUsedBytes": {"availability": "estimated", "numericValue": 4096},
             "inventory": {"physicalMemoryBytes": 8192},
+            "thermalPressure": {"availability": "measured", "numericValue": 0},
             "memory": {
                 "appBytes": {"availability": "estimated", "numericValue": 2048},
                 "wiredBytes": {"availability": "measured", "numericValue": 1024},
@@ -424,6 +425,15 @@ class TestReleaseSmoke(unittest.TestCase):
             with self.subTest(key=key):
                 snapshot = self.snapshot()
                 snapshot["memory"][key] = value
+                self.assertNotEqual(self.run_smoke(snapshot).returncode, 0)
+
+    def test_release_gate_rejects_unknown_or_missing_thermal_pressure(self):
+        for value in ({"availability": "measured", "numericValue": 5},
+                      {"availability": "measured", "numericValue": 1.5},
+                      {"availability": "unavailable", "reason": "Fixture"}):
+            with self.subTest(value=value):
+                snapshot = self.snapshot()
+                snapshot["thermalPressure"] = value
                 self.assertNotEqual(self.run_smoke(snapshot).returncode, 0)
 
     def test_release_gate_accepts_empty_compressor_without_ratio(self):

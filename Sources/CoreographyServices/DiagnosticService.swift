@@ -4,6 +4,9 @@ import CoreographyKit
 public typealias CapturedSnapshot = SystemSnapshot
 public typealias DashboardReading = MetricReading
 public typealias CapturedMemoryPressure = MemoryPressureLevel
+public typealias CapturedThermalPressure = ThermalPressureLevel
+public typealias CapturedGPU = GPUSnapshot
+public typealias CapturedGPUDevice = GPUDeviceReading
 
 public enum NativeSamplingSupport: String, Codable, Sendable {
     case supported
@@ -24,12 +27,14 @@ public actor DiagnosticService {
     private let processMonitor: ProcessMonitor
     private let networkMonitor: NetworkMonitor
     private let diskMonitor: DiskMonitor
+    private let gpuMonitor: GPUMonitor
 
     public init() throws {
         monitor = try SystemMonitor()
         processMonitor = try ProcessMonitor()
         networkMonitor = try NetworkMonitor()
         diskMonitor = try DiskMonitor()
+        gpuMonitor = try GPUMonitor()
     }
 
     public func report() async throws -> DiagnosticReport {
@@ -65,6 +70,11 @@ public actor DiagnosticService {
         _ = try await diskMonitor.sample()
         try await Task.sleep(for: Self.warmupInterval)
         return try await diskMonitor.sample()
+    }
+
+    /// GPU utilization is a driver gauge; one read needs no baseline.
+    public func captureGPUOnce() async throws -> CapturedGPU {
+        try await gpuMonitor.sample()
     }
 
     public static var nativeSamplingSupport: NativeSamplingSupport {

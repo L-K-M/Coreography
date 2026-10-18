@@ -23,9 +23,11 @@ struct DashboardView: View {
 
                 lane(.cpu)
                 MemoryLane(model: model)
+                GPULane(model: model)
 
                 DiskLane(model: model)
                 NetworkLane(model: model)
+                ThermalLane(model: model)
 
                 ProcessPane(model: model, filterFocused: $processFilterFocused)
 
@@ -39,6 +41,9 @@ struct DashboardView: View {
                         }
                         TableColumn("Used memory, estimated") { frame in
                             Text(MetricText.bytes(frame.memoryUsedBytes.numericValue))
+                        }
+                        TableColumn("Thermal pressure") { frame in
+                            Text(ThermalText.level(frame.thermalPressure))
                         }
                     }
                     .frame(height: 150)
@@ -56,6 +61,18 @@ struct DashboardView: View {
                         TableColumn("Swap in/s") { ProcessMetricCell(reading: $0.memory.swapInBytesPerSecond, format: .rate) }
                         TableColumn("Swap out/s") { ProcessMetricCell(reading: $0.memory.swapOutBytesPerSecond, format: .rate) }
                         TableColumn("Pressure") { Text(MemoryText.pressure($0.memory.pressure)) }
+                    }
+                    .frame(height: 150)
+                }
+
+                DisclosureGroup("GPU numeric readings") {
+                    Table(model.gpuReadings) {
+                        TableColumn("Time") { Text($0.time, format: .dateTime.hour().minute().second()) }
+                        TableColumn("GPU", value: \.name)
+                        TableColumn("Busy") { ProcessMetricCell(reading: $0.device.utilizationPercent, format: .percent) }
+                        TableColumn("Renderer") { ProcessMetricCell(reading: $0.device.rendererPercent, format: .percent) }
+                        TableColumn("Tiler") { ProcessMetricCell(reading: $0.device.tilerPercent, format: .percent) }
+                        TableColumn("Memory in use") { ProcessMetricCell(reading: $0.device.inUseMemoryBytes, format: .bytes) }
                     }
                     .frame(height: 150)
                 }
@@ -376,6 +393,245 @@ private struct MemoryChartAccessibility: AXChartDescriptorRepresentable {
             title: String(localized: "Memory"),
             summary: String(localized: "App, wired, compressed and cached memory; pressure \(MemoryText.pressure(pressure)). Missing readings leave gaps."),
             xAxis: x, yAxis: y, additionalAxes: [], series: series
+        )
+    }
+}
+
+private struct GPULane: View {
+    @Bindable var model: DashboardModel
+
+    var body: some View {
+        let end = model.displayedEndTime ?? Date()
+        let start = end.addingTimeInterval(-Layout.visibleSeconds)
+        let series = model.gpuSeries()
+        let hasVisiblePoints = series.contains { $0.points.contains { $0.time >= start && $0.time <= end } }
+        let latest = model.gpuFrames.last
+        let devices = latest?.devices ?? []
+
+        HStack(alignment: .top, spacing: 24) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("GPU").font(.caption.weight(.medium)).foregroundStyle(.secondary)
+                Text(MetricText.percent(devices.first?.utilizationPercent.numericValue))
+                    .font(.system(size: 30, weight: .semibold))
+                Text(devices.first?.name ?? String(localized: "No GPU observed")).font(.caption)
+                ForEach(devices.dropFirst()) { device in
+                    Text("\(device.name) \(MetricText.percent(device.utilizationPercent.numericValue))")
+                        .font(.caption)
+                }
+                if let device = devices.first {
+                    Text("Memory in use \(MetricText.bytes(device.inUseMemoryBytes.numericValue))")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                Text(GPUText.status(latest)).font(.caption).foregroundStyle(.secondary)
+            }
+            .monospacedDigit()
+            .frame(width: Layout.headerWidth, alignment: .leading)
+
+            if !hasVisiblePoints {
+                Text(GPUText.status(latest))
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, minHeight: Layout.graphHeight)
+            } else {
+                chart(series, start: start, end: end)
+            }
+        }
+        .padding(Layout.padding)
+        .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: Layout.cornerRadius))
+        .overlay(RoundedRectangle(cornerRadius: Layout.cornerRadius).strokeBorder(
+            Color(nsColor: .separatorColor), lineWidth: 0.5
+        ))
+    }
+
+    private func chart(_ series: [GPUSeries], start: Date, end: Date) -> some View {
+        Chart {
+            ForEach(series) { device in
+                ForEach(device.points.filter { $0.time >= start && $0.time <= end }) { point in
+                    LineMark(
+                        x: .value("Time", point.time), y: .value("Busy", point.value),
+                        series: .value("Device", "\(device.id.registryEntryID)-\(point.segment)")
+                    )
+                    .foregroundStyle(Color.purple)
+                    .interpolationMethod(.linear)
+                }
+            }
+        }
+        .chartLegend(.hidden)
+        .chartXScale(domain: start...end)
+        .chartYScale(domain: 0...MetricText.percentScale)
+        .chartYAxis {
+            AxisMarks(position: .trailing, values: [0, MetricText.percentScale / 2, MetricText.percentScale]) { value in
+                AxisGridLine()
+                AxisValueLabel {
+                    if let number = value.as(Double.self) {
+                        Text(MetricText.percent(number)).frame(width: Layout.axisLabelWidth, alignment: .leading)
+                    }
+                }
+            }
+        }
+        .chartXAxis {
+            AxisMarks(values: .automatic(desiredCount: 4)) {
+                AxisValueLabel(format: .dateTime.hour().minute().second())
+            }
+        }
+        .frame(height: Layout.graphHeight)
+        .accessibilityChartDescriptor(GPUChartAccessibility(series: series, start: start, end: end))
+    }
+}
+
+private enum GPUText {
+    static func status(_ frame: CapturedGPU?) -> String {
+        guard let frame else { return String(localized: "Collecting GPU readings…") }
+        if let reason = frame.enumeration.reason { return reason }
+        if frame.devices.isEmpty { return String(localized: "No GPU publishes utilization on this Mac") }
+        if let reason = frame.devices.first?.utilizationPercent.reason { return reason }
+        return String(localized: "IOAccelerator · driver-reported busy time")
+    }
+}
+
+private struct GPUChartAccessibility: AXChartDescriptorRepresentable {
+    let series: [GPUSeries]
+    let start: Date
+    let end: Date
+
+    func makeChartDescriptor() -> AXChartDescriptor {
+        let x = AXNumericDataAxisDescriptor(
+            title: String(localized: "Time"),
+            range: start.timeIntervalSinceReferenceDate...end.timeIntervalSinceReferenceDate,
+            gridlinePositions: []
+        ) { Date(timeIntervalSinceReferenceDate: $0).formatted(date: .omitted, time: .standard) }
+        let y = AXNumericDataAxisDescriptor(
+            title: String(localized: "GPU busy"), range: 0...MetricText.percentScale, gridlinePositions: []
+        ) { MetricText.percent($0) }
+        var descriptors: [AXDataSeriesDescriptor] = []
+        for device in series {
+            let visible = device.points.filter { $0.time >= start && $0.time <= end }
+            let segments = Dictionary(grouping: visible, by: \.segment)
+            for segment in segments.keys.sorted() {
+                descriptors.append(AXDataSeriesDescriptor(
+                    name: device.name, isContinuous: true,
+                    dataPoints: (segments[segment] ?? []).map {
+                        AXDataPoint(x: $0.time.timeIntervalSinceReferenceDate, y: $0.value)
+                    }
+                ))
+            }
+        }
+        return AXChartDescriptor(
+            title: String(localized: "GPU"),
+            summary: String(localized: "Driver-reported busy percentage per GPU; missing readings leave gaps."),
+            xAxis: x, yAxis: y, additionalAxes: [], series: descriptors
+        )
+    }
+}
+
+private struct ThermalLane: View {
+    @Bindable var model: DashboardModel
+
+    var body: some View {
+        let end = model.displayedEndTime ?? Date()
+        let start = end.addingTimeInterval(-Layout.visibleSeconds)
+        let spans = model.thermalPressureSpans().filter { $0.end >= start && $0.start <= end }
+        let reading = model.latest?.thermalPressure
+
+        HStack(alignment: .top, spacing: 24) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Thermal").font(.caption.weight(.medium)).foregroundStyle(.secondary)
+                Text(ThermalText.level(reading)).font(.system(size: 30, weight: .semibold))
+                Text("System thermal pressure").font(.caption)
+                Text(reading?.reason ?? String(localized: "Temperatures and fans are not collected yet"))
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            .frame(width: Layout.headerWidth, alignment: .leading)
+
+            if spans.isEmpty {
+                Text(reading?.reason ?? String(localized: "Collecting samples…"))
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, minHeight: Layout.bandHeight)
+            } else {
+                Chart(spans) { span in
+                    RectangleMark(
+                        xStart: .value("Start", max(span.start, start)), xEnd: .value("End", span.end),
+                        yStart: .value("Bottom", 0), yEnd: .value("Top", 1)
+                    )
+                    .foregroundStyle(ThermalText.color(span.level))
+                }
+                .chartLegend(.hidden)
+                .chartXScale(domain: start...end)
+                .chartYScale(domain: 0...1)
+                .chartYAxis(.hidden)
+                .chartXAxis {
+                    AxisMarks(values: .automatic(desiredCount: 4)) {
+                        AxisValueLabel(format: .dateTime.hour().minute().second())
+                    }
+                }
+                .frame(height: Layout.bandHeight)
+                .accessibilityChartDescriptor(ThermalChartAccessibility(spans: spans, start: start, end: end))
+            }
+        }
+        .padding(Layout.padding)
+        .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: Layout.cornerRadius))
+        .overlay(RoundedRectangle(cornerRadius: Layout.cornerRadius).strokeBorder(
+            Color(nsColor: .separatorColor), lineWidth: 0.5
+        ))
+    }
+}
+
+private enum ThermalText {
+    static func level(_ reading: DashboardReading?) -> String {
+        guard let reading else { return "–" }
+        guard let level = CapturedThermalPressure(reading: reading) else {
+            return reading.availability == .restricted
+                ? String(localized: "Restricted") : String(localized: "Unavailable")
+        }
+        return name(level)
+    }
+
+    static func name(_ level: CapturedThermalPressure) -> String {
+        switch level {
+        case .nominal: return String(localized: "Nominal")
+        case .moderate: return String(localized: "Moderate")
+        case .heavy: return String(localized: "Heavy")
+        case .trapping: return String(localized: "Trapping")
+        case .sleeping: return String(localized: "Sleeping")
+        }
+    }
+
+    // Red is reserved for states where the system is throttling hard.
+    static func color(_ level: CapturedThermalPressure) -> Color {
+        switch level {
+        case .nominal: return .gray.opacity(0.35)
+        case .moderate: return .yellow
+        case .heavy: return .orange
+        case .trapping, .sleeping: return .red
+        }
+    }
+}
+
+private struct ThermalChartAccessibility: AXChartDescriptorRepresentable {
+    let spans: [ThermalPressureSpan]
+    let start: Date
+    let end: Date
+
+    func makeChartDescriptor() -> AXChartDescriptor {
+        let levels = CapturedThermalPressure.allCases
+        let x = AXNumericDataAxisDescriptor(
+            title: String(localized: "Time"),
+            range: start.timeIntervalSinceReferenceDate...end.timeIntervalSinceReferenceDate,
+            gridlinePositions: []
+        ) { Date(timeIntervalSinceReferenceDate: $0).formatted(date: .omitted, time: .standard) }
+        let y = AXNumericDataAxisDescriptor(
+            title: String(localized: "Thermal pressure"),
+            range: 0...Double(levels.count - 1), gridlinePositions: []
+        ) { value in
+            CapturedThermalPressure(rawValue: Int(value.rounded())).map(ThermalText.name) ?? "–"
+        }
+        let points = spans.map {
+            AXDataPoint(x: $0.end.timeIntervalSinceReferenceDate, y: Double($0.level.rawValue))
+        }
+        return AXChartDescriptor(
+            title: String(localized: "Thermal pressure"),
+            summary: String(localized: "System thermal pressure level over the last minute; pressure alone does not prove throttling."),
+            xAxis: x, yAxis: y, additionalAxes: [],
+            series: [AXDataSeriesDescriptor(name: String(localized: "Thermal pressure"), isContinuous: false, dataPoints: points)]
         )
     }
 }
@@ -739,6 +995,7 @@ private enum Layout {
     static let headerWidth: CGFloat = 180
     static let axisLabelWidth: CGFloat = 96
     static let graphHeight: CGFloat = 120
+    static let bandHeight: CGFloat = 48
 }
 
 private enum MetricText {

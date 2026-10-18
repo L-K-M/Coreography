@@ -46,7 +46,8 @@ final class SystemMonitorTests: XCTestCase {
             swap: .failure(.systemCall(operation: "sysctl vm.swapusage", code: 12)),
             memoryPressure: .failure(.unexpectedValue(
                 operation: "sysctl kern.memorystatus_vm_pressure_level", value: 8
-            ))
+            )),
+            thermalPressure: .failure(.systemCall(operation: "notify_get_state thermal pressure", code: 5))
         )
         let monitor = try SystemMonitor(driver: FixtureHostDriver(samples: [sample]))
         let result = try await monitor.sample()
@@ -63,6 +64,8 @@ final class SystemMonitorTests: XCTestCase {
             result.memory.pressure.reason,
             "sysctl kern.memorystatus_vm_pressure_level returned unexpected value 8"
         )
+        XCTAssertEqual(result.thermalPressure.availability, .unavailable)
+        XCTAssertEqual(result.thermalPressure.reason, "notify_get_state thermal pressure failed (5)")
     }
 
     func testMemoryDetailReportsCompositionSwapPressureAndPagingRates() async throws {
@@ -91,6 +94,17 @@ final class SystemMonitorTests: XCTestCase {
         XCTAssertEqual(detail.pageInBytesPerSecond.numericValue, 10 * page)
         XCTAssertEqual(detail.swapInBytesPerSecond.numericValue, 2 * page)
         XCTAssertEqual(detail.swapOutBytesPerSecond.numericValue, 0)
+    }
+
+    func testThermalPressureIsAMeasuredOrdinalWithProvenance() async throws {
+        let monitor = try SystemMonitor(driver: FixtureHostDriver(samples: [
+            fixture(seconds: 0, user: 0, idle: 0)
+        ]))
+        let thermal = try await monitor.sample().thermalPressure
+        XCTAssertEqual(thermal.availability, .measured)
+        XCTAssertEqual(ThermalPressureLevel(reading: thermal), .heavy)
+        XCTAssertEqual(thermal.source?.channel, "com.apple.system.thermalpressurelevel")
+        XCTAssertNil(ThermalPressureLevel(reading: try .measured(2.5)))
     }
 
     func testSleepGapMakesPagingRatesGapsButKeepsMemoryGauges() async throws {
@@ -160,7 +174,8 @@ final class SystemMonitorTests: XCTestCase {
                 pageIns: pageIns, swapIns: swapIns, swapOuts: swapOuts, pageSizeBytes: 16_384
             )),
             swap: .success(SwapUsage(totalBytes: 2048, usedBytes: 1024)),
-            memoryPressure: .success(.warning)
+            memoryPressure: .success(.warning),
+            thermalPressure: .success(.heavy)
         )
     }
 }

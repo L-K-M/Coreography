@@ -17,6 +17,7 @@ def reading(snapshot, key, availability):
 
 
 PRESSURE_LEVELS = (0, 1, 2)  # MemoryPressureLevel ordinals: normal, warning, critical
+THERMAL_LEVELS = (0, 1, 2, 3, 4)  # ThermalPressureLevel: nominal ... sleeping
 
 
 def bounded(snapshot, key, availability, upper):
@@ -62,6 +63,8 @@ def validate(snapshot):
     if not 0 <= memory <= capacity:
         raise ValueError("used memory must be between zero and physical memory")
     validate_memory(snapshot, memory, capacity)
+    if reading(snapshot, "thermalPressure", "measured") not in THERMAL_LEVELS:
+        raise ValueError("thermalPressure must be a known level")
 
 
 if __name__ == "__main__":

@@ -3,7 +3,7 @@
 Track actual delivery against the [product plan](plan.md). A stage is
 complete only after its relevant checks and review pass and its PR merges.
 
-## Current slice: app grouping
+## Current slice: GPU and thermal pressure
 
 The native foundation merged in [PR #5](https://github.com/L-K-M/Coreography/pull/5)
 at `aee9494` after two GLM rounds and passing CI. Process monitoring merged
@@ -14,8 +14,9 @@ after two GLM rounds and passing CI. The network slice in
 integration checks and GLM review still gate delivery.
 Scoped storage-driver rates and a fourth lane follow in
 [PR #8](https://github.com/L-K-M/Coreography/pull/8); memory composition,
-swap and pressure in [PR #9](https://github.com/L-K-M/Coreography/pull/9).
-This slice groups processes by app in the process pane.
+swap and pressure in [PR #9](https://github.com/L-K-M/Coreography/pull/9);
+app grouping in [PR #10](https://github.com/L-K-M/Coreography/pull/10).
+This slice adds the GPU lane and a thermal-pressure lane.
 
 Implemented:
 
@@ -61,12 +62,18 @@ Implemented:
 - The memory lane stacks the composition under the physical-memory line,
   draws a pressure band above it, and has a ten-column numeric table and
   per-layer chart accessibility. `coreo snapshot` exports the same detail.
+- A GPU lane from each IOAccelerator's published `PerformanceStatistics`:
+  busy, renderer and tiler percentages and memory in use, one line per GPU,
+  with a numeric table and `coreo gpu --once --json`.
+- A thermal lane showing system thermal pressure as a band, from the public
+  `com.apple.system.thermalpressurelevel` notify state. Temperatures, fans
+  and the hottest-sensor line wait for the sensor provider.
 
 This is not the seven-lane product yet. The live buffer currently holds
-60 host, network and disk frames. Process history/attribution,
+60 host, network, disk and GPU frames. Process history/attribution,
 per-volume disk accounting and per-process network attribution remain outstanding.
-There is no disk store,
-GPU/power/thermal provider, helper, MCP or model integration in this slice.
+There is no disk store, power or sensor provider, per-app GPU time, helper,
+MCP or model integration in this slice.
 
 ## Verification
 
@@ -77,12 +84,13 @@ GPU/power/thermal provider, helper, MCP or model integration in this slice.
 | Build-script regression tests | 30 passed locally and in CI; includes actual release-step rejection, fixture isolation and exact archive selection |
 | Xcode/macOS compilation and live CPU/memory smoke | Passed [native network CI](https://github.com/L-K-M/Coreography/actions/runs/39104361427) at `e62fac1`; latest integration checks tracked on PR #7 |
 | Universal app and CLI slices, code signature and archive | Passed the same native CI; ad-hoc signing only |
-| Native chart rendering, VoiceOver and display-hold behavior | [Network candidate](https://github.com/L-K-M/Coreography/actions/runs/39104361427/artifacts/12127004956) delivered; owner checks pending |
+| Native chart rendering, VoiceOver and display-hold behavior | Owner reported the [PR #7 candidate](https://github.com/L-K-M/Coreography/actions/runs/39108879660/artifacts/12130410052) (CPU, memory, processes, network) looks fine on their Mac, 2026-10-18 |
 | Native process collection, cancellation and CPU units | Passed [native review-fix CI](https://github.com/L-K-M/Coreography/actions/runs/39105964147) at `7df03ec`, including cancellation, saturation and `getrusage` cross-checks |
 | Native network MIB, wide-counter mapping and three-lane UI | Passed at `e62fac1`, including native C fixtures, live CLI and both executable architectures; integrated candidate pending |
-| Native IOKit storage counters and four-lane renderer | Pending storage-slice CI and owner checks; a virtual runner may expose no matching driver |
+| Native IOKit storage counters and four-lane renderer | Passed [native CI](https://github.com/L-K-M/Coreography/actions/runs/39110306993) at `6434722`: 75 tests, 16 drivers, 32 measured rate fields, no inventory issues; owner checks pending |
+| Native GPU statistics, thermal notify state and six-lane UI | GPU slice: 93 Swift tests, 34 tooling tests and the Linux thermal C contract pass; native CI pending. The C bridge asserts the level constants against the SDK at compile time |
 | Native executable paths, responsibility lookup and grouped table | App-grouping slice: 87 Swift tests and the Linux C contract pass; native CI records how many processes resolved a responsible PID |
-| Native swap/pressure sysctls, memory composition and stacked lane | Memory slice: 81 Swift and 32 tooling tests pass on Linux; native CI pending. CI validates that app, wired and compressed sum to used memory |
+| Native swap/pressure sysctls, memory composition and stacked lane | Passed [native CI](https://github.com/L-K-M/Coreography/actions/runs/39112973077) at `1274ff0`: 83 tests including real sysctl reads, and the snapshot gate's composition sum |
 | CPU, memory and wakeup budgets | Unmeasured; S2 pending |
 | Developer ID, notarization and signed update delivery | Pending credentials and M7 |
 
@@ -104,8 +112,9 @@ sensor calibration, fullscreen behavior or Mac energy overhead.
 
 ## Owner Mac checks
 
-The owner will test downloadable builds. The network candidate is linked
-above and its checks have been sent. For a trusted ad-hoc build blocked on
+The owner will test downloadable builds. The owner checked the PR #7
+candidate and reported no problems; private macOS APIs are approved for
+this direct-download app. For a trusted ad-hoc build blocked on
 first launch, use System Settings > Privacy & Security > Open Anyway.
 This is not a notarized production release. Check:
 
@@ -168,6 +177,23 @@ The [libproc wrapper](https://github.com/apple-oss-distributions/xnu/blob/f6217f
 calls `__proc_info` directly, and
 [proc_get_rusage](https://github.com/apple-oss-distributions/xnu/blob/f6217f891ac0bb64f3d375211650a4c1ff8ca1ea/bsd/kern/kern_resource.c)
 copies the gathered record without a hidden nanosecond conversion.
+
+## GPU and thermal sources
+
+Each `IOAccelerator` registry entry publishes a `PerformanceStatistics`
+table without opening a user client, so no privilege is needed. Its keys
+are driver-defined: AGX uses `Device Utilization %`, `Renderer
+Utilization %`, `Tiler Utilization %` and `In use system memory`; AMD and
+Intel may use `GPU Activity(%)`. Percentages outside 0-100, booleans and
+strings are rejected. Busy percentage is the driver's own window, not
+per-app GPU time, and memory in use is unified system memory, not VRAM.
+A runner or Mac without an accelerator shows no GPU rather than 0%.
+
+Thermal pressure reads the state of `kOSThermalNotificationPressureLevelName`
+from the public `libkern/OSThermalNotification.h`, as powermetrics and
+mactop do. macOS levels are 0 nominal, 1 moderate, 2 heavy, 3 trapping and
+4 sleeping; the C bridge `_Static_assert`s them against the SDK. Pressure
+alone does not prove throttling.
 
 ## App grouping sources
 
