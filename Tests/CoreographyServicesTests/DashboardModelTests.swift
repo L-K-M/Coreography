@@ -80,6 +80,62 @@ final class DashboardModelTests: XCTestCase {
         XCTAssertEqual(ProcessList.rows(in: snapshot, matching: " 501 ", sortedBy: .cpu).count, 2)
     }
 
+    func testNetworkDisplayHoldFreezesRowsAndSharedTimeWhileSamplingContinues() async throws {
+        let driver = IncreasingNetworkDriver()
+        let model = try makeNetworkModel(driver)
+        model.start()
+        defer { model.stop() }
+        try await eventually { model.networkFrames.count >= 2 }
+        model.toggleDisplayHold()
+        let held = model.networkFrames.last?.id
+        let end = model.displayedEndTime
+        let before = await driver.readCount
+        try await eventually { await driver.readCount >= before + 5 }
+        XCTAssertEqual(model.networkFrames.last?.id, held)
+        XCTAssertEqual(model.displayedEndTime, end)
+        model.toggleDisplayHold()
+        XCTAssertNotEqual(model.networkFrames.last?.id, held)
+        XCTAssertEqual(model.networkReadings.last?.interfaceName, "en0")
+    }
+
+    func testNetworkScopeUsesOneInterfaceAndSplitsPrimaryChanges() async throws {
+        let driver = IncreasingNetworkDriver()
+        let model = try makeNetworkModel(driver)
+        model.start()
+        defer { model.stop() }
+        try await eventually { model.networkFrames.count >= 3 }
+        XCTAssertEqual(model.reading(for: .networkReceived)?.numericValue, 100)
+        model.networkScope = .interface(try CapturedInterfaceID(index: 9, name: "utun9"))
+        XCTAssertEqual(model.reading(for: .networkReceived)?.numericValue, 1000)
+        XCTAssertEqual(model.networkReadings.last?.interfaceName, "utun9")
+        model.networkScope = .interface(try CapturedInterfaceID(index: 99, name: "missing"))
+        XCTAssertNil(model.reading(for: .networkReceived)?.numericValue)
+        XCTAssertEqual(model.reading(for: .networkReceived)?.availability, .gap)
+        model.networkScope = .primary
+        await driver.changePrimary(to: "utun9")
+        try await eventually { model.networkFrames.last?.primaryInterface?.name == "utun9" }
+        XCTAssertGreaterThan(Set(model.points(for: .networkReceived).map(\.segment)).count, 1)
+    }
+
+    func testExplicitInterfaceRemainsUsableWithoutPrimaryRouteMetadata() async throws {
+        let driver = IncreasingNetworkDriver()
+        await driver.changePrimary(to: nil)
+        let model = try makeNetworkModel(driver)
+        model.start()
+        defer { model.stop() }
+        try await eventually { model.networkFrames.count >= 2 }
+        XCTAssertEqual(model.reading(for: .networkReceived)?.availability, .unavailable)
+        model.networkScope = .interface(try CapturedInterfaceID(index: 2, name: "en0"))
+        XCTAssertEqual(model.reading(for: .networkReceived)?.numericValue, 100)
+    }
+
+    private func makeNetworkModel(_ driver: IncreasingNetworkDriver) throws -> DashboardModel {
+        DashboardModel(
+            monitor: try SystemMonitor(driver: IncreasingHostDriver()), interval: .milliseconds(10),
+            networkMonitor: try NetworkMonitor(driver: driver)
+        )
+    }
+
     private func process(
         pid: Int32, name: String, uid: UInt32, cpu: MetricReading, memory: Double
     ) throws -> ProcessReading {
@@ -100,6 +156,36 @@ final class DashboardModelTests: XCTestCase {
         }
         XCTFail("Condition did not become true before the deadline")
         throw CancellationError()
+    }
+}
+
+private actor IncreasingNetworkDriver: NetworkSampleReading {
+    private let clock = UUID()
+    private var primary: String? = "en0"
+    private(set) var readCount: UInt64 = 0
+
+    func changePrimary(to name: String?) { primary = name }
+
+    func read() async -> RawNetworkSnapshot {
+        readCount += 1
+        let stamp = readCount * 1_000_000_000
+        let rows = [
+            RawNetworkInterface(
+                index: 2, name: "en0", linkState: .up, receivedBytes: readCount * 100,
+                sentBytes: readCount * 10, monotonicNanoseconds: stamp
+            ),
+            RawNetworkInterface(
+                index: 9, name: "utun9", linkState: .up, receivedBytes: readCount * 1000,
+                sentBytes: readCount * 20, monotonicNanoseconds: stamp
+            )
+        ]
+        return RawNetworkSnapshot(
+            clockID: clock, monotonicNanoseconds: stamp,
+            wallTime: Date(timeIntervalSince1970: 1_700_000_000 + Double(readCount)),
+            enumeration: .success(NetworkEnumeration(interfaces: rows)),
+            primaryInterface: primary.map { .success(PrimaryNetworkInterface(name: $0, family: .ipv4)) }
+                ?? .failure(.unavailable(reason: "No primary interface"))
+        )
     }
 }
 

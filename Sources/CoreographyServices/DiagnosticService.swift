@@ -21,10 +21,12 @@ public actor DiagnosticService {
     private static let warmupInterval: Duration = .seconds(1)
     private let monitor: SystemMonitor
     private let processMonitor: ProcessMonitor
+    private let networkMonitor: NetworkMonitor
 
     public init() throws {
         monitor = try SystemMonitor()
         processMonitor = try ProcessMonitor()
+        networkMonitor = try NetworkMonitor()
     }
 
     public func report() async throws -> DiagnosticReport {
@@ -48,6 +50,12 @@ public actor DiagnosticService {
         _ = try await processMonitor.sample()
         try await Task.sleep(for: .seconds(2))
         return try await processMonitor.sample()
+    }
+
+    public func captureNetworkOnce() async throws -> CapturedNetwork {
+        _ = try await networkMonitor.sample()
+        try await Task.sleep(for: Self.warmupInterval)
+        return try await networkMonitor.sample()
     }
 
     public static var nativeSamplingSupport: NativeSamplingSupport {

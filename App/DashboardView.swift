@@ -21,9 +21,11 @@ struct DashboardView: View {
                     .foregroundStyle(.secondary)
                 }
 
-                ForEach(DashboardMetric.allCases) { metric in
+                ForEach([DashboardMetric.cpu, .memory]) { metric in
                     lane(metric)
                 }
+
+                NetworkLane(model: model)
 
                 ProcessPane(model: model, filterFocused: $processFilterFocused)
 
@@ -38,6 +40,16 @@ struct DashboardView: View {
                         TableColumn("Used memory, estimated") { frame in
                             Text(MetricText.bytes(frame.memoryUsedBytes.numericValue))
                         }
+                    }
+                    .frame(height: 150)
+                }
+
+                DisclosureGroup("Network numeric readings") {
+                    Table(model.networkReadings) {
+                        TableColumn("Time") { Text($0.time, format: .dateTime.hour().minute().second()) }
+                        TableColumn("Interface") { Text($0.interfaceName ?? "–") }
+                        TableColumn("Received/s") { ProcessMetricCell(reading: $0.received, format: .rate) }
+                        TableColumn("Sent/s") { ProcessMetricCell(reading: $0.sent, format: .rate) }
                     }
                     .frame(height: 150)
                 }
@@ -84,7 +96,7 @@ struct DashboardView: View {
         let maximum = metric == .cpu
             ? MetricText.percentScale
             : Double(model.latest?.inventory.physicalMemoryBytes ?? 1)
-        let end = model.latest?.stamp.wallTime ?? Date()
+        let end = model.displayedEndTime ?? Date()
         let start = end.addingTimeInterval(-Layout.visibleSeconds)
         let points = model.points(for: metric).filter { $0.time >= start && $0.time <= end }
 
@@ -150,6 +162,152 @@ struct DashboardView: View {
         .overlay(RoundedRectangle(cornerRadius: Layout.cornerRadius).strokeBorder(
             Color(nsColor: .separatorColor), lineWidth: 0.5
         ))
+    }
+}
+
+private struct NetworkLane: View {
+    @Bindable var model: DashboardModel
+
+    var body: some View {
+        let end = model.displayedEndTime ?? Date()
+        let start = end.addingTimeInterval(-Layout.visibleSeconds)
+        let received = model.points(for: .networkReceived).filter { $0.time >= start && $0.time <= end }
+        let sent = model.points(for: .networkSent).filter { $0.time >= start && $0.time <= end }
+        let maximum = rateCeiling((received + sent).map(\.value).max() ?? 1)
+        let receiveReading = model.reading(for: .networkReceived)
+        let sendReading = model.reading(for: .networkSent)
+
+        HStack(alignment: .top, spacing: 24) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Network").font(.caption.weight(.medium)).foregroundStyle(.secondary)
+                Text("↓ " + MetricText.rate(receiveReading?.numericValue))
+                    .font(.system(size: 24, weight: .semibold))
+                Text("↑ " + MetricText.rate(sendReading?.numericValue))
+                    .font(.system(size: 20, weight: .semibold))
+                interfacePicker
+                Text(receiveReading?.reason ?? "IFMIB · 64-bit byte counters")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .monospacedDigit()
+            .frame(width: Layout.headerWidth, alignment: .leading)
+
+            if received.isEmpty && sent.isEmpty {
+                Text(receiveReading?.reason ?? String(localized: "Collecting samples…"))
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, minHeight: Layout.graphHeight)
+            } else {
+                Chart {
+                    ForEach(received) { point in
+                        LineMark(
+                            x: .value("Time", point.time), y: .value("Received/s", point.value),
+                            series: .value("Segment", "receive-\(point.segment)")
+                        )
+                        .foregroundStyle(Color.blue)
+                    }
+                    ForEach(sent) { point in
+                        LineMark(
+                            x: .value("Time", point.time), y: .value("Sent/s", -point.value),
+                            series: .value("Segment", "send-\(point.segment)")
+                        )
+                        .foregroundStyle(Color.orange)
+                        .lineStyle(StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
+                    }
+                }
+                .chartLegend(.hidden)
+                .chartXScale(domain: start...end)
+                .chartYScale(domain: -maximum...maximum)
+                .chartYAxis {
+                    AxisMarks(position: .trailing, values: [-maximum, 0, maximum]) { value in
+                        AxisGridLine()
+                        AxisValueLabel {
+                            if let number = value.as(Double.self) {
+                                Text(MetricText.rate(abs(number)))
+                                    .frame(width: Layout.axisLabelWidth, alignment: .leading)
+                            }
+                        }
+                    }
+                }
+                .chartXAxis {
+                    AxisMarks(values: .automatic(desiredCount: 4)) {
+                        AxisValueLabel(format: .dateTime.hour().minute().second())
+                    }
+                }
+                .frame(height: Layout.graphHeight)
+                .accessibilityChartDescriptor(NetworkChartAccessibility(
+                    received: received, sent: sent, start: start, end: end, maximum: maximum
+                ))
+            }
+        }
+        .padding(Layout.padding)
+        .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: Layout.cornerRadius))
+        .overlay(RoundedRectangle(cornerRadius: Layout.cornerRadius).strokeBorder(
+            Color(nsColor: .separatorColor), lineWidth: 0.5
+        ))
+    }
+
+    private var interfacePicker: some View {
+        let interfaces = model.networkFrames.last?.interfaces ?? []
+        return Picker("Network interface", selection: $model.networkScope) {
+            Text("Primary · " + (model.networkFrames.last?.primaryInterface?.name ?? "unavailable"))
+                .tag(NetworkScope.primary)
+            ForEach(interfaces) { interface in
+                Text(interface.id.name).tag(NetworkScope.interface(interface.id))
+            }
+            if case .interface(let selected) = model.networkScope,
+               !interfaces.contains(where: { $0.id == selected }) {
+                Text(selected.name + " · unavailable").tag(NetworkScope.interface(selected))
+            }
+        }
+        .labelsHidden()
+        .help("Primary prefers IPv4, then IPv6. Interfaces are scoped separately.")
+    }
+
+    private func rateCeiling(_ value: Double) -> Double {
+        guard value.isFinite, value > 0 else { return 1 }
+        let magnitude = pow(10, floor(log10(value)))
+        for step in [1.0, 2, 5, 10] where value <= step * magnitude {
+            return step * magnitude
+        }
+        return value
+    }
+}
+
+private struct NetworkChartAccessibility: AXChartDescriptorRepresentable {
+    let received: [DashboardPoint]
+    let sent: [DashboardPoint]
+    let start: Date
+    let end: Date
+    let maximum: Double
+
+    func makeChartDescriptor() -> AXChartDescriptor {
+        let x = AXNumericDataAxisDescriptor(
+            title: String(localized: "Time"),
+            range: start.timeIntervalSinceReferenceDate...end.timeIntervalSinceReferenceDate,
+            gridlinePositions: []
+        ) { Date(timeIntervalSinceReferenceDate: $0).formatted(date: .omitted, time: .standard) }
+        let y = AXNumericDataAxisDescriptor(
+            title: String(localized: "Bytes per second; receive above, send below"),
+            range: -maximum...maximum, gridlinePositions: [0]
+        ) { MetricText.rate(abs($0)) }
+        var series: [AXDataSeriesDescriptor] = []
+        for (name, points, sign) in [(String(localized: "Received"), received, 1.0),
+                                    (String(localized: "Sent"), sent, -1.0)] {
+            let segments = Dictionary(grouping: points, by: \.segment)
+            for segment in segments.keys.sorted() {
+                series.append(AXDataSeriesDescriptor(
+                    name: name, isContinuous: true,
+                    dataPoints: (segments[segment] ?? []).map {
+                        AXDataPoint(x: $0.time.timeIntervalSinceReferenceDate, y: $0.value * sign)
+                    }
+                ))
+            }
+        }
+        return AXChartDescriptor(
+            title: String(localized: "Network"),
+            summary: String(localized: "Selected interface; primary changes and missing samples split the lines."),
+            xAxis: x, yAxis: y, additionalAxes: [], series: series
+        )
     }
 }
 
@@ -252,8 +410,8 @@ private enum Layout {
     static let cornerRadius: CGFloat = 10
     static let visibleSeconds: TimeInterval = 60
     static let headerWidth: CGFloat = 180
-    static let axisLabelWidth: CGFloat = 72
-    static let graphHeight: CGFloat = 210
+    static let axisLabelWidth: CGFloat = 96
+    static let graphHeight: CGFloat = 140
 }
 
 private enum MetricText {
@@ -269,6 +427,11 @@ private enum MetricText {
     static func bytes(_ value: Double?) -> String {
         guard let value, value.isFinite, value >= 0, value < Double(Int64.max) else { return "–" }
         return Int64(value).formatted(.byteCount(style: .file))
+    }
+
+    static func rate(_ value: Double?) -> String {
+        guard let value else { return "–" }
+        return bytes(value) + "/s"
     }
 }
 

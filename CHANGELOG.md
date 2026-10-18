@@ -7,6 +7,8 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
 ## [Unreleased]
 
 ### Added
+- A scoped network lane, interface selection and JSON capture using
+  full-width public interface MIB counters, with mirrored receive/send graphs.
 - PID/start-time-safe process CPU, footprint and disk rates through public
   libproc, a sortable/filterable process pane and process JSON capture.
 - Native CPU/memory graph foundation, numeric readings, display hold and
