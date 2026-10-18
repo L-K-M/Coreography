@@ -3,7 +3,7 @@
 Track actual delivery against the [product plan](plan.md). A stage is
 complete only after its relevant checks and review pass and its PR merges.
 
-## Current slice: automation
+## Current slice: command palette
 
 The native foundation merged in [PR #5](https://github.com/L-K-M/Coreography/pull/5)
 at `aee9494` after two GLM rounds and passing CI. Process monitoring merged
@@ -36,10 +36,21 @@ process change highlighting in [PR #27](https://github.com/L-K-M/Coreography/pul
 the filter grammar in [PR #28](https://github.com/L-K-M/Coreography/pull/28).
 Process role notes and current assertion facts are shared with
 diagnostic clients in [PR #52](https://github.com/L-K-M/Coreography/pull/52).
-Maintenance states follow in [PR #53](https://github.com/L-K-M/Coreography/pull/53).
-This slice adds automation.
+Maintenance states follow in [PR #53](https://github.com/L-K-M/Coreography/pull/53)
+and automation in [PR #54](https://github.com/L-K-M/Coreography/pull/54).
+This slice adds the command palette.
 
 Implemented:
+
+- Command palette (Command-Shift-P): every window action by name:
+  inspector, hold, recording, HUD, Settings, each range, pane, grouping
+  and sort, filter presets and saved filters, clearing the filter, scope
+  and selection, sensor reset, startup refresh, and the selected
+  process's actions, sample and copy. Typed words must all match a
+  title, ranked by title prefix, word prefix, substring and then letters
+  in order. Unavailable entries stay listed with their reason. Process
+  entries name their target and confirm through the same dialog as the
+  menus; the model never acts on them unconfirmed.
 
 - Automation: a `coreography://` scheme registered in the app's
   Info.plist, received through the app delegate so links work with the
@@ -428,6 +439,7 @@ outstanding. The store, MCP and model features above await stack delivery.
 | Native network MIB, wide-counter mapping and three-lane UI | Passed at `e62fac1`, including native C fixtures, live CLI and both executable architectures; integrated candidate pending |
 | Native IOKit storage counters and four-lane renderer | Passed [native CI](https://github.com/L-K-M/Coreography/actions/runs/39110306993) at `6434722`: 75 tests, 16 drivers, 32 measured rate fields, no inventory issues; owner checks pending |
 | On-disk history store and recorder | History slice: 148 Swift tests pass on Linux against the real system SQLite (round trip with gaps, duplicates, retention, reopen, permissions, WAL, batching); native CI checks the CLI and file permissions |
+| Command palette | 229 Swift tests pass on Linux (ranking, unavailable reasons, target names, actions applied through the model, unconfirmed process actions ignored); the palette view compiles only in native CI; keyboard use is an owner check |
 | Automation | 227 Swift tests pass on Linux (every link form, refusals with reasons, holder lookups with their limits, commands applied through the model); intents and link delivery compile only in native CI, which checks the scheme and intent metadata |
 | Maintenance states | 222 Swift tests pass on Linux (running, unknown-progress, idle and unrecognised `tmutil` answers; `mdutil` states; cut-off and failed tools unavailable; path-qualified processes only; no end promised for Spotlight; the summary's state and signal; one read per refresh window through the model). Native CI compares `coreo diagnose` with independent `tmutil` and `mdutil` reads |
 | Diagnostic context | 212 Swift tests pass on Linux; privacy and unsafe-quit regressions failed before the fix. One completed Devin review found the missing kernel note; its PID-0 regression also failed before the fix. Native compilation and current stack review remain pending |

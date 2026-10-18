@@ -892,6 +892,83 @@ public final class DashboardModel {
         return failure
     }
 
+    /// The command palette (plan: Command-Shift-P).
+    public var paletteShown = false
+
+    /// Every action by name, with why each unavailable one cannot run now.
+    public var paletteEntries: [PaletteEntry] {
+        func entry(_ title: String, _ action: PaletteAction, unavailable reason: String? = nil) -> PaletteEntry {
+            PaletteEntry(title: title, action: action, unavailableReason: reason)
+        }
+        var entries = [
+            entry(inspectorShown ? "Hide Inspector" : "Show Inspector", .toggleInspector),
+            entry(displayMode == .live ? "Hold Display" : "Return to Live", .toggleHold),
+            sessionRecording == nil ? entry("Start Recording", .startRecording) : entry("Stop Recording", .stopRecording),
+            entry("Toggle HUD", .toggleHUD),
+            entry("Open Settings", .openSettings)
+        ]
+        entries += TimeRange.allCases.map { entry(CommandPalette.rangeTitle($0), .range($0)) }
+        entries += DetailPane.allCases.map { entry(CommandPalette.paneTitle($0), .pane($0)) }
+        entries += [
+            entry("Group Processes by App", .grouping(.app)), entry("Show Processes Ungrouped", .grouping(.flat))
+        ]
+        entries += ProcessSort.allCases.map { entry(CommandPalette.sortTitle($0), .sort($0)) }
+        entries += CommandPalette.filterPresets.map { entry($0.title, .filter($0.filter)) }
+        entries += savedFilters.map { entry("Saved Filter: \($0)", .filter($0)) }
+
+        let filter = processFilter.trimmingCharacters(in: .whitespaces)
+        entries += [
+            entry("Clear Filter", .clearFilter, unavailable: filter.isEmpty ? "No filter is set" : nil),
+            entry("Save Filter", .saveFilter, unavailable: filter.isEmpty ? "No filter is set" : savedFilters.contains(filter) ? "Already saved" : nil),
+            entry("Clear App Scope", .clearScope, unavailable: scopedApp == nil ? "No app is scoped" : nil),
+            entry("Clear Range Selection", .clearSelection, unavailable: selection == nil ? "No range is selected" : nil),
+            entry("Reset Sensor Statistics", .resetSensorStats),
+            entry("Refresh Startup Items", .refreshStartup)
+        ]
+
+        // Process actions name their target, so the palette never acts on a surprise.
+        let selected = selectedProcess
+        let noSelection = selected == nil ? "Select a process first" : nil
+        let name = selected?.name ?? "Selected Process"
+        let actions: [ProcessAction] = [.quit, .forceQuit, .suspend, .resume, .hangUp, .interrupt, .lowerPriority]
+        entries += actions.map { entry(CommandPalette.processTitle($0, name), .processAction($0), unavailable: noSelection) }
+        entries += [
+            entry("Sample \(name) for 3 Seconds", .sampleSelected, unavailable: noSelection ?? (sampler == nil ? "Sampling is not available here" : nil)),
+            entry("Copy \(name) as Text", .copySelected, unavailable: noSelection)
+        ]
+        return entries
+    }
+
+    /// Run a palette action the model owns. Confirmations, windows, the
+    /// HUD and the pasteboard belong to the app, which handles those first.
+    public func run(_ action: PaletteAction) async {
+        switch action {
+        case .toggleInspector: inspectorShown.toggle()
+        case .toggleHold: toggleDisplayHold()
+        case .startRecording: startRecording()
+        case .stopRecording: await stopRecording()
+        case .range(let range): timeRange = range
+        case .pane(let pane): detailPane = pane
+        case .grouping(let grouping): processGrouping = grouping
+        case .sort(let sort): processSort = sort
+        case .filter(let text):
+            detailPane = .processes
+            processFilter = text
+        case .clearFilter: processFilter = ""
+        case .saveFilter: saveProcessFilter()
+        case .clearScope: scopedApp = nil
+        case .clearSelection: selection = nil
+        case .resetSensorStats: resetSensorStats()
+        case .refreshStartup: refreshStartupItems()
+        case .sampleSelected:
+            if let process = selectedProcess { await sampleProcess(process) }
+        case .processAction(.resume):
+            if let process = selectedProcess { perform(actionRequest(for: process, action: .resume)) }
+        case .processAction, .copySelected, .toggleHUD, .openSettings:
+            break
+        }
+    }
+
     /// Parse and apply a `coreography://` link; a refusal is shown. Returns
     /// the command, so the app can show its window or the HUD.
     public func open(_ url: URL) async -> AutomationCommand? {

@@ -23,13 +23,18 @@ private struct CoreographyApp: App {
 
     var body: some Scene {
         Window("Coreography", id: "dashboard") {
-            DashboardView(model: dashboard)
+            DashboardView(model: dashboard, hud: hud)
         }
         .defaultSize(width: 1120, height: 900)
         .commands {
             CommandGroup(after: .toolbar) {
                 Button(hud.isShown ? "Hide HUD" : "Show HUD") { hud.toggle() }
                     .keyboardShortcut("h", modifiers: [.command, .option])
+                Button("Command Palette…") {
+                    automation.showDashboard()
+                    dashboard.paletteShown = true
+                }
+                .keyboardShortcut("p", modifiers: [.command, .shift])
             }
         }
 
