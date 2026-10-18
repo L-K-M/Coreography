@@ -8,11 +8,13 @@ private struct Coreo {
            coreo snapshot --once --json
            coreo processes --once --json
            coreo network --once --json
+           coreo disks --once --json
            coreo --version
 
     doctor reports source availability. snapshot waits for a CPU baseline.
     processes waits for a two-second baseline and reports collection coverage.
     network reports full-width per-interface byte rates and primary-interface coverage.
+    disks reports per-storage-driver rates and collection coverage.
     Native host sampling requires macOS 26 or later.
     """
 
@@ -45,6 +47,12 @@ private struct Coreo {
                 }
                 let service = try DiagnosticService()
                 try emit(await service.captureNetworkOnce())
+            case ["disks", "--once", "--json"], ["disks", "--json", "--once"]:
+                guard DiagnosticService.nativeSamplingSupport == .supported else {
+                    throw CommandError.unsupportedPlatform
+                }
+                let service = try DiagnosticService()
+                try emit(await service.captureDisksOnce())
             default:
                 throw CommandError.invalidArguments
             }

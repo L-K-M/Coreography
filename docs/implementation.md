@@ -3,7 +3,7 @@
 Track actual delivery against the [product plan](plan.md). A stage is
 complete only after its relevant checks and review pass and its PR merges.
 
-## Current slice: network interface counters
+## Current slice: storage-driver counters
 
 The native foundation merged in [PR #5](https://github.com/L-K-M/Coreography/pull/5)
 at `aee9494` after two GLM rounds and passing CI. Process monitoring merged
@@ -12,6 +12,7 @@ after two GLM rounds and passing CI. The network slice in
 [PR #7](https://github.com/L-K-M/Coreography/pull/7) passed native CI at
 `e62fac1` and now integrates the reviewed process fixes. Its latest
 integration checks and GLM review still gate delivery.
+The next slice adds scoped storage-driver rates and a fourth lane.
 
 Implemented:
 
@@ -36,10 +37,18 @@ Implemented:
   a chart accessibility descriptor and a numeric table. Network samples
   share the dashboard loop and display hold; source changes split lines.
 - `coreo network --once --json` captures per-interface rates and coverage.
+- Public IOKit storage-driver byte counters, stable registry identities,
+  per-device rates and coverage, explicit device scope, and disk numeric
+  history. Automatic selection requires a single device and complete
+  inventory. Physical and virtual driver counters are kept separate.
+- `coreo disks --once --json` captures available storage rates and failures.
+- Disk and network share a mirrored chart and accessibility renderer.
+  Native scanning actors share an executor implementation while each owns
+  a serial queue and retains its task's cancellation context.
 
 This is not the seven-lane product yet. The live buffer currently holds
-60 host and network frames. App grouping, process history/attribution,
-system disk rates and per-process network attribution remain outstanding.
+60 host, network and disk frames. App grouping, process history/attribution,
+per-volume disk accounting and per-process network attribution remain outstanding.
 There is no disk store,
 GPU/power/thermal provider, helper, MCP or model integration in this slice.
 
@@ -47,7 +56,7 @@ GPU/power/thermal provider, helper, MCP or model integration in this slice.
 
 | Check | Status |
 | --- | --- |
-| Swift tests | Integrated 62-test suite passed on Linux; native process 49-test and network 60-test runs passed; integrated native run pending |
+| Swift tests | Storage slice: 75 passed on Linux; prior native process 49-test and network 60-test runs passed; latest native run pending |
 | `coreo doctor` on Linux | Reports unsupported native sampling with no numeric Mac readings |
 | Build-script regression tests | 30 passed locally and in CI; includes actual release-step rejection, fixture isolation and exact archive selection |
 | Xcode/macOS compilation and live CPU/memory smoke | Passed [native network CI](https://github.com/L-K-M/Coreography/actions/runs/39104361427) at `e62fac1`; latest integration checks tracked on PR #7 |
@@ -55,6 +64,7 @@ GPU/power/thermal provider, helper, MCP or model integration in this slice.
 | Native chart rendering, VoiceOver and display-hold behavior | [Network candidate](https://github.com/L-K-M/Coreography/actions/runs/39104361427/artifacts/12127004956) delivered; owner checks pending |
 | Native process collection, cancellation and CPU units | Passed [native review-fix CI](https://github.com/L-K-M/Coreography/actions/runs/39105964147) at `7df03ec`, including cancellation, saturation and `getrusage` cross-checks |
 | Native network MIB, wide-counter mapping and three-lane UI | Passed at `e62fac1`, including native C fixtures, live CLI and both executable architectures; integrated candidate pending |
+| Native IOKit storage counters and four-lane renderer | Pending storage-slice CI and owner checks; a virtual runner may expose no matching driver |
 | CPU, memory and wakeup budgets | Unmeasured; S2 pending |
 | Developer ID, notarization and signed update delivery | Pending credentials and M7 |
 
@@ -66,7 +76,7 @@ sensor calibration, fullscreen behavior or Mac energy overhead.
 | Stage | Outstanding outcome |
 | --- | --- |
 | M0 / S1-S8 | Native CI foundation and reproducible probes; record hardware findings and missing environments |
-| M1 | CPU/memory depth, process app grouping/lifecycle/history, disk provider, network review/native validation, full cadence scheduler and attribution contracts |
+| M1 | CPU/memory depth, process app grouping/lifecycle/history, disk review/native validation, network review, full cadence scheduler and attribution contracts |
 | M2 | GPU, clusters, frequency, power, sensors, thermals and honest chip profiles |
 | M3 | Seven aligned lanes, shared cursor, scoped selection, process pane, inspector, self-cost and accessibility |
 | M4 | SQLite history, app ledger, sleep/log import, retention/deletion, replay, ranges and exports |
@@ -106,6 +116,12 @@ and without a VPN, receive/send direction and byte units, interface
 disappearance, hold/resume, and VoiceOver/numeric-table equivalence.
 Primary means the SystemConfiguration IPv4 interface, falling back to
 IPv6; it is not a sum of physical and tunnel traffic.
+
+For a verified storage candidate, select the same device when comparing
+read/write trends, check external-drive and disk-image attach/detach,
+automatic versus manual scope, held history and accessibility. Driver
+counters describe device I/O, not cached file operations or per-volume
+totals. An absent driver is unavailable data, not measured idle.
 
 ## Process source and units
 
@@ -151,9 +167,29 @@ an ambiguous system total. Native C fixtures use the SDK's real
 `ifmibdata` type and verify values above 4 GiB, bounded names and detached
 responses. Linux tests verify the unsupported path, not a copied Mac ABI.
 
-The next disk slice can read 64-bit `IOBlockStorageDriver` statistics by
-registry entry identity. Virtual-driver overlap and APFS/Fusion ancestry
-must be qualified before labeling a physical total or automatic boot disk.
+## Storage source and units
+
+IOKit exposes `IOBlockStorageDriver`'s `Statistics` dictionary. The
+[declared keys](https://github.com/apple-oss-distributions/IOStorageFamily/blob/7edb88fbae296fb7c8ce2f64e115e116e566d51c/IOBlockStorageDriver.h)
+`Bytes (Read)` and `Bytes (Write)` name byte counts, backed by
+[64-bit OSNumber accumulation](https://github.com/apple-oss-distributions/IOStorageFamily/blob/7edb88fbae296fb7c8ce2f64e115e116e566d51c/IOBlockStorageDriver.cpp).
+The decoder accepts unsigned integer numbers and rejects absent, boolean,
+fractional, negative or non-finite values. Device rates use each read's
+actual monotonic timestamp. Registry entry identity, not a display name
+or BSD-name suffix, owns the rate baseline.
+
+The native iterator and every service/child reference are released after
+use. Immediate whole-media children may supply a BSD name; otherwise the
+label includes registry identity. A registry change, capacity bound or
+failed identity lookup makes inventory incomplete. Identified devices
+remain listed when their statistics are restricted or unavailable.
+
+Automatic scope requires exactly one observed device, no inventory issues
+and no truncation. This avoids guessing a boot disk through ambiguous
+APFS/Fusion ancestry. Virtual drivers and physical drivers may overlap,
+so their rates are not summed. Explicit selection remains pinned when a
+device disappears. Native CI reports the actual driver/rate coverage; an
+empty virtual-machine inventory does not validate hardware rates.
 
 ## Review decisions carried forward
 

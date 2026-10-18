@@ -184,6 +184,35 @@ jobs:
               assert snapshot["primaryIssue"]["availability"] in ("unavailable", "restricted")
           PY
 
+      - name: Smoke-test native storage inventory and available rates
+        run: |
+          set -euo pipefail
+          dist/Coreography.app/Contents/Helpers/coreo disks --once --json > "$RUNNER_TEMP/disks.json"
+          python3 - "$RUNNER_TEMP/disks.json" <<'PY'
+          import json, math, sys
+          with open(sys.argv[1]) as source:
+              snapshot = json.load(source)
+          assert snapshot["enumeration"]["availability"] == "measured"
+          identities = [row["id"]["registryEntryID"] for row in snapshot["devices"]]
+          assert all(identity > 0 for identity in identities)
+          assert len(identities) == len(set(identities))
+          measured = 0
+          for row in snapshot["devices"]:
+              assert row["name"]
+              for field in ("readBytesPerSecond", "writtenBytesPerSecond"):
+                  reading = row[field]
+                  if reading["availability"] == "measured":
+                      assert math.isfinite(reading["numericValue"]) and reading["numericValue"] >= 0
+                      measured += 1
+                  else:
+                      assert reading["availability"] in ("collecting", "gap", "restricted", "unavailable")
+                      assert reading.get("numericValue") is None
+          print(json.dumps({"storageDrivers": len(identities), "measuredRateFields": measured,
+                            "inventoryIssues": len(snapshot["issues"])}))
+          if not identities:
+              print("No matching storage driver is exposed; device-rate accuracy is unverified on this runner.")
+          PY
+
       - name: Package tested app
         run: |
           set -euo pipefail

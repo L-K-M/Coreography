@@ -7,6 +7,8 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
 ## [Unreleased]
 
 ### Added
+- Per-storage-driver disk rates, explicit device scope, a disk lane and
+  JSON inventory; shared transfer-chart accessibility and native-scan executor.
 - A scoped network lane, interface selection and JSON capture using
   full-width public interface MIB counters, with mirrored receive/send graphs.
 - PID/start-time-safe process CPU, footprint and disk rates through public

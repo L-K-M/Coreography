@@ -22,7 +22,12 @@ graphs on the same time axis. It defaults to the published primary IPv4
 interface, then IPv6, and allows explicit interface selection. Its numeric
 table and chart accessibility descriptor retain missing-data states.
 
-App grouping and attribution, disk and SoC providers, persistent history, power tools,
+The disk lane reads each observed storage driver's byte counters. Automatic
+selection requires one identified device and complete inventory; otherwise
+choose a device. Registry identities keep physical and virtual drivers
+separate, with missing data and inventory limits shown explicitly.
+
+App grouping and attribution, SoC providers, persistent history, power tools,
 MCP and Ask are tracked in the [implementation ledger](docs/implementation.md).
 The full product is still in progress.
 
@@ -54,6 +59,7 @@ swift run coreo doctor
 swift run coreo snapshot --once --json  # macOS only
 swift run coreo processes --once --json # macOS only; two-second baseline
 swift run coreo network --once --json   # macOS only; per-interface byte rates
+swift run coreo disks --once --json     # macOS only; per-storage-driver rates
 python3 tools/tests/test_buildscripts.py
 shellcheck scripts/*.sh
 python3 tools/doccheck/checkdocs.py .

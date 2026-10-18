@@ -22,11 +22,13 @@ public actor DiagnosticService {
     private let monitor: SystemMonitor
     private let processMonitor: ProcessMonitor
     private let networkMonitor: NetworkMonitor
+    private let diskMonitor: DiskMonitor
 
     public init() throws {
         monitor = try SystemMonitor()
         processMonitor = try ProcessMonitor()
         networkMonitor = try NetworkMonitor()
+        diskMonitor = try DiskMonitor()
     }
 
     public func report() async throws -> DiagnosticReport {
@@ -56,6 +58,12 @@ public actor DiagnosticService {
         _ = try await networkMonitor.sample()
         try await Task.sleep(for: Self.warmupInterval)
         return try await networkMonitor.sample()
+    }
+
+    public func captureDisksOnce() async throws -> CapturedDisks {
+        _ = try await diskMonitor.sample()
+        try await Task.sleep(for: Self.warmupInterval)
+        return try await diskMonitor.sample()
     }
 
     public static var nativeSamplingSupport: NativeSamplingSupport {

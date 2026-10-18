@@ -7,6 +7,8 @@ public enum DashboardMetric: String, CaseIterable, Identifiable, Sendable {
     case memory
     case networkReceived
     case networkSent
+    case diskRead
+    case diskWritten
 
     public var id: Self { self }
 }
@@ -32,12 +34,15 @@ public final class DashboardModel {
     public private(set) var processSnapshot: CapturedProcesses?
     public private(set) var networkFrames: [CapturedNetwork] = []
     public var networkScope: NetworkScope = .primary
+    public private(set) var diskFrames: [CapturedDisks] = []
+    public var storageScope: StorageScope = .automatic
     public var processFilter = ""
     public var processSort: ProcessSort = .cpu
 
     @ObservationIgnored private let monitor: SystemMonitor?
     @ObservationIgnored private let processMonitor: ProcessMonitor?
     @ObservationIgnored private let networkMonitor: NetworkMonitor?
+    @ObservationIgnored private let diskMonitor: DiskMonitor?
     @ObservationIgnored private let interval: Duration
     @ObservationIgnored private let processInterval: Duration
     @ObservationIgnored private var worker: Task<Void, Never>?
@@ -45,6 +50,7 @@ public final class DashboardModel {
     @ObservationIgnored private var liveFrames: [CapturedSnapshot] = []
     @ObservationIgnored private var liveProcesses: CapturedProcesses?
     @ObservationIgnored private var liveNetworkFrames: [CapturedNetwork] = []
+    @ObservationIgnored private var liveDiskFrames: [CapturedDisks] = []
 
     public init() {
         interval = .seconds(1)
@@ -53,13 +59,16 @@ public final class DashboardModel {
             let system = try SystemMonitor()
             let processes = try ProcessMonitor()
             let network = try NetworkMonitor()
+            let disk = try DiskMonitor()
             monitor = system
             processMonitor = processes
             networkMonitor = network
+            diskMonitor = disk
         } catch {
             monitor = nil
             processMonitor = nil
             networkMonitor = nil
+            diskMonitor = nil
             collectionError = "Cannot initialize monitoring: \(error)"
         }
     }
@@ -67,13 +76,14 @@ public final class DashboardModel {
     init(
         monitor: SystemMonitor, interval: Duration,
         processMonitor: ProcessMonitor? = nil, processInterval: Duration = .seconds(2),
-        networkMonitor: NetworkMonitor? = nil
+        networkMonitor: NetworkMonitor? = nil, diskMonitor: DiskMonitor? = nil
     ) {
         self.monitor = monitor
         self.interval = interval
         self.processMonitor = processMonitor
         self.processInterval = processInterval
         self.networkMonitor = networkMonitor
+        self.diskMonitor = diskMonitor
     }
 
     deinit { worker?.cancel() }
@@ -81,7 +91,8 @@ public final class DashboardModel {
     public var latest: CapturedSnapshot? { frames.last }
 
     public var displayedEndTime: Date? {
-        [latest?.stamp.wallTime, networkFrames.last?.stamp.wallTime].compactMap { $0 }.max()
+        [latest?.stamp.wallTime, networkFrames.last?.stamp.wallTime, diskFrames.last?.stamp.wallTime]
+            .compactMap { $0 }.max()
     }
 
     public var networkReadings: [NetworkTableReading] {
@@ -96,6 +107,32 @@ public final class DashboardModel {
         }
     }
 
+    public var diskReadings: [DiskTableReading] {
+        diskFrames.suffix(10).map { frame in
+            let device = storageDevice(in: frame)
+            return DiskTableReading(
+                id: frame.id, time: device?.stamp.wallTime ?? frame.stamp.wallTime, deviceName: device?.name,
+                status: device == nil ? storageSelectionMessage(in: frame) : nil,
+                read: device?.readBytesPerSecond, written: device?.writtenBytesPerSecond
+            )
+        }
+    }
+
+    public var storageSelectionMessage: String {
+        guard let frame = diskFrames.last else { return "Collecting storage devices…" }
+        return storageSelectionMessage(in: frame)
+    }
+
+    private func storageSelectionMessage(in frame: CapturedDisks) -> String {
+        if let reason = frame.enumeration.reason { return reason }
+        if let device = storageDevice(in: frame) {
+            return device.readBytesPerSecond.reason ?? "IOKit · storage-driver byte counters"
+        }
+        if frame.devices.isEmpty { return "No selectable storage device was observed" }
+        if case .automatic = storageScope { return "Choose a storage device" }
+        return "Selected storage device is not observed"
+    }
+
     public var visibleProcesses: [ObservedProcess] {
         ProcessList.rows(in: processSnapshot, matching: processFilter, sortedBy: processSort)
     }
@@ -108,6 +145,7 @@ public final class DashboardModel {
         let processMonitor = processMonitor
         let processInterval = processInterval
         let networkMonitor = networkMonitor
+        let diskMonitor = diskMonitor
 
         worker = Task { [weak self] in
             defer {
@@ -116,6 +154,7 @@ public final class DashboardModel {
             await monitor.reset()
             await processMonitor?.reset()
             await networkMonitor?.reset()
+            await diskMonitor?.reset()
             var nextProcessSample = ContinuousClock.now
             while !Task.isCancelled {
                 do {
@@ -126,6 +165,11 @@ public final class DashboardModel {
                         _ = try await networkMonitor.sample()
                         network = await networkMonitor.history()
                     }
+                    var disks: [CapturedDisks]?
+                    if let diskMonitor {
+                        _ = try await diskMonitor.sample()
+                        disks = await diskMonitor.history()
+                    }
                     var processes: CapturedProcesses?
                     if let processMonitor, ContinuousClock.now >= nextProcessSample {
                         processes = try await processMonitor.sample()
@@ -135,10 +179,12 @@ public final class DashboardModel {
                     self.liveFrames = history
                     if let processes { self.liveProcesses = processes }
                     if let network { self.liveNetworkFrames = network }
+                    if let disks { self.liveDiskFrames = disks }
                     if self.displayMode == .live {
                         self.frames = history
                         if let processes { self.processSnapshot = processes }
                         if let network { self.networkFrames = network }
+                        if let disks { self.diskFrames = disks }
                     }
                     try await Task.sleep(for: self.interval)
                 } catch is CancellationError {
@@ -167,6 +213,7 @@ public final class DashboardModel {
         frames = liveFrames
         processSnapshot = liveProcesses
         networkFrames = liveNetworkFrames
+        diskFrames = liveDiskFrames
     }
 
     public func reading(for metric: DashboardMetric) -> DashboardReading? {
@@ -176,11 +223,18 @@ public final class DashboardModel {
         case .networkReceived, .networkSent:
             guard let latestNetwork = networkFrames.last else { return nil }
             return networkReading(for: metric, in: latestNetwork)
+        case .diskRead, .diskWritten:
+            guard let frame = diskFrames.last else { return nil }
+            if let device = storageDevice(in: frame) {
+                return metric == .diskRead ? device.readBytesPerSecond : device.writtenBytesPerSecond
+            }
+            return frame.enumeration.numericValue == nil ? frame.enumeration : nil
         }
     }
 
     public func points(for metric: DashboardMetric) -> [DashboardPoint] {
         if metric == .networkReceived || metric == .networkSent { return networkPoints(for: metric) }
+        if metric == .diskRead || metric == .diskWritten { return diskPoints(for: metric) }
         var result: [DashboardPoint] = []
         var segment = 0
         for frame in frames {
@@ -236,6 +290,39 @@ public final class DashboardModel {
             }
             result.append(DashboardPoint(
                 id: frame.id, time: interface.stamp.wallTime, value: value, segment: segment
+            ))
+        }
+        return result
+    }
+
+    private func storageDevice(in frame: CapturedDisks) -> CapturedStorageDevice? {
+        switch storageScope {
+        case .automatic:
+            guard frame.devices.count == 1, frame.issues.isEmpty, !frame.enumerationTruncated else { return nil }
+            return frame.devices.first
+        case .device(let selected): return frame.devices.first { $0.id == selected }
+        }
+    }
+
+    private func diskPoints(for metric: DashboardMetric) -> [DashboardPoint] {
+        var result: [DashboardPoint] = []
+        var segment = 0
+        var previousDevice: CapturedStorageID?
+        for frame in diskFrames {
+            if frame.continuity == .interrupted { segment += 1 }
+            guard let device = storageDevice(in: frame) else {
+                segment += 1
+                continue
+            }
+            if let previousDevice, previousDevice != device.id { segment += 1 }
+            previousDevice = device.id
+            let reading = metric == .diskRead ? device.readBytesPerSecond : device.writtenBytesPerSecond
+            guard let value = reading.numericValue else {
+                segment += 1
+                continue
+            }
+            result.append(DashboardPoint(
+                id: frame.id, time: device.stamp.wallTime, value: value, segment: segment
             ))
         }
         return result

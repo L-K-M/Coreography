@@ -100,9 +100,14 @@ public protocol NetworkSampleReading: Sendable {
 /// IFMIB exposes full-width counters; routing statistics truncate third-party byte counts.
 public actor NetworkInterfacesDriver: NetworkSampleReading {
     private static let interfaceCapacity = 1024
+    private let samplingExecutor = DriverSamplingExecutor(label: "CoreographyDrivers.network-sampling")
     private let clockID = UUID()
 
     public init() {}
+
+    public nonisolated var unownedExecutor: UnownedSerialExecutor {
+        samplingExecutor.asUnownedSerialExecutor()
+    }
 
     public func read() async -> RawNetworkSnapshot {
         let enumeration = readInterfaces()

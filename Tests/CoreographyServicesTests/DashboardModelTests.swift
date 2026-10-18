@@ -129,6 +129,66 @@ final class DashboardModelTests: XCTestCase {
         XCTAssertEqual(model.reading(for: .networkReceived)?.numericValue, 100)
     }
 
+    func testStorageScopeSelectsOneDeviceWithoutSummingDrivers() async throws {
+        let driver = IncreasingDiskDriver()
+        let model = try makeDiskModel(driver)
+        model.start()
+        defer { model.stop() }
+        try await eventually { model.diskFrames.count >= 2 }
+        XCTAssertEqual(model.reading(for: .diskRead)?.numericValue, 100)
+        await driver.changeDevices(to: [1, 2])
+        try await eventually { model.diskFrames.last?.devices.count == 2 }
+        XCTAssertNil(model.reading(for: .diskRead)?.numericValue)
+        XCTAssertEqual(model.storageSelectionMessage, "Choose a storage device")
+        XCTAssertEqual(model.diskReadings.last?.status, "Choose a storage device")
+        let selected = try CapturedStorageID(registryEntryID: 2)
+        model.storageScope = .device(selected)
+        try await eventually { model.reading(for: .diskRead)?.numericValue == 200 }
+        XCTAssertEqual(model.diskReadings.last?.deviceName, "Device 2")
+        await driver.changeDevices(to: [1])
+        try await eventually { model.diskFrames.last?.devices.count == 1 }
+        XCTAssertEqual(model.storageScope, .device(selected))
+        XCTAssertNil(model.reading(for: .diskRead)?.numericValue)
+        XCTAssertEqual(model.storageSelectionMessage, "Selected storage device is not observed")
+        XCTAssertEqual(model.diskReadings.last?.status, "Selected storage device is not observed")
+    }
+
+    func testStorageAutomaticSelectionRequiresCompleteInventory() async throws {
+        let driver = IncreasingDiskDriver()
+        await driver.makeInventoryIncomplete()
+        let model = try makeDiskModel(driver)
+        model.start()
+        defer { model.stop() }
+        try await eventually { model.diskFrames.count >= 2 }
+        XCTAssertNil(model.reading(for: .diskRead)?.numericValue)
+        model.storageScope = .device(try CapturedStorageID(registryEntryID: 1))
+        XCTAssertEqual(model.reading(for: .diskRead)?.numericValue, 100)
+    }
+
+    func testStorageDisplayHoldPreservesHistoryWhileSamplingContinues() async throws {
+        let driver = IncreasingDiskDriver()
+        let model = try makeDiskModel(driver)
+        model.start()
+        defer { model.stop() }
+        try await eventually { model.diskFrames.count >= 2 }
+        model.toggleDisplayHold()
+        let held = model.diskFrames.last?.id
+        let end = model.displayedEndTime
+        let count = await driver.readCount
+        try await eventually { await driver.readCount >= count + 4 }
+        XCTAssertEqual(model.diskFrames.last?.id, held)
+        XCTAssertEqual(model.displayedEndTime, end)
+        model.toggleDisplayHold()
+        XCTAssertNotEqual(model.diskFrames.last?.id, held)
+    }
+
+    private func makeDiskModel(_ driver: IncreasingDiskDriver) throws -> DashboardModel {
+        DashboardModel(
+            monitor: try SystemMonitor(driver: IncreasingHostDriver()), interval: .milliseconds(10),
+            diskMonitor: try DiskMonitor(driver: driver)
+        )
+    }
+
     private func makeNetworkModel(_ driver: IncreasingNetworkDriver) throws -> DashboardModel {
         DashboardModel(
             monitor: try SystemMonitor(driver: IncreasingHostDriver()), interval: .milliseconds(10),
@@ -156,6 +216,35 @@ final class DashboardModelTests: XCTestCase {
         }
         XCTFail("Condition did not become true before the deadline")
         throw CancellationError()
+    }
+}
+
+private actor IncreasingDiskDriver: DiskSampleReading {
+    private let clock = UUID()
+    private var identifiers: [UInt64] = [1]
+    private var incomplete = false
+    private(set) var readCount: UInt64 = 0
+
+    func changeDevices(to identifiers: [UInt64]) { self.identifiers = identifiers }
+    func makeInventoryIncomplete() { incomplete = true }
+
+    func read() async -> RawDiskSnapshot {
+        readCount += 1
+        let devices = identifiers.map {
+            RawDiskDevice(
+                registryEntryID: $0, name: "Device \($0)", monotonicNanoseconds: readCount * 1_000_000_000,
+                counters: .success(DiskByteCounters(readBytes: readCount * $0 * 100, writtenBytes: readCount * $0))
+            )
+        }
+        return RawDiskSnapshot(
+            clockID: clock, monotonicNanoseconds: readCount * 1_000_000_000,
+            wallTime: Date(timeIntervalSince1970: 1_700_000_000 + Double(readCount)),
+            enumeration: .success(DiskEnumeration(
+                devices: devices,
+                failures: incomplete ? [DiskReadFailure(registryEntryID: nil, error: .unavailable(reason: "Fixture"))] : [],
+                isTruncated: incomplete
+            ))
+        )
     }
 }
 
