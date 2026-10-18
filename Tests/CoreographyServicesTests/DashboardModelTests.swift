@@ -201,6 +201,12 @@ final class DashboardModelTests: XCTestCase {
         XCTAssertNil(model.rangeExport, "a selection entirely in stored history has no live data to export")
     }
 
+    func testNothingExportsBeforeTheFirstLiveSample() async throws {
+        let model = DashboardModel(monitor: try SystemMonitor(driver: IncreasingHostDriver()), interval: .milliseconds(10))
+        model.selection = Date().addingTimeInterval(-60)...Date()
+        XCTAssertNil(model.rangeExport, "no live data, nothing to export")
+    }
+
     func testSixHourRangeWithoutRecordingNamesTheMissingHistory() async throws {
         let model = DashboardModel(monitor: try SystemMonitor(driver: IncreasingHostDriver()), interval: .milliseconds(10))
         model.timeRange = .sixHours
