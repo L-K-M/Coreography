@@ -69,7 +69,7 @@ Implemented:
   `vm.swapusage`; pressure from `kern.memorystatus_vm_pressure_level`.
 - App grouping: each process carries its `proc_pidpath` executable and
   the PID macOS holds responsible for it. Helpers fold under a live
-  responsible process that started no later, otherwise under their
+  responsible app that started no later, otherwise under their
   outermost `.app` bundle. Group CPU and disk totals are measured only
   when every member is readable; otherwise they are labelled lower
   bounds. Footprint sums are always estimates. A flat view remains.
@@ -204,7 +204,7 @@ time, helper, MCP or model integration in this slice.
 | Shared cursor, hover tracking and contributor lines | Cursor slice: 101 Swift tests pass on Linux; native compile pending. Hover behavior is an owner check |
 | Native IOKit power sources and seven-lane UI | Power slice: 99 Swift tests pass on Linux; native CI pending. A virtual runner has no battery, so its smoke checks explicit unsupported states; battery accuracy is an owner check |
 | Native GPU statistics, thermal notify state and six-lane UI | GPU slice: 93 Swift tests, 34 tooling tests and the Linux thermal C contract pass; native CI pending. The C bridge asserts the level constants against the SDK at compile time |
-| Native executable paths, responsibility lookup and grouped table | App-grouping slice: 87 Swift tests and the Linux C contract pass; native CI records how many processes resolved a responsible PID |
+| Native executable paths, responsibility lookup and grouped table | App-grouping slice: 88 Swift tests pass on Linux, including a fail-first regression for bundle-less owners combining unrelated apps; current native CI pending |
 | Native swap/pressure sysctls, memory composition and stacked lane | Passed [native CI](https://github.com/L-K-M/Coreography/actions/runs/39112973077) at `1274ff0`: 83 tests including real sysctl reads, and the snapshot gate's composition sum |
 | CPU, memory and wakeup budgets | In-app readout of own CPU and footprint against budget (111 Swift tests pass on Linux); wakeups and S2 measurements pending |
 | Developer ID, notarization and signed update delivery | Pending credentials and M7 |
@@ -349,8 +349,9 @@ SPI that Activity Monitor-style tools such as Stats resolve at runtime.
 The bridge resolves it once with `dlsym`; a missing symbol or failed
 lookup leaves the PID absent, and grouping falls back to the app bundle.
 Both reads sit inside the existing PID/start-time bracket. A responsible
-PID is a bare PID, so grouping requires that process to be observed and
+PID is a bare PID, so grouping requires that app process to be observed and
 to have started no later than its member; otherwise the PID was reused.
+Bundle-less owners such as launchd never combine unrelated apps.
 
 CLI tools launched from a terminal are its responsibility, so they fold
 under that terminal app, as macOS attributes them. Group footprints add
