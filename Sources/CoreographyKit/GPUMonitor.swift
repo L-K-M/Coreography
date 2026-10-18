@@ -12,7 +12,7 @@ public actor GPUMonitor {
     private var previousStamp: SampleStamp?
     private var buffer: SampleBuffer<GPUSnapshot>
 
-    public init() throws { try self.init(driver: GPUStatisticsDriver()) }
+    public init() throws { try self.init(driver: GPUStatisticsDriver(), historyCapacity: LiveHistory.capacity) }
 
     init(driver: any GPUSampleReading, maximumGap: Duration = .seconds(3), historyCapacity: Int = 60) throws {
         _ = try CounterRateTracker(maxGap: maximumGap)

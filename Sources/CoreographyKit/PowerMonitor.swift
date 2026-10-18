@@ -14,7 +14,7 @@ public actor PowerMonitor {
     private var previousStamp: SampleStamp?
     private var buffer: SampleBuffer<PowerSnapshot>
 
-    public init() throws { try self.init(driver: PowerSourceDriver()) }
+    public init() throws { try self.init(driver: PowerSourceDriver(), historyCapacity: LiveHistory.capacity) }
 
     init(driver: any PowerSampleReading, maximumGap: Duration = .seconds(3), historyCapacity: Int = 60) throws {
         _ = try CounterRateTracker(maxGap: maximumGap)

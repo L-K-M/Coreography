@@ -3,7 +3,7 @@
 Track actual delivery against the [product plan](plan.md). A stage is
 complete only after its relevant checks and review pass and its PR merges.
 
-## Current slice: SMC sensors
+## Current slice: time ranges and one hour of history
 
 The native foundation merged in [PR #5](https://github.com/L-K-M/Coreography/pull/5)
 at `aee9494` after two GLM rounds and passing CI. Process monitoring merged
@@ -18,8 +18,9 @@ swap and pressure in [PR #9](https://github.com/L-K-M/Coreography/pull/9);
 app grouping in [PR #10](https://github.com/L-K-M/Coreography/pull/10);
 GPU and thermal-pressure lanes in [PR #11](https://github.com/L-K-M/Coreography/pull/11);
 the power lane in [PR #12](https://github.com/L-K-M/Coreography/pull/12);
-the shared cursor in [PR #13](https://github.com/L-K-M/Coreography/pull/13).
-This slice adds AppleSMC temperatures, fans and system power rails.
+the shared cursor in [PR #13](https://github.com/L-K-M/Coreography/pull/13);
+SMC sensors in [PR #14](https://github.com/L-K-M/Coreography/pull/14).
+This slice keeps an hour of history and adds 1 min, 10 min and 1 h ranges.
 
 Implemented:
 
@@ -85,12 +86,16 @@ Implemented:
   and community region, and splits the line when the hottest key changes.
   Fans show actual rpm. The power hero prefers an SMC system rail (`PSTR`,
   then desktop `PDTR`) over battery discharge; `coreo sensors --once --json`.
+- One hour of in-memory history per monitor (3,600 one-second frames)
+  and of contributor samples. A toolbar picker shows 1 min, 10 min or 1 h.
+  Charts draw each bucket's minimum and maximum (360 buckets), so spikes
+  survive and nothing is averaged; stacked memory layers decimate together
+  on the stack total, and contiguous pressure or power spans merge.
 - A thermal lane showing system thermal pressure as a band, from the public
   `com.apple.system.thermalpressurelevel` notify state. Temperatures, fans
   and the hottest-sensor line wait for the sensor provider.
 
-This is not the seven-lane product yet. The live buffer currently holds
-60 host, network, disk and GPU frames. Process history/attribution,
+The live buffers hold one hour per monitor. Process history/attribution,
 per-volume disk accounting and per-process network attribution remain outstanding.
 There is no disk store, IOReport power or frequency provider, per-app GPU
 time, helper, MCP or model integration in this slice.
@@ -108,6 +113,7 @@ time, helper, MCP or model integration in this slice.
 | Native process collection, cancellation and CPU units | Passed [native review-fix CI](https://github.com/L-K-M/Coreography/actions/runs/39105964147) at `7df03ec`, including cancellation, saturation and `getrusage` cross-checks |
 | Native network MIB, wide-counter mapping and three-lane UI | Passed at `e62fac1`, including native C fixtures, live CLI and both executable architectures; integrated candidate pending |
 | Native IOKit storage counters and four-lane renderer | Passed [native CI](https://github.com/L-K-M/Coreography/actions/runs/39110306993) at `6434722`: 75 tests, 16 drivers, 32 measured rate fields, no inventory issues; owner checks pending |
+| Time ranges, decimation and one-hour buffers | Range slice: 110 Swift tests pass on Linux, including spike survival and segment isolation; native compile and S2 rendering cost pending |
 | AppleSMC bridge, sensor decoding and thermal line | Sensor slice: 107 Swift tests and the Linux SMC contract pass; the Apple branch compiles against stub headers locally; native CI pending. A VM without AppleSMC shows unsupported sensors; real readings are an owner check |
 | Shared cursor, hover tracking and contributor lines | Cursor slice: 101 Swift tests pass on Linux; native compile pending. Hover behavior is an owner check |
 | Native IOKit power sources and seven-lane UI | Power slice: 99 Swift tests pass on Linux; native CI pending. A virtual runner has no battery, so its smoke checks explicit unsupported states; battery accuracy is an owner check |

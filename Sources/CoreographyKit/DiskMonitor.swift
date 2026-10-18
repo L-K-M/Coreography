@@ -12,7 +12,7 @@ public actor DiskMonitor {
     private var rates: [StorageDeviceID: DeviceRates] = [:]
     private var buffer: SampleBuffer<DiskSnapshot>
 
-    public init() throws { try self.init(driver: DiskIODriver()) }
+    public init() throws { try self.init(driver: DiskIODriver(), historyCapacity: LiveHistory.capacity) }
 
     init(
         driver: any DiskSampleReading, maximumGap: Duration = .seconds(3), historyCapacity: Int = 60
