@@ -60,6 +60,9 @@ def validate(snapshot):
         raise ValueError("physicalMemoryBytes must be a positive integer")
     if not 0 <= cpu <= 100:
         raise ValueError("CPU must be between 0 and 100 percent of the machine")
+    # The kernel's share comes from the same ticks, so it never exceeds the busy total.
+    if not 0 <= reading(snapshot, "cpuSystemPercentOfMachine", "measured") <= cpu:
+        raise ValueError("system CPU must be between zero and the busy total")
     if not 0 <= memory <= capacity:
         raise ValueError("used memory must be between zero and physical memory")
     validate_memory(snapshot, memory, capacity)

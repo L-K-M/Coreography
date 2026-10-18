@@ -13,6 +13,8 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
   after the store first exceeds it.
 
 ### Added
+- The CPU lane stacks user time under system time, and its header
+  names both.
 - The process table and inspector show GPU time (ms/s) for every
   process and estimated CPU power from the kernel's energy model;
   both sum per app and sort the table.
