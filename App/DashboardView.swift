@@ -1354,8 +1354,8 @@ private struct ProcessPane: View {
                 // Ghost rows: the culprit has often already quit (plan: exited rows stay 30 s).
                 let exited = model.exitedProcesses
                 if !exited.isEmpty {
-                    Text("Exited in the last 30 s: " + exited.map { "\($0.name) (PID \($0.identity.pid), \($0.appName))" }
-                        .joined(separator: " · "))
+                    let names = exited.map { "\($0.name) (PID \($0.identity.pid), \($0.appName))" }.joined(separator: " · ")
+                    Text("Exited in the last 30 s: \(names)")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .help("Exit status is not available without the helper")
