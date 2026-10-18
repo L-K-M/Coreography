@@ -62,7 +62,10 @@ struct BoundedCommandRunner: Sendable {
         }
         process.waitUntilExit()
         watchdog.finish()
-        return CommandOutput(data: kept, truncated: truncated, timedOut: watchdog.expired, exitStatus: process.terminationStatus)
+        // A deadline that fires as the child exits on its own kills nothing;
+        // only a child that died by signal after it was stopped timed out.
+        let timedOut = watchdog.expired && process.terminationReason == .uncaughtSignal
+        return CommandOutput(data: kept, truncated: truncated, timedOut: timedOut, exitStatus: process.terminationStatus)
     }
 }
 
