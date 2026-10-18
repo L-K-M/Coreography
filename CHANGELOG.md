@@ -11,6 +11,8 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
   after the store first exceeds it.
 
 ### Added
+- A HUD with CPU, GPU, temperature and power over full-screen apps
+  (Option-Command-H or the menu bar extra).
 - Command-R records a session; its report shows minimum, mean, 95th
   percentile and maximum per metric and the top apps. Two sessions
   compare overlaid; sessions export as JSON or CSV and can be renamed.

@@ -9,6 +9,7 @@ import CoreographyServices
 @MainActor
 struct MenuBarView: View {
     @Bindable var model: DashboardModel
+    let hud: HUDController
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
@@ -30,6 +31,7 @@ struct MenuBarView: View {
             Divider()
             HStack {
                 Button(model.displayMode == .live ? "Hold display" : "Return to live") { model.toggleDisplayHold() }
+                Button(hud.isShown ? "Hide HUD" : "Show HUD") { hud.toggle() }
                 Spacer()
                 Button("Open Coreography") {
                     openWindow(id: "dashboard")

@@ -1004,7 +1004,8 @@ private struct TemperatureChartAccessibility: AXChartDescriptorRepresentable {
     }
 }
 
-private enum ThermalText {
+/// Shared with the HUD.
+enum ThermalText {
     /// Matches the sensor plausibility ceiling, so no shown reading is clipped.
     static let celsiusCeiling = 130.0
 
