@@ -14,7 +14,7 @@ final class AskServiceTests: XCTestCase {
             ]),
             reply(stop: "end_turn", content: [["type": "text", "text": "Big uses the most CPU (frame evidence)."]])
         ])
-        let service = AskService(credentials: MemoryCredentials("sk-test"), transport: transport)
+        let service = AskService(provider: AssistantProvider(credentials: MemoryCredentials("sk-test"), transport: transport))
         let snapshot = try makeSnapshot()
         let answer = try await service.ask("Why is my Mac slow?", snapshot: snapshot)
 
@@ -47,7 +47,7 @@ final class AskServiceTests: XCTestCase {
 
     func testFailuresNeverRunToolsOrInventAnswers() async throws {
         let snapshot = try makeSnapshot()
-        let noKey = AskService(credentials: MemoryCredentials(nil), transport: ScriptedTransport([]))
+        let noKey = AskService(provider: AssistantProvider(credentials: MemoryCredentials(nil), transport: ScriptedTransport([])))
         await assertThrows(AskError.noKey) { try await noKey.ask("?", snapshot: snapshot) }
 
         let cases: [(ProviderResponse, AskError)] = [
@@ -59,20 +59,20 @@ final class AskServiceTests: XCTestCase {
             (reply(stop: "max_tokens", content: [["type": "tool_use", "id": "t", "name": "get_data_sources", "input": [:]]]), .truncated)
         ]
         for (response, expected) in cases {
-            let service = AskService(credentials: MemoryCredentials("k"), transport: ScriptedTransport([response]))
+            let service = AskService(provider: AssistantProvider(credentials: MemoryCredentials("k"), transport: ScriptedTransport([response])))
             await assertThrows(expected) { try await service.ask("?", snapshot: snapshot) }
         }
 
         let looping = Array(repeating: reply(stop: "tool_use", content: [
             ["type": "tool_use", "id": "t", "name": "get_data_sources", "input": [:]]
         ]), count: AskService.maxRounds)
-        let service = AskService(credentials: MemoryCredentials("k"), transport: ScriptedTransport(looping))
+        let service = AskService(provider: AssistantProvider(credentials: MemoryCredentials("k"), transport: ScriptedTransport(looping)))
         await assertThrows(AskError.tooManyRounds) { try await service.ask("?", snapshot: snapshot) }
     }
 
     func testKeysAreTrimmedAndBlankKeysRefused() async throws {
         let store = MemoryCredentials(nil)
-        let service = AskService(credentials: store, transport: ScriptedTransport([]))
+        let service = AskService(provider: AssistantProvider(credentials: store, transport: ScriptedTransport([])))
         let before = await service.hasKey()
         XCTAssertFalse(before)
         try await service.saveKey("  sk-live\n")
