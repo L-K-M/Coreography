@@ -182,7 +182,6 @@ struct DashboardView: View {
             }
         }
         .onAppear { model.start() }
-        .onDisappear { model.stop() }
     }
 
     private func lane(_ metric: DashboardMetric) -> some View {
@@ -1631,7 +1630,7 @@ private struct ContributorLine: View {
 }
 
 /// Keep the visible window's points, decimated to bucket extremes for drawing.
-private func visiblePoints(_ points: [DashboardPoint], _ start: Date, _ end: Date) -> [DashboardPoint] {
+func visiblePoints(_ points: [DashboardPoint], _ start: Date, _ end: Date) -> [DashboardPoint] {
     Decimation.points(points.filter { $0.time >= start && $0.time <= end }, start: start, end: end)
 }
 
@@ -1693,7 +1692,7 @@ private enum Layout {
     static let bandHeight: CGFloat = 48
 }
 
-private enum MetricText {
+enum MetricText {
     static let percentScale = 100.0
     private static let wholePercentThreshold = 10.0
 

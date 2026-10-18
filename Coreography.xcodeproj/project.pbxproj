@@ -12,6 +12,7 @@
 		A10000000000000000000004 /* CoreographyServices in Frameworks */ = {isa = PBXBuildFile; productRef = A90000000000000000000001; };
 		A10000000000000000000005 /* Coreo.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000005; };
 		A10000000000000000000006 /* CoreographyServices in Frameworks */ = {isa = PBXBuildFile; productRef = A90000000000000000000002; };
+		A10000000000000000000008 /* MenuBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000008; };
 		A10000000000000000000007 /* coreo in Helpers */ = {isa = PBXBuildFile; fileRef = A20000000000000000000007; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 /* End PBXBuildFile section */
 
@@ -38,6 +39,7 @@
 		A20000000000000000000004 = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		A20000000000000000000005 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sources/coreo/Coreo.swift; sourceTree = SOURCE_ROOT; };
 		A20000000000000000000006 = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Coreography.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A20000000000000000000008 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarView.swift; sourceTree = "<group>"; };
 		A20000000000000000000007 = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = coreo; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -54,7 +56,7 @@
 		};
 		A50000000000000000000002 /* App */ = {
 			isa = PBXGroup;
-			children = (A20000000000000000000001, A20000000000000000000002, A20000000000000000000003, A20000000000000000000004, );
+			children = (A20000000000000000000001, A20000000000000000000002, A20000000000000000000008, A20000000000000000000003, A20000000000000000000004, );
 			path = App;
 			sourceTree = "<group>";
 		};
@@ -111,7 +113,7 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
-		A40000000000000000000001 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (A10000000000000000000001, A10000000000000000000002, ); runOnlyForDeploymentPostprocessing = 0; };
+		A40000000000000000000001 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (A10000000000000000000001, A10000000000000000000002, A10000000000000000000008, ); runOnlyForDeploymentPostprocessing = 0; };
 		A40000000000000000000004 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (A10000000000000000000005, ); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXSourcesBuildPhase section */
 
