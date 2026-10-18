@@ -25,6 +25,36 @@ public struct DashboardPoint: Identifiable, Sendable {
     public let segment: Int
 }
 
+/// Memory lane layers, bottom to top; app, wired and compressed sum to used.
+public enum MemoryCategory: String, CaseIterable, Identifiable, Sendable {
+    case app
+    case wired
+    case compressed
+    case cached
+
+    public var id: Self { self }
+}
+
+/// One stacked layer at one sample: the layer spans `lower...upper` bytes.
+public struct MemoryStackPoint: Identifiable, Sendable {
+    public let id: String
+    public let time: Date
+    public let category: MemoryCategory
+    public let lower: Double
+    public let upper: Double
+    public let segment: Int
+
+    public var value: Double { upper - lower }
+}
+
+/// Pressure between two consecutive samples, labelled with the later reading.
+public struct MemoryPressureSpan: Identifiable, Sendable {
+    public let id: UUID
+    public let start: Date
+    public let end: Date
+    public let level: MemoryPressureLevel
+}
+
 @MainActor
 @Observable
 public final class DashboardModel {
@@ -247,6 +277,54 @@ public final class DashboardModel {
             result.append(DashboardPoint(
                 id: frame.id, time: frame.stamp.wallTime, value: value, segment: segment
             ))
+        }
+        return result
+    }
+
+    /// Stack only frames with every layer known; any missing layer is a gap.
+    public func memoryStack() -> [MemoryStackPoint] {
+        var result: [MemoryStackPoint] = []
+        var segment = 0
+        for frame in frames {
+            if frame.continuity == .interrupted { segment += 1 }
+            let detail = frame.memory
+            let layers: [(MemoryCategory, MetricReading)] = [
+                (.app, detail.appBytes), (.wired, detail.wiredBytes),
+                (.compressed, detail.compressedBytes), (.cached, detail.cachedBytes)
+            ]
+            let values = layers.compactMap { $0.1.numericValue }
+            guard values.count == layers.count else {
+                segment += 1
+                continue
+            }
+
+            var lower = 0.0
+            for ((category, _), value) in zip(layers, values) {
+                result.append(MemoryStackPoint(
+                    id: "\(frame.id)-\(category.rawValue)", time: frame.stamp.wallTime,
+                    category: category, lower: lower, upper: lower + value, segment: segment
+                ))
+                lower += value
+            }
+        }
+        return result
+    }
+
+    public func memoryPressureSpans() -> [MemoryPressureSpan] {
+        var result: [MemoryPressureSpan] = []
+        var previousTime: Date?
+        for frame in frames {
+            if frame.continuity == .interrupted { previousTime = nil }
+            guard let level = frame.memory.pressureLevel else {
+                previousTime = nil
+                continue
+            }
+            if let previousTime {
+                result.append(MemoryPressureSpan(
+                    id: frame.id, start: previousTime, end: frame.stamp.wallTime, level: level
+                ))
+            }
+            previousTime = frame.stamp.wallTime
         }
         return result
     }

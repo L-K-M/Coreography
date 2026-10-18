@@ -3,7 +3,7 @@
 Track actual delivery against the [product plan](plan.md). A stage is
 complete only after its relevant checks and review pass and its PR merges.
 
-## Current slice: storage-driver counters
+## Current slice: memory composition, swap and pressure
 
 The native foundation merged in [PR #5](https://github.com/L-K-M/Coreography/pull/5)
 at `aee9494` after two GLM rounds and passing CI. Process monitoring merged
@@ -12,7 +12,9 @@ after two GLM rounds and passing CI. The network slice in
 [PR #7](https://github.com/L-K-M/Coreography/pull/7) passed native CI at
 `e62fac1` and now integrates the reviewed process fixes. Its latest
 integration checks and GLM review still gate delivery.
-The next slice adds scoped storage-driver rates and a fourth lane.
+Scoped storage-driver rates and a fourth lane follow in
+[PR #8](https://github.com/L-K-M/Coreography/pull/8). This slice deepens
+the memory lane with composition, swap, paging and pressure.
 
 Implemented:
 
@@ -45,6 +47,13 @@ Implemented:
 - Disk and network share a mirrored chart and accessibility renderer.
   Native scanning actors share an executor implementation while each owns
   a serial queue and retains its task's cancellation context.
+- Memory composition from the same `HOST_VM_INFO64` read: app, wired,
+  compressed and cached bytes, compression ratio, and page-in, swap-in
+  and swap-out byte rates over the real interval. Swap use comes from
+  `vm.swapusage`; pressure from `kern.memorystatus_vm_pressure_level`.
+- The memory lane stacks the composition under the physical-memory line,
+  draws a pressure band above it, and has a ten-column numeric table and
+  per-layer chart accessibility. `coreo snapshot` exports the same detail.
 
 This is not the seven-lane product yet. The live buffer currently holds
 60 host, network and disk frames. App grouping, process history/attribution,
@@ -65,6 +74,7 @@ GPU/power/thermal provider, helper, MCP or model integration in this slice.
 | Native process collection, cancellation and CPU units | Passed [native review-fix CI](https://github.com/L-K-M/Coreography/actions/runs/39105964147) at `7df03ec`, including cancellation, saturation and `getrusage` cross-checks |
 | Native network MIB, wide-counter mapping and three-lane UI | Passed at `e62fac1`, including native C fixtures, live CLI and both executable architectures; integrated candidate pending |
 | Native IOKit storage counters and four-lane renderer | Pending storage-slice CI and owner checks; a virtual runner may expose no matching driver |
+| Native swap/pressure sysctls, memory composition and stacked lane | Memory slice: 81 Swift and 32 tooling tests pass on Linux; native CI pending. CI validates that app, wired and compressed sum to used memory |
 | CPU, memory and wakeup budgets | Unmeasured; S2 pending |
 | Developer ID, notarization and signed update delivery | Pending credentials and M7 |
 
@@ -117,6 +127,12 @@ disappearance, hold/resume, and VoiceOver/numeric-table equivalence.
 Primary means the SystemConfiguration IPv4 interface, falling back to
 IPv6; it is not a sum of physical and tunnel traffic.
 
+For a verified memory candidate, compare App Memory, Wired, Compressed,
+Cached Files, Swap Used and the pressure colour with Activity Monitor's
+Memory tab. Open a large workload to raise pressure and check that the
+band and header change together, swap rates rise only while swapping, and
+VoiceOver reads each layer's own bytes rather than its stacked height.
+
 For a verified storage candidate, select the same device when comparing
 read/write trends, check external-drive and disk-image attach/detach,
 automatic versus manual scope, held history and accessibility. Driver
@@ -166,6 +182,34 @@ observed interfaces remain selectable. Interfaces are never summed into
 an ambiguous system total. Native C fixtures use the SDK's real
 `ifmibdata` type and verify values above 4 GiB, bounded names and detached
 responses. Linux tests verify the unsupported path, not a copied Mac ABI.
+
+## Memory source and units
+
+One `host_statistics64(HOST_VM_INFO64)` read supplies the page counts and
+lifetime counters in the
+[SDK structure](https://github.com/apple-oss-distributions/xnu/blob/f6217f891ac0bb64f3d375211650a4c1ff8ca1ea/osfmk/mach/vm_statistics.h#L142-L177).
+Used memory keeps the existing composition; app memory subtracts wired
+and compressed pages from it, and cached files are purgeable plus
+file-backed pages. A derivation that would go negative or exceed physical
+memory is unavailable, never clamped. `compressor_page_count` is the
+physical footprint of compressed data; the ratio divides
+`total_uncompressed_pages_in_compressor` by it and is unavailable when
+the compressor is empty.
+
+`pageins`, `swapins` and `swapouts` are lifetime page counts. The
+compressor's swap path adds each segment's
+[I/O size in pages](https://github.com/apple-oss-distributions/xnu/blob/f6217f891ac0bb64f3d375211650a4c1ff8ca1ea/osfmk/vm/vm_compressor_backing_store.c#L1456),
+so rates multiply page deltas by the host page size. Like CPU, these
+rates are gaps across interrupted sampling; composition gauges remain.
+
+`vm.swapusage` returns `xsw_usage`, whose
+[handler](https://github.com/apple-oss-distributions/xnu/blob/f6217f891ac0bb64f3d375211650a4c1ff8ca1ea/bsd/kern/kern_sysctl.c#L4097-L4119)
+derives used swap from total minus available. On macOS the
+[pressure sysctl](https://github.com/apple-oss-distributions/xnu/blob/f6217f891ac0bb64f3d375211650a4c1ff8ca1ea/bsd/kern/kern_memorystatus_notify.c#L1884-L1910)
+has no privilege check and reports the public `DISPATCH_MEMORYPRESSURE_*`
+values: 1 normal, 2 warning, 4 critical. Unknown values are unavailable.
+The reading stores the severity ordinal 0-2; it is never averaged. A
+pressure-event source can replace polling when the full scheduler lands.
 
 ## Storage source and units
 

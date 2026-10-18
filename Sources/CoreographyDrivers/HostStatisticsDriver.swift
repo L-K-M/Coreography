@@ -54,29 +54,76 @@ public struct ProcessorTicks: Equatable, Sendable {
     }
 }
 
+/// One `HOST_VM_INFO64` read: current page counts plus lifetime counters.
 public struct MemoryPages: Equatable, Sendable {
     public let active: UInt64
     public let inactive: UInt64
     public let speculative: UInt64
     public let wired: UInt64
+    /// Physical pages holding compressed data.
     public let compressed: UInt64
+    /// Uncompressed pages the compressor's data represents.
+    public let compressorContents: UInt64
     public let purgeable: UInt64
     public let fileBacked: UInt64
+    /// Lifetime counters; swaps count compressor-segment I/O in pages.
+    public let pageIns: UInt64
+    public let swapIns: UInt64
+    public let swapOuts: UInt64
     public let pageSizeBytes: UInt64
 
     public init(
         active: UInt64, inactive: UInt64, speculative: UInt64,
-        wired: UInt64, compressed: UInt64, purgeable: UInt64,
-        fileBacked: UInt64, pageSizeBytes: UInt64
+        wired: UInt64, compressed: UInt64, compressorContents: UInt64,
+        purgeable: UInt64, fileBacked: UInt64,
+        pageIns: UInt64, swapIns: UInt64, swapOuts: UInt64,
+        pageSizeBytes: UInt64
     ) {
         self.active = active
         self.inactive = inactive
         self.speculative = speculative
         self.wired = wired
         self.compressed = compressed
+        self.compressorContents = compressorContents
         self.purgeable = purgeable
         self.fileBacked = fileBacked
+        self.pageIns = pageIns
+        self.swapIns = swapIns
+        self.swapOuts = swapOuts
         self.pageSizeBytes = pageSizeBytes
+    }
+}
+
+/// `vm.swapusage`: the dynamic swap files' current size and use.
+public struct SwapUsage: Equatable, Sendable {
+    public let totalBytes: UInt64
+    public let usedBytes: UInt64
+
+    public init(totalBytes: UInt64, usedBytes: UInt64) {
+        self.totalBytes = totalBytes
+        self.usedBytes = usedBytes
+    }
+}
+
+/// Kernel memory-pressure state reported by `kern.memorystatus_vm_pressure_level`.
+public enum KernelMemoryPressure: String, Equatable, Sendable {
+    case normal
+    case warning
+    case critical
+
+    // The sysctl reports the public DISPATCH_MEMORYPRESSURE_* bit values.
+    private static let normalLevel: UInt32 = 0x1
+    private static let warningLevel: UInt32 = 0x2
+    private static let criticalLevel: UInt32 = 0x4
+
+    /// Decode one sysctl value; unknown values are not guessed.
+    public init?(dispatchLevel: UInt32) {
+        switch dispatchLevel {
+        case Self.normalLevel: self = .normal
+        case Self.warningLevel: self = .warning
+        case Self.criticalLevel: self = .critical
+        default: return nil
+        }
     }
 }
 
@@ -84,6 +131,8 @@ public enum HostDriverError: Error, Equatable, Sendable {
     case unsupportedPlatform
     case systemCall(operation: String, code: Int32)
     case invalidPageSize
+    case malformedReply(operation: String)
+    case unexpectedValue(operation: String, value: UInt64)
 }
 
 public struct RawHostSnapshot: Sendable {
@@ -93,12 +142,16 @@ public struct RawHostSnapshot: Sendable {
     public let inventory: HostInventory
     public let cpu: Result<ProcessorTicks, HostDriverError>
     public let memory: Result<MemoryPages, HostDriverError>
+    public let swap: Result<SwapUsage, HostDriverError>
+    public let memoryPressure: Result<KernelMemoryPressure, HostDriverError>
 
     public init(
         clockID: UUID, monotonicNanoseconds: UInt64, wallTime: Date,
         inventory: HostInventory,
         cpu: Result<ProcessorTicks, HostDriverError>,
-        memory: Result<MemoryPages, HostDriverError>
+        memory: Result<MemoryPages, HostDriverError>,
+        swap: Result<SwapUsage, HostDriverError>,
+        memoryPressure: Result<KernelMemoryPressure, HostDriverError>
     ) {
         self.clockID = clockID
         self.monotonicNanoseconds = monotonicNanoseconds
@@ -106,6 +159,8 @@ public struct RawHostSnapshot: Sendable {
         self.inventory = inventory
         self.cpu = cpu
         self.memory = memory
+        self.swap = swap
+        self.memoryPressure = memoryPressure
     }
 }
 
@@ -132,9 +187,13 @@ public actor HostStatisticsDriver: HostSampleReading {
         #if os(macOS)
         let cpu = readCPU()
         let memory = readMemory()
+        let swap = readSwap()
+        let pressure = readPressure()
         #else
         let cpu: Result<ProcessorTicks, HostDriverError> = .failure(.unsupportedPlatform)
         let memory: Result<MemoryPages, HostDriverError> = .failure(.unsupportedPlatform)
+        let swap: Result<SwapUsage, HostDriverError> = .failure(.unsupportedPlatform)
+        let pressure: Result<KernelMemoryPressure, HostDriverError> = .failure(.unsupportedPlatform)
         #endif
 
         return RawHostSnapshot(
@@ -143,7 +202,9 @@ public actor HostStatisticsDriver: HostSampleReading {
             wallTime: Date(),
             inventory: inventory,
             cpu: cpu,
-            memory: memory
+            memory: memory,
+            swap: swap,
+            memoryPressure: pressure
         )
     }
 
@@ -200,9 +261,55 @@ public actor HostStatisticsDriver: HostSampleReading {
             active: UInt64(info.active_count), inactive: UInt64(info.inactive_count),
             speculative: UInt64(info.speculative_count), wired: UInt64(info.wire_count),
             compressed: UInt64(info.compressor_page_count),
+            compressorContents: info.total_uncompressed_pages_in_compressor,
             purgeable: UInt64(info.purgeable_count), fileBacked: UInt64(info.external_page_count),
+            pageIns: info.pageins, swapIns: info.swapins, swapOuts: info.swapouts,
             pageSizeBytes: UInt64(pageSize)
         ))
+    }
+
+    private func readSwap() -> Result<SwapUsage, HostDriverError> {
+        let operation = "sysctl vm.swapusage"
+        switch readSysctl("vm.swapusage", as: xsw_usage.self, operation: operation) {
+        case .failure(let error):
+            return .failure(error)
+        case .success(let usage):
+            guard usage.xsu_used <= usage.xsu_total else {
+                return .failure(.unexpectedValue(operation: operation, value: usage.xsu_used))
+            }
+            return .success(SwapUsage(totalBytes: usage.xsu_total, usedBytes: usage.xsu_used))
+        }
+    }
+
+    private func readPressure() -> Result<KernelMemoryPressure, HostDriverError> {
+        let operation = "sysctl kern.memorystatus_vm_pressure_level"
+        switch readSysctl("kern.memorystatus_vm_pressure_level", as: UInt32.self, operation: operation) {
+        case .failure(let error):
+            return .failure(error)
+        case .success(let level):
+            guard let pressure = KernelMemoryPressure(dispatchLevel: level) else {
+                return .failure(.unexpectedValue(operation: operation, value: UInt64(level)))
+            }
+            return .success(pressure)
+        }
+    }
+
+    /// Read one fixed-size sysctl value; a short or long reply is malformed.
+    private func readSysctl<Value>(
+        _ name: String, as type: Value.Type, operation: String
+    ) -> Result<Value, HostDriverError> {
+        let expectedSize = MemoryLayout<Value>.size
+        let storage = UnsafeMutableRawPointer.allocate(
+            byteCount: expectedSize, alignment: MemoryLayout<Value>.alignment
+        )
+        defer { storage.deallocate() }
+
+        var size = expectedSize
+        guard sysctlbyname(name, storage, &size, nil, 0) == 0 else {
+            return .failure(.systemCall(operation: operation, code: errno))
+        }
+        guard size == expectedSize else { return .failure(.malformedReply(operation: operation)) }
+        return .success(storage.load(as: Value.self))
     }
     #endif
 }
