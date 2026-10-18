@@ -56,13 +56,15 @@ struct AppLedger: Sendable {
         let rows = ProcessGroups.rows(in: processes, matching: "", sortedBy: .name, grouping: .app)
         for row in rows {
             let disk = ProcessGroups.total([row.diskReadBytesPerSecond, row.diskWriteBytesPerSecond], overlap: nil)
-            let cpuSeconds = cores > 0
-                ? (row.cpuPercentOfMachine.numericValue ?? 0) / Self.percentScale * cores * seconds : 0
+            let share = row.cpuPercentOfMachine.numericValue ?? 0
+            // Without a core count, CPU share cannot become CPU-seconds: record a lower bound.
+            let cpuSeconds = cores > 0 ? share / Self.percentScale * cores * seconds : 0
             let diskBytes = (disk.numericValue ?? 0) * seconds
-            guard cpuSeconds > 0 || diskBytes > 0 else { continue }
+            guard cpuSeconds > 0 || diskBytes > 0 || share > 0 else { continue }
             entries.append(Entry(
                 app: index(of: row.name), cpuSeconds: cpuSeconds, diskBytes: diskBytes,
-                isLowerBound: row.cpuPercentOfMachine.availability != .measured || disk.availability != .measured
+                isLowerBound: cores <= 0 || row.cpuPercentOfMachine.availability != .measured
+                    || disk.availability != .measured
             ))
         }
         intervals.append(Interval(start: start, end: end, entries: entries))
