@@ -34,6 +34,31 @@ final class SessionsTests: XCTestCase {
         XCTAssertEqual(session.series["cpu"]?.first?.offset, 1)
     }
 
+    /// Slower sources keep their newest frame between updates; a repeat is not a new reading.
+    func testARepeatedFrameIsOneReading() throws {
+        var recording = SessionRecording(name: "Idle", start: epoch)
+        let reading = HistorySample(metric: .hottestCelsius, time: epoch.addingTimeInterval(4), value: 50, availability: .measured)
+        recording.record([reading])
+        recording.record([reading])
+        recording.record([HistorySample(metric: .hottestCelsius, time: epoch.addingTimeInterval(8), value: 52, availability: .measured)])
+        let summary = try XCTUnwrap(recording.finish(at: epoch.addingTimeInterval(9)).summaries.first)
+        XCTAssertEqual(summary.samples, 2)
+        XCTAssertEqual(summary.mean, 51)
+    }
+
+    func testSessionsWithOneNameStayTwoLines() {
+        var first = SessionRecording(name: "Baseline", start: epoch)
+        var second = SessionRecording(name: "Baseline", start: epoch.addingTimeInterval(86_400))
+        for recording in [0, 1] {
+            let sample = HistorySample(metric: .cpu, time: epoch.addingTimeInterval(Double(recording * 86_400 + 1)), value: 5, availability: .measured)
+            if recording == 0 { first.record([sample]) } else { second.record([sample]) }
+        }
+        let comparison = SessionComparison.make(first.finish(at: epoch.addingTimeInterval(2)), second.finish(at: epoch.addingTimeInterval(86_402)))
+        let labels = comparison.metrics.first?.series.map(\.label) ?? []
+        XCTAssertEqual(labels.count, 2)
+        XCTAssertEqual(Set(labels).count, 2, "a chart keys lines by label")
+    }
+
     func testArchiveKeepsSessionsPrivateNewestFirst() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("coreo-sessions-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -110,6 +135,13 @@ final class SessionsTests: XCTestCase {
 
         model.toggleComparison(session.id)
         XCTAssertNil(model.sessionComparison, "a comparison needs two sessions")
+
+        // A delete the disk refuses keeps the row and says why.
+        try FileManager.default.setAttributes([.posixPermissions: 0o500], ofItemAtPath: directory.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path) }
+        await model.deleteSession(session.id)
+        XCTAssertEqual(model.sessions.map(\.id), [session.id])
+        XCTAssertTrue(model.actionMessage?.hasPrefix("The session could not be deleted") == true, "\(model.actionMessage ?? "nil")")
     }
 }
 

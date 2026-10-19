@@ -1,7 +1,14 @@
 import Foundation
 
-public enum SessionStoreError: Error, Equatable, Sendable {
+public enum SessionStoreError: Error, Equatable, Sendable, CustomStringConvertible {
     case storage(String)
+
+    /// Messages interpolate the error; they should read the reason, not the case.
+    public var description: String {
+        switch self {
+        case .storage(let reason): reason
+        }
+    }
 }
 
 /// Recorded sessions as private files beside history (plan: recordings are

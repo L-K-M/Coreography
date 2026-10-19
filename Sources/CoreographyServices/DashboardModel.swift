@@ -1742,15 +1742,18 @@ public final class DashboardModel {
         guard let recording = sessionRecording else { return nil }
         sessionRecording = nil
         let session = recording.finish(at: Date())
+        // The message also goes to the window: a toolbar button has nowhere else to show it.
         guard let sessionArchive else {
             sessions.insert(session, at: 0)
-            return "Sessions cannot be saved on this Mac; this one lasts until Coreography quits."
+            actionMessage = "Sessions cannot be saved on this Mac; this one lasts until Coreography quits."
+            return actionMessage
         }
         do {
             try await sessionArchive.save(session)
         } catch {
             sessions.insert(session, at: 0)
-            return "The session could not be saved: \(error)"
+            actionMessage = "The session could not be saved: \(error)"
+            return actionMessage
         }
         await refreshSessions()
         return nil
@@ -1766,7 +1769,11 @@ public final class DashboardModel {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, let index = sessions.firstIndex(where: { $0.id == id }) else { return }
         sessions[index].name = trimmed
-        try? await sessionArchive?.save(sessions[index])
+        do {
+            try await sessionArchive?.save(sessions[index])
+        } catch {
+            actionMessage = "The new name could not be saved and lasts until Coreography quits: \(error)"
+        }
     }
 
     /// Sessions picked for comparison; picking a third drops the oldest pick.
@@ -1789,7 +1796,13 @@ public final class DashboardModel {
 
     public func deleteSession(_ id: UUID) async {
         comparedSessions.removeAll { $0 == id }
-        try? await sessionArchive?.delete(id)
+        do {
+            try await sessionArchive?.delete(id)
+        } catch {
+            // Still on disk: the row stays, so the list does not lie until the next refresh.
+            actionMessage = "The session could not be deleted: \(error)"
+            return
+        }
         sessions.removeAll { $0.id == id }
     }
 

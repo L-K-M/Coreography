@@ -2214,9 +2214,9 @@ private struct SessionComparisonView: View {
                             LineMark(
                                 x: .value("Seconds from start", point.offset),
                                 y: .value(metric.metric, point.value),
-                                series: .value("Session", series.name)
+                                series: .value("Session", series.label)
                             )
-                            .foregroundStyle(by: .value("Session", series.name))
+                            .foregroundStyle(by: .value("Session", series.label))
                         }
                     }
                 }
