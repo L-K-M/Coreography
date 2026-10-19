@@ -230,6 +230,7 @@ coreo_process_read(int32_t pid, coreo_process_sample *sample)
             sample->physical_footprint_bytes = usage.ri_phys_footprint;
             sample->disk_read_bytes = usage.ri_diskio_bytesread;
             sample->disk_write_bytes = usage.ri_diskio_byteswritten;
+            sample->wakeups = usage.ri_pkg_idle_wkups + usage.ri_interrupt_wkups;
         }
     }
     return 0;

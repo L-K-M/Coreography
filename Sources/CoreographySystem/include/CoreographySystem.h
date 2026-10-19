@@ -20,6 +20,8 @@ typedef struct {
     uint64_t physical_footprint_bytes;
     uint64_t disk_read_bytes;
     uint64_t disk_write_bytes;
+    /* Cumulative wakeups: package idle exits plus interrupt wakeups. */
+    uint64_t wakeups;
     int32_t path_error;
     char path[COREO_PROCESS_PATH_CAPACITY];
     int32_t responsible_error;

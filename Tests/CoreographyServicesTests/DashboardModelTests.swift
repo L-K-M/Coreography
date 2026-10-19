@@ -308,6 +308,12 @@ final class DashboardModelTests: XCTestCase {
         XCTAssertFalse(cost.footprintOverBudget)
 
         XCTAssertNil(SelfCost.measure(in: nil, logicalCPUCount: 4))
+
+        // One wakeup a second is the sampling; the budget counts the rest.
+        let within = SelfCost(cpuPercentOfOneCore: try .measured(0.5), footprintBytes: try .measured(1), wakeupsPerSecond: try .measured(6))
+        let over = SelfCost(cpuPercentOfOneCore: try .measured(0.5), footprintBytes: try .measured(1), wakeupsPerSecond: try .measured(6.5))
+        XCTAssertFalse(within.wakeupsOverBudget)
+        XCTAssertTrue(over.wakeupsOverBudget)
     }
 
     func testClearingASelectionAlsoClearsAnUnfinishedDrag() async throws {

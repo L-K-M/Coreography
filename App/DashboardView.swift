@@ -1402,6 +1402,7 @@ private struct ProcessPane: View {
                         ProcessMetricCell(reading: $0.diskWriteBytesPerSecond, format: .rate,
                                           heat: heat.write($0), hue: .orange)
                     }
+                    TableColumn("Wakeups/s") { Text(WakeupText.rate($0.wakeupsPerSecond.numericValue)) }
                 }
                 .frame(height: 260)
                 .textSelection(.enabled)
@@ -1584,6 +1585,7 @@ private struct InspectorView: View {
             Text("CPU \(MetricText.percent(process.cpuPercentOfMachine.numericValue)) of the machine")
             Text("Footprint \(MetricText.bytes(process.memoryFootprintBytes.numericValue))")
             Text("Disk \(MetricText.bytes(process.diskReadBytesPerSecond.numericValue))/s read, \(MetricText.bytes(process.diskWriteBytesPerSecond.numericValue))/s written")
+            Text(WakeupText.rate(process.wakeupsPerSecond.numericValue))
         }
 
         InspectorSection("Identity") {
@@ -2289,8 +2291,8 @@ private struct SelfCostLine: View {
         if let cost = model.selfCost {
             Text(label(cost))
                 .monospacedDigit()
-                .foregroundStyle(cost.cpuOverBudget || cost.footprintOverBudget ? Color.orange : Color.secondary)
-                .help("Coreography's own process, from the latest process sample. Wakeups are not measured yet.")
+                .foregroundStyle(over(cost) ? Color.orange : Color.secondary)
+                .help("Coreography's own process, from the latest process sample. One wakeup a second is the sampling itself.")
         } else if let processes = model.processSnapshot {
             // A process sample without our own row is a failure to report, not a wait.
             Text("Self-cost: unavailable · \(processes.enumeration.reason ?? String(localized: "own process not observed"))")
@@ -2304,9 +2306,21 @@ private struct SelfCostLine: View {
             $0.formatted(.number.precision(.fractionLength(1))) + "% of a core"
         } ?? String(localized: "CPU unavailable")
         let memory = MetricText.bytes(cost.footprintBytes.numericValue)
+        let wakeups = WakeupText.rate(cost.wakeupsPerSecond.numericValue)
         let budget = String(localized: "budget \(SelfCost.cpuBudgetPercentOfOneCore.formatted())% · \(MetricText.bytes(SelfCost.footprintBudgetBytes))")
-        let over = cost.cpuOverBudget || cost.footprintOverBudget ? " · " + String(localized: "over budget") : ""
-        return String(localized: "Coreography: \(cpu) · \(memory) (\(budget))") + over
+        let note = over(cost) ? " · " + String(localized: "over budget") : ""
+        return String(localized: "Coreography: \(cpu) · \(memory) · \(wakeups) (\(budget))") + note
+    }
+
+    private func over(_ cost: SelfCost) -> Bool {
+        cost.cpuOverBudget || cost.footprintOverBudget || cost.wakeupsOverBudget
+    }
+}
+
+private enum WakeupText {
+    static func rate(_ value: Double?) -> String {
+        guard let value else { return "–" }
+        return String(localized: "\(value.formatted(.number.precision(.fractionLength(0)))) wakeups/s")
     }
 }
 

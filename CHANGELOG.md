@@ -11,6 +11,8 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
   after the store first exceeds it.
 
 ### Added
+- Wakeups per second for every process and app, and in Coreography's
+  own cost against its budget.
 - Suspend, Resume, Send Signal, Lower Priority, Reveal in Finder and
   Copy for processes, each identity-checked and confirmed.
 - Process filters can be saved as chips.

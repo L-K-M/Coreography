@@ -32,6 +32,7 @@ public struct ProcessRow: Identifiable, Sendable {
     public let memoryFootprintBytes: MetricReading
     public let diskReadBytesPerSecond: MetricReading
     public let diskWriteBytesPerSecond: MetricReading
+    public let wakeupsPerSecond: MetricReading
     /// Member rows for a group; nil for a leaf so tables show no disclosure.
     public let children: [ProcessRow]?
 }
@@ -103,6 +104,7 @@ enum ProcessGroups {
                 memoryFootprintBytes: total(all.map(\.memoryFootprintBytes), overlap: footprintMethod),
                 diskReadBytesPerSecond: total(all.map(\.diskReadBytesPerSecond), overlap: nil),
                 diskWriteBytesPerSecond: total(all.map(\.diskWriteBytesPerSecond), overlap: nil),
+                wakeupsPerSecond: total(all.map(\.wakeupsPerSecond), overlap: nil),
                 children: children
             ))
         }
@@ -171,6 +173,7 @@ enum ProcessGroups {
             memoryFootprintBytes: process.memoryFootprintBytes,
             diskReadBytesPerSecond: process.diskReadBytesPerSecond,
             diskWriteBytesPerSecond: process.diskWriteBytesPerSecond,
+            wakeupsPerSecond: process.wakeupsPerSecond,
             children: nil
         )
     }

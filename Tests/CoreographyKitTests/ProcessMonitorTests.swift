@@ -36,17 +36,19 @@ final class ProcessMonitorTests: XCTestCase {
 
     func testRatesUseEachProcessElapsedTimeAndWholeMachineCPU() async throws {
         let monitor = try makeMonitor([
-            fixture(time: 1, rows: [row(time: 1, cpu: 1_000_000_000, read: 100)]),
-            fixture(time: 3, rows: [row(time: 3, cpu: 3_000_000_000, read: 1100)])
+            fixture(time: 1, rows: [row(time: 1, cpu: 1_000_000_000, read: 100, wakeups: 10)]),
+            fixture(time: 3, rows: [row(time: 3, cpu: 3_000_000_000, read: 1100, wakeups: 30)])
         ])
         let first = try await monitor.sample()
         XCTAssertEqual(first.processes.first?.cpuPercentOfMachine.availability, .collecting)
+        XCTAssertEqual(first.processes.first?.wakeupsPerSecond.availability, .collecting)
         let second = try await monitor.sample()
         let process = try XCTUnwrap(second.processes.first)
         XCTAssertEqual(process.cpuPercentOfMachine.numericValue, 25)
         XCTAssertEqual(process.diskReadBytesPerSecond.numericValue, 500)
         XCTAssertEqual(process.diskWriteBytesPerSecond.numericValue, 0)
         XCTAssertEqual(process.memoryFootprintBytes.numericValue, 4096)
+        XCTAssertEqual(process.wakeupsPerSecond.numericValue, 10, "20 wakeups over 2 s")
     }
 
     func testBatchDurationDoesNotReplaceProcessSampleInterval() async throws {
@@ -260,14 +262,14 @@ final class ProcessMonitorTests: XCTestCase {
 
     private func row(
         pid: Int32 = 42, time: UInt64, start: UInt64 = 100,
-        cpu: UInt64 = 0, read: UInt64 = 0, failure: ProcessDriverError? = nil
+        cpu: UInt64 = 0, read: UInt64 = 0, wakeups: UInt64 = 0, failure: ProcessDriverError? = nil
     ) -> RawProcessInfo {
         RawProcessInfo(
             pid: pid, parentPID: 1, uid: 501, startSeconds: start, startMicroseconds: 123,
             name: "Fixture \(pid)", monotonicNanoseconds: time * 1_000_000_000,
             counters: failure.map { .failure($0) } ?? .success(ProcessCounters(
                 userNanoseconds: cpu, systemNanoseconds: 0, physicalFootprintBytes: 4096,
-                diskReadBytes: read, diskWriteBytes: 0
+                diskReadBytes: read, diskWriteBytes: 0, wakeups: wakeups
             ))
         )
     }
