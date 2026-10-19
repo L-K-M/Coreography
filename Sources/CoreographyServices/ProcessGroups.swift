@@ -57,6 +57,8 @@ public struct ProcessRow: Identifiable, Sendable {
     public let cpuPowerWatts: MetricReading
     /// User plus system CPU time over each member's life, in seconds.
     public let cpuTimeSeconds: MetricReading
+    /// Threads now; an app sums its processes.
+    public let threadCount: MetricReading
     /// When the process started; for a group, its first member.
     public let started: Date?
     /// Member rows for a group, or child processes in the tree; nil for a
@@ -275,6 +277,7 @@ enum ProcessGroups {
             gpuMillisecondsPerSecond: total(members.map(\.gpuMillisecondsPerSecond), overlap: nil),
             cpuPowerWatts: total(members.map(\.cpuPowerWatts), overlap: nil),
             cpuTimeSeconds: total(members.map(\.cpuTimeSeconds), overlap: nil),
+            threadCount: total(members.map(\.threadCount), overlap: nil),
             started: members.map(\.id.startTime).min(),
             children: children
         )
@@ -357,6 +360,7 @@ enum ProcessGroups {
             gpuMillisecondsPerSecond: process.gpuMillisecondsPerSecond,
             cpuPowerWatts: process.cpuPowerWatts,
             cpuTimeSeconds: process.cpuTimeSeconds,
+            threadCount: process.threadCount,
             started: process.id.startTime,
             children: nil
         )
@@ -420,6 +424,7 @@ enum ProcessGroups {
         case .power: row.cpuPowerWatts.numericValue
         case .cpuTime: row.cpuTimeSeconds.numericValue
         case .started: row.started?.timeIntervalSince1970
+        case .threads: row.threadCount.numericValue
         case .name: nil
         }
     }
@@ -434,7 +439,8 @@ extension ProcessRow {
             diskReadBytesPerSecond: diskReadBytesPerSecond, diskWriteBytesPerSecond: diskWriteBytesPerSecond,
             wakeupsPerSecond: wakeupsPerSecond, networkReceivedBytesPerSecond: networkReceivedBytesPerSecond,
             networkSentBytesPerSecond: networkSentBytesPerSecond, gpuMillisecondsPerSecond: gpuMillisecondsPerSecond,
-            cpuPowerWatts: cpuPowerWatts, cpuTimeSeconds: cpuTimeSeconds, started: started, children: children
+            cpuPowerWatts: cpuPowerWatts, cpuTimeSeconds: cpuTimeSeconds, threadCount: threadCount, started: started,
+            children: children
         )
     }
 }

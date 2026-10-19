@@ -29,6 +29,9 @@ typedef struct {
     char path[COREO_PROCESS_PATH_CAPACITY];
     int32_t responsible_error;
     int32_t responsible_pid;
+    /* Thread count (PROC_PIDTASKINFO); zero when threads_error is set. */
+    int32_t threads_error;
+    int32_t threads;
 } coreo_process_sample;
 
 /* Return errno on failure, zero on success. Capacity and count are PID

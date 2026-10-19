@@ -123,6 +123,24 @@ coreo_read_identity(int32_t pid, struct proc_bsdinfo *info)
     return 0;
 }
 
+/* Task info is readable only for this user's processes without the
+   helper; a short read is reported as denied. */
+static int32_t
+coreo_read_threads(int32_t pid, int32_t *threads)
+{
+    struct proc_taskinfo task;
+    int rc;
+
+    *threads = 0;
+    errno = 0;
+    rc = proc_pidinfo(pid, PROC_PIDTASKINFO, 0, &task, (int)sizeof(task));
+    if (rc != (int)sizeof(task)) {
+        return errno ? errno : EPERM;
+    }
+    *threads = task.pti_threadnum;
+    return 0;
+}
+
 int32_t
 coreo_process_list(int32_t *pids, int32_t capacity,
                    int32_t *count, int32_t *truncated)
@@ -180,6 +198,7 @@ coreo_process_read(int32_t pid, coreo_process_sample *sample)
     }
     sample->path_error = coreo_read_path(pid, sample->path, sizeof(sample->path));
     sample->responsible_error = coreo_read_responsible(pid, &sample->responsible_pid);
+    sample->threads_error = coreo_read_threads(pid, &sample->threads);
 
     err = coreo_read_identity(pid, &after);
     if (err != 0 || before.pbi_pid != after.pbi_pid ||
@@ -340,9 +359,8 @@ coreo_process_threads(int32_t pid, uint64_t start_seconds, uint64_t start_micros
                       int32_t *threads)
 {
     struct proc_bsdinfo identity;
-    struct proc_taskinfo task;
+    int32_t count = 0;
     int32_t err;
-    int rc;
 
     if (pid <= 0 || threads == NULL) {
         return EINVAL;
@@ -354,17 +372,16 @@ coreo_process_threads(int32_t pid, uint64_t start_seconds, uint64_t start_micros
     if (identity.pbi_start_tvsec != start_seconds || identity.pbi_start_tvusec != start_microseconds) {
         return EAGAIN;
     }
-    errno = 0;
-    rc = proc_pidinfo(pid, PROC_PIDTASKINFO, 0, &task, (int)sizeof(task));
-    if (rc != (int)sizeof(task)) {
-        return errno ? errno : EPERM;
+    err = coreo_read_threads(pid, &count);
+    if (err != 0) {
+        return err;
     }
     /* The pid may have been reused while the task was read. */
     err = coreo_read_identity(pid, &identity);
     if (err != 0 || identity.pbi_start_tvsec != start_seconds || identity.pbi_start_tvusec != start_microseconds) {
         return err != 0 ? err : EAGAIN;
     }
-    *threads = task.pti_threadnum;
+    *threads = count;
     return 0;
 }
 
@@ -649,6 +666,7 @@ coreo_process_read(int32_t pid, coreo_process_sample *sample)
     sample->usage_error = ENOTSUP;
     sample->path_error = ENOTSUP;
     sample->responsible_error = ENOTSUP;
+    sample->threads_error = ENOTSUP;
     return ENOTSUP;
 }
 

@@ -206,6 +206,8 @@ jobs:
           for field in ("diskReadBytesPerSecond", "diskWriteBytesPerSecond", "wakeupsPerSecond"):
               assert own[field]["availability"] == "measured" and own[field]["numericValue"] >= 0
           assert own["executablePath"].endswith("/Coreography.app/Contents/Helpers/coreo")
+          threads = own["threadCount"]
+          assert threads["availability"] == "measured" and threads["numericValue"] >= 1, threads
           # coreo opens no GPU connection, so its GPU time is a measured zero.
           gpu = own["gpuMillisecondsPerSecond"]
           assert gpu["availability"] == "measured" and gpu["numericValue"] == 0, gpu
