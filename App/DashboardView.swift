@@ -2880,6 +2880,8 @@ private struct ChartInteraction: View {
     @State private var dragsComparison: Bool?
     /// This plot's claim on horizontal scrolling while the pointer is over it.
     @State private var scrollOwner = UUID()
+    private static let pinchCloser: CGFloat = 1.15
+    private static let pinchWider: CGFloat = 1 / 1.15
 
     var body: some View {
         Rectangle()
@@ -2902,9 +2904,12 @@ private struct ChartInteraction: View {
                     ScrollPanner.shared.end(scrollOwner)
                 }
             }
-            // Pinching steps through the range pills: apart zooms closer, together wider.
+            // A lane torn down under the pointer never sees its hover end.
+            .onDisappear { ScrollPanner.shared.end(scrollOwner) }
+            // Pinching steps through the range pills: apart zooms closer, together wider; a slight touch does nothing.
             .simultaneousGesture(MagnifyGesture().onEnded { value in
-                model.zoom(value.magnification > 1 ? .closer : .wider)
+                if value.magnification > Self.pinchCloser { model.zoom(.closer) }
+                if value.magnification < Self.pinchWider { model.zoom(.wider) }
             })
             // Dragging across any lane selects one range for all of them (plan P7).
             .gesture(DragGesture(minimumDistance: 4).updating($dragging) { _, state, _ in
