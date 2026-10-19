@@ -100,6 +100,17 @@ final class ProcessActionsTests: XCTestCase {
         XCTAssertEqual(reason, "The process exited before it could be sampled")
         model.dismissSample()
         guard case .idle = model.sampleState else { return XCTFail("dismissed") }
+
+        // Closing while it runs is allowed; the late report does not reopen the sheet.
+        let slow = Task { await model.sampleProcess(try process(pid: 79, name: "Slow")) }
+        while true {
+            if case .running = model.sampleState { break }
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        model.dismissSample()
+        guard case .idle = model.sampleState else { return XCTFail("closing a running sample closes it") }
+        _ = await slow.result
+        guard case .idle = model.sampleState else { return XCTFail("the abandoned report stays away") }
     }
 
     private func process(pid: Int32, name: String, parent: UInt32 = 1, start: UInt64 = 10) throws -> ObservedProcess {
@@ -158,7 +169,8 @@ private final class RecordingSignaler: ProcessSignaling, @unchecked Sendable {
 
 private struct Sampler: ProcessSampling {
     func sample(pid: Int32, startSeconds: UInt64, startMicroseconds: UInt64, seconds: Int) async -> Result<String, ProcessSampleError> {
-        pid == 77 ? .success("Call graph:\n    3 Thread_1") : .failure(.exited)
+        if pid == 79 { try? await Task.sleep(for: .milliseconds(100)) }
+        return pid == 77 || pid == 79 ? .success("Call graph:\n    3 Thread_1") : .failure(.exited)
     }
 }
 

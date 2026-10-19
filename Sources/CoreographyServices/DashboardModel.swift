@@ -121,6 +121,7 @@ public final class DashboardModel {
     public private(set) var sessions: [RecordedSession] = []
     /// A call-stack sample the person asked for (plan: Sample), one at a time.
     public private(set) var sampleState: SampleState = .idle
+    @ObservationIgnored private var sampleRun: UUID?
     /// Filters kept as chips under the field.
     public private(set) var savedFilters: [String] = []
     /// The pane under the lanes; connections are read only while shown or filtered on.
@@ -1039,15 +1040,21 @@ public final class DashboardModel {
     public func sampleProcess(_ process: ObservedProcess) async {
         guard let sampler else { return }
         if case .running = sampleState { return }
+        let run = UUID()
+        sampleRun = run
         sampleState = .running(name: process.name, seconds: ProcessSampler.defaultSeconds)
-        switch await sampler.sample(process) {
+        let result = await sampler.sample(process)
+        // Closed while it ran: the tool stops at its own time limit, and its report is dropped.
+        guard sampleRun == run else { return }
+        switch result {
         case .success(let report): sampleState = .finished(report)
         case .failure(let failure): sampleState = .failed(name: process.name, reason: failure.reason)
         }
     }
 
+    /// Also closes a running sample, so the sheet's Close and Escape always work.
     public func dismissSample() {
-        if case .running = sampleState { return }
+        sampleRun = nil
         sampleState = .idle
     }
 

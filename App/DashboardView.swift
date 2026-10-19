@@ -1644,6 +1644,8 @@ private struct ProcessActionConfirmation: ViewModifier {
 private struct SampleReportView: View {
     let model: DashboardModel
     @State private var exportFile: ExportFile?
+    @State private var exportName = "Coreography sample"
+    @State private var exportError: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -1662,7 +1664,11 @@ private struct SampleReportView: View {
                     Text(report.text).font(.caption.monospaced()).textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                Button("Save…") { exportFile = ExportFile(data: Data(report.text.utf8)) }
+                Button("Save…") {
+                    exportName = "Sample of \(report.name)"
+                    exportFile = ExportFile(data: Data(report.text.utf8))
+                }
+                if let exportError { Text("Not saved: \(exportError)").font(.caption).foregroundStyle(.red) }
             }
             HStack {
                 Spacer()
@@ -1674,8 +1680,10 @@ private struct SampleReportView: View {
         .frame(minWidth: 640, minHeight: 420)
         .fileExporter(
             isPresented: Binding(get: { exportFile != nil }, set: { if !$0 { exportFile = nil } }),
-            document: exportFile, contentType: .plainText, defaultFilename: "Coreography sample"
-        ) { _ in }
+            document: exportFile, contentType: .plainText, defaultFilename: exportName
+        ) { result in
+            if case .failure(let error) = result { exportError = error.localizedDescription } else { exportError = nil }
+        }
     }
 }
 
