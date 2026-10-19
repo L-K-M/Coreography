@@ -247,6 +247,8 @@ private struct MenuBarSlot: View {
                 if slot > 0 { Text("None").tag(MenuBarMetric?.none) }
                 ForEach(MenuBarMetric.allCases) { metric in Text(MenuBarText.name(metric)).tag(MenuBarMetric?.some(metric)) }
             }
+            // Slots fill in order, so a slot after an empty one waits.
+            .disabled(slot > model.menuBarItems.count)
             if slot < model.menuBarItems.count {
                 Picker("Style", selection: style) {
                     Text("Value").tag(MenuBarStyle.value)
@@ -262,17 +264,7 @@ private struct MenuBarSlot: View {
     private var metric: Binding<MenuBarMetric?> {
         Binding(
             get: { slot < model.menuBarItems.count ? model.menuBarItems[slot].metric : nil },
-            set: { chosen in
-                var items = model.menuBarItems
-                if let chosen {
-                    let item = MenuBarItem(metric: chosen, style: slot < items.count ? items[slot].style : .value)
-                    items.removeAll { $0.metric == chosen }
-                    if slot < items.count { items[slot] = item } else { items.append(item) }
-                } else if slot < items.count {
-                    items.remove(at: slot)
-                }
-                model.menuBarItems = items
-            }
+            set: { model.menuBarItems = MenuBarLayout.choosing($0, at: slot, in: model.menuBarItems) }
         )
     }
 

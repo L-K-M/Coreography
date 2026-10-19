@@ -75,19 +75,23 @@ struct MenuBarLabel: View {
             Text(String(localized: "Paused"))
         } else if model.menuBarItems == MenuBarLayout.defaultItems {
             Text(MetricText.percent(model.reading(for: .cpu)?.numericValue)).monospacedDigit()
-        } else {
-            Image(nsImage: MenuBarRenderer.image(model))
+        } else if let image = MenuBarRenderer.image(model) {
+            Image(nsImage: image)
                 .accessibilityLabel(model.menuBarItems.map { MenuBarRenderer.text($0.metric, model) }.joined(separator: ", "))
+        } else {
+            // A render that produced nothing still shows the values.
+            Text(model.menuBarItems.map { MenuBarRenderer.text($0.metric, model) }.joined(separator: " ")).monospacedDigit()
         }
     }
 }
 
 @MainActor
 enum MenuBarRenderer {
-    static func image(_ model: DashboardModel) -> NSImage {
+    static func image(_ model: DashboardModel) -> NSImage? {
         let renderer = ImageRenderer(content: MenuBarStrip(model: model))
-        renderer.scale = NSScreen.main?.backingScaleFactor ?? 2
-        let image = renderer.nsImage ?? NSImage()
+        // Every display can show a menu bar; the sharpest one sets the scale.
+        renderer.scale = NSScreen.screens.map(\.backingScaleFactor).max() ?? 2
+        guard let image = renderer.nsImage else { return nil }
         // Drawn in black, so the menu bar tints it for light, dark and accent bars.
         image.isTemplate = true
         return image

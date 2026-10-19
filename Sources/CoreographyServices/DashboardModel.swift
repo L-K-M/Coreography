@@ -1259,7 +1259,7 @@ public final class DashboardModel {
         switch metric {
         case .cpu: reading(for: .cpu)
         case .memory: reading(for: .memory)
-        case .gpu: displayedGPUFrame?.devices.max { ($0.utilizationPercent.numericValue ?? -1) < ($1.utilizationPercent.numericValue ?? -1) }?.utilizationPercent
+        case .gpu: menuBarGPU?.utilizationPercent
         case .download: reading(for: .networkReceived)
         case .upload: reading(for: .networkSent)
         case .temperature: displayedSensorFrame?.hottest?.celsius
@@ -1271,7 +1271,7 @@ public final class DashboardModel {
         let series: [DashboardPoint] = switch metric {
         case .cpu: points(for: .cpu)
         case .memory: points(for: .memory)
-        case .gpu: gpuSeries().first?.points ?? []
+        case .gpu: gpuSeries().first { $0.id == menuBarGPU?.id }?.points ?? []
         case .download: points(for: .networkReceived)
         case .upload: points(for: .networkSent)
         case .temperature: hottestTemperaturePoints()
@@ -1281,6 +1281,11 @@ public final class DashboardModel {
         return series.filter { $0.time >= start }
     }
     private static let menuBarSeconds: TimeInterval = 60
+
+    /// The busiest displayed GPU, which both the value and its graph describe.
+    private var menuBarGPU: CapturedGPUDevice? {
+        displayedGPUFrame?.devices.max { ($0.utilizationPercent.numericValue ?? -1) < ($1.utilizationPercent.numericValue ?? -1) }
+    }
 
     /// What the Dock icon shows; saved.
     public var dockIcon = DockIconStyle.saved() {

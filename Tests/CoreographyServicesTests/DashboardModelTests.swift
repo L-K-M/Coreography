@@ -57,6 +57,22 @@ final class DashboardModelTests: XCTestCase {
         XCTAssertTrue(spans.contains { $0.level == .warning })
     }
 
+    /// The busiest GPU names the value, so its graph must be that GPU's too.
+    func testTheMenuBarGPUValueAndGraphDescribeOneDevice() async throws {
+        let model = DashboardModel(
+            monitor: try SystemMonitor(driver: IncreasingHostDriver()), interval: .milliseconds(10),
+            gpuMonitor: try GPUMonitor(driver: CyclingGPUDriver())
+        )
+        model.start()
+        defer { model.stop() }
+        try await eventually { model.gpuFrames.count >= 4 && model.displayedGPUFrame?.devices.count == 2 }
+        model.toggleDisplayHold()
+
+        let value = try XCTUnwrap(model.menuBarValue(.gpu)?.numericValue)
+        let graphed = Set(model.menuBarPoints(.gpu).map(\.value))
+        XCTAssertEqual(graphed, [value], "each fixture GPU holds one utilization")
+    }
+
     func testGPUSeriesSplitWhereADeviceIsMissingAndThermalSpansFollowSamples() async throws {
         let gpu = try GPUMonitor(driver: CyclingGPUDriver())
         let model = DashboardModel(
