@@ -188,6 +188,8 @@ public final class DashboardModel {
         didSet {
             if timeRange != oldValue { dropStoredHistory() }
             refreshStoredHistory()
+            // A wider range has less room to pan back within the same history.
+            if let newest = displayedEndTime { panOffset = clampedPan(panOffset, newest: newest) }
         }
     }
     /// A dragged time range; cleared only explicitly (plan: Esc or clear).
@@ -497,6 +499,44 @@ public final class DashboardModel {
         }
         guard let nearest, abs(time(nearest).timeIntervalSince(cursorTime)) <= tolerance else { return nil }
         return nearest
+    }
+
+    /// How far behind the newest displayed data the window ends; scrolling sets it.
+    public private(set) var panOffset: TimeInterval = 0
+
+    /// What the lanes draw: the range's width, ending `panOffset` before the newest data.
+    public var visibleWindow: ClosedRange<Date>? {
+        guard let newest = displayedEndTime else { return nil }
+        let end = newest.addingTimeInterval(-panOffset)
+        return end.addingTimeInterval(-timeRange.seconds)...end
+    }
+
+    /// Plan: scrolling pans further back, as far as history goes. Positive
+    /// seconds go back in time and detach from live; the window stays
+    /// between the oldest data held and the newest.
+    public func pan(bySeconds seconds: TimeInterval) {
+        guard seconds.isFinite, let newest = displayedEndTime else { return }
+        let offset = clampedPan(panOffset + seconds, newest: newest)
+        // Leaving live is a consequence of moving; with no history to move into, stay.
+        if offset > 0, displayMode == .live { toggleDisplayHold() }
+        panOffset = offset
+    }
+
+    /// Plan: pinching zooms through the range pills, keeping the window's end.
+    public enum ZoomStep: Sendable { case closer, wider }
+
+    public func zoom(_ step: ZoomStep) {
+        let ranges = TimeRange.allCases
+        guard let index = ranges.firstIndex(of: timeRange) else { return }
+        let next = step == .closer ? index - 1 : index + 1
+        guard ranges.indices.contains(next) else { return }
+        timeRange = ranges[next]
+    }
+
+    private func clampedPan(_ offset: TimeInterval, newest: Date) -> TimeInterval {
+        let oldest = [frames.first?.stamp.wallTime, storedHistory?.start].compactMap { $0 }.min() ?? newest
+        let room = max(0, newest.timeIntervalSince(oldest) - timeRange.seconds)
+        return min(max(offset, 0), room)
     }
 
     public var displayedEndTime: Date? {
@@ -1820,6 +1860,7 @@ public final class DashboardModel {
             return
         }
         displayMode = .live
+        panOffset = 0
         openRecording = nil
         recordingOpening = nil
         recordingMarkers = []
