@@ -58,7 +58,8 @@ public actor HistoryRecorder {
 
     /// Take the batch out before writing: records arriving while the write
     /// awaits go to the next batch instead of being cleared with this one.
-    /// A failed batch goes back in front, within the buffer limits.
+    /// A failed batch goes back in front, within the buffer limits, except
+    /// what a deletion during the write covered.
     func flush(now: Date = Date()) async {
         lastFlush = now
         guard !buffer.isEmpty || !ledgerBuffer.isEmpty else { return }
@@ -70,8 +71,9 @@ public actor HistoryRecorder {
             try await store.append(samples, ledger: ledger, now: now)
             lastError = nil
         } catch {
-            buffer = Array((samples + buffer).suffix(Self.bufferLimit))
-            ledgerBuffer = Array((ledger + ledgerBuffer).suffix(Self.ledgerBufferLimit))
+            // deleteAll can run while this write awaits; what it covered must not return.
+            buffer = Array((samples.filter { isAfterDeletion($0.time) } + buffer).suffix(Self.bufferLimit))
+            ledgerBuffer = Array((ledger.filter { isAfterDeletion($0.end) } + ledgerBuffer).suffix(Self.ledgerBufferLimit))
             if case HistoryStoreError.storage(let reason) = error { lastError = reason } else { lastError = "\(error)" }
         }
     }
