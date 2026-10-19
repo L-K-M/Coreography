@@ -2995,9 +2995,19 @@ private struct ContributorLine: View {
             .help(help)
     }
 
+    /// GPU time and modeled energy can be absent for every app, as on a Mac
+    /// without energy counters; that is not the same as an idle machine.
+    private var emptyNote: String {
+        switch subsystem {
+        case .gpu: String(localized: "no app used GPU time")
+        case .power: String(localized: "no app reported modeled energy")
+        case .cpu, .memory, .disk, .network: String(localized: "no readable activity")
+        }
+    }
+
     private var help: String {
         switch subsystem {
-        case .network: String(localized: "TCP and UDP in plus out, grouped by app, from the process sample nearest the cursor")
+        case .network: String(localized: "TCP and UDP in plus out across every interface, grouped by app, from the process sample nearest the cursor")
         case .gpu: String(localized: "GPU time per second by app, not a share of the busy percentage; from the process sample nearest the cursor")
         case .power: String(localized: "CPU power the kernel's energy model gives each app, an estimate without GPU work; from the process sample nearest the cursor")
         case .cpu, .memory, .disk: String(localized: "Own-user processes grouped by app, from the process sample nearest the cursor")
@@ -3025,7 +3035,7 @@ private struct ContributorLine: View {
         if snapshot.origin == .storedLedger, [.memory, .gpu, .power].contains(subsystem) {
             return prefix + ": " + String(localized: "not kept in stored history")
         }
-        guard !contributors.isEmpty else { return prefix + ": " + String(localized: "no readable activity") }
+        guard !contributors.isEmpty else { return prefix + ": " + emptyNote }
         let items = contributors.map { contributor in
             let value = switch subsystem {
             case .cpu: MetricText.percent(contributor.value)
