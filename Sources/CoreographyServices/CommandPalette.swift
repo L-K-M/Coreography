@@ -120,6 +120,7 @@ public enum CommandPalette {
         case .name: "Sort by Name"
         case .cpuTime: "Sort by CPU Time"
         case .started: "Sort by Start, Newest First"
+        case .threads: "Sort by Threads"
         }
     }
 

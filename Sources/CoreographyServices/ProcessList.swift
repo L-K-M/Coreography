@@ -10,6 +10,8 @@ public enum ProcessSort: String, CaseIterable, Identifiable, Sendable {
     case cpuTime
     /// Newest first.
     case started
+    /// Most threads first.
+    case threads
 
     public var id: Self { self }
 }
@@ -55,6 +57,7 @@ enum ProcessList {
         case .power: row.cpuPowerWatts.numericValue
         case .cpuTime: row.cpuTimeSeconds.numericValue
         case .started: row.id.startTime.timeIntervalSince1970
+        case .threads: row.threadCount.numericValue
         case .name, .network: nil
         }
     }

@@ -7,6 +7,8 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
 ## [Unreleased]
 
 ### Fixed
+- A user name the account database failed to read is asked for again,
+  instead of showing a bare UID until the view is chosen again.
 - Lower Priority leaves a process that already runs at a lower priority
   alone instead of failing, and Hang Up and Interrupt on the window
   server or login window warn that they log you out.
@@ -32,6 +34,8 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
 
 ### Added
 - The lanes mark apps starting and exiting, such as "Mail started".
+- An opt-in Threads column and sort in the process table, and the
+  header's thread total. `coreo top --sort threads` ranks by them.
 - With an app shown in the lanes, the network lane names its traffic, in
   plus out, as the CPU and disk lanes do.
 - With an app shown in the lanes, the memory and GPU lanes name its

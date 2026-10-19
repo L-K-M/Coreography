@@ -1514,6 +1514,7 @@ private struct ProcessPane: View {
                         Text("CPU power").tag(ProcessSort.power)
                         Text("CPU time").tag(ProcessSort.cpuTime)
                         Text("Newest").tag(ProcessSort.started)
+                        Text("Threads").tag(ProcessSort.threads)
                         Text("Name").tag(ProcessSort.name)
                     }
                     .frame(width: 180)
@@ -1534,7 +1535,7 @@ private struct ProcessPane: View {
                     if let reason = snapshot.enumeration.reason {
                         Text(reason).foregroundStyle(.secondary)
                     }
-                    Text("\(snapshot.processes.count) identified · \(snapshot.restrictedUsageCount) restricted · \(snapshot.issues.count) identity failures")
+                    Text("\(snapshot.processes.count) identified · \(ProcessText.threads(snapshot.threadTotal)) · \(snapshot.restrictedUsageCount) restricted · \(snapshot.issues.count) identity failures")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     if snapshot.enumerationTruncated {
@@ -1629,6 +1630,14 @@ private struct ProcessPane: View {
                         }
                         .customizationID("started")
                         .defaultVisibility(.hidden)
+                        TableColumn("Threads") { (row: ProcessRow) in
+                            ProcessMetricCell(
+                                reading: row.threadCount, format: .count,
+                                note: String(localized: "Threads the process has now; an app sums its processes")
+                            )
+                        }
+                        .customizationID("threads")
+                        .defaultVisibility(.hidden)
                     }
                 }
                 .frame(height: 260)
@@ -1649,7 +1658,7 @@ private struct ProcessPane: View {
                         .help("Exit status is not available without the helper")
                 }
 
-                Text("\(ProcessText.cpuScaleNote(model.processCPUScaleInEffect)) App totals sum their members; footprint sums can count shared memory twice. Process sampling: 2 s; short-lived processes can be missed. Right-click a column header for wakeups, CPU time and start time.")
+                Text("\(ProcessText.cpuScaleNote(model.processCPUScaleInEffect)) App totals sum their members; footprint sums can count shared memory twice. Process sampling: 2 s; short-lived processes can be missed. Right-click a column header for wakeups, CPU time, start time and threads.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -2096,6 +2105,13 @@ private enum ProcessText {
         return Duration.seconds(seconds).formatted(.time(pattern: .hourMinuteSecond))
     }
 
+    /// Example: "3,412 threads", or "at least 3,412 threads" when some counts were unreadable.
+    static func threads(_ total: (threads: Int, unread: Int)) -> String {
+        total.unread == 0
+            ? String(localized: "\(total.threads) threads")
+            : String(localized: "at least \(total.threads) threads")
+    }
+
     /// Example: "Oct 19, 9:14:03 AM" in English.
     static func started(_ date: Date) -> String {
         date.formatted(.dateTime.month(.abbreviated).day().hour().minute().second())
@@ -2505,7 +2521,7 @@ private enum ConnectionText {
 }
 
 private struct ProcessMetricCell: View {
-    enum Format { case percent, bytes, rate, watts, wakeups, gpuTime, processWatts, cpuTime }
+    enum Format { case percent, bytes, rate, watts, wakeups, gpuTime, processWatts, cpuTime, count }
     let reading: DashboardReading
     let format: Format
     /// 0-1 share of the column's largest value; shades the cell in its subsystem hue.
@@ -2545,6 +2561,7 @@ private struct ProcessMetricCell: View {
         case .gpuTime: return ProcessText.gpuTime(value) + suffix
         case .processWatts: return ProcessText.power(value) + suffix
         case .cpuTime: return ProcessText.cpuTime(value) + suffix
+        case .count: return Int(value).formatted() + suffix
         }
     }
 }

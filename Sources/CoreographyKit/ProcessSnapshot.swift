@@ -51,6 +51,8 @@ public struct ProcessReading: Identifiable, Codable, Sendable {
     public let cpuPowerWatts: MetricReading
     /// User plus system CPU time over the process's life, in seconds.
     public let cpuTimeSeconds: MetricReading
+    /// Threads the process has now (plan: opt-in threads column).
+    public let threadCount: MetricReading
     public let executablePath: String?
     /// PID the OS holds responsible (e.g. Safari for a WebContent helper).
     /// A bare PID; consumers must check it against a live identity.
@@ -65,6 +67,7 @@ public struct ProcessReading: Identifiable, Codable, Sendable {
         gpuMillisecondsPerSecond: MetricReading = .unsupported(reason: "GPU time was not collected"),
         cpuPowerWatts: MetricReading = .unsupported(reason: "Energy was not collected"),
         cpuTimeSeconds: MetricReading = .unsupported(reason: "CPU time was not collected"),
+        threadCount: MetricReading = .unsupported(reason: "Threads were not collected"),
         executablePath: String?, responsiblePID: Int32?
     ) {
         self.id = id
@@ -80,6 +83,7 @@ public struct ProcessReading: Identifiable, Codable, Sendable {
         self.gpuMillisecondsPerSecond = gpuMillisecondsPerSecond
         self.cpuPowerWatts = cpuPowerWatts
         self.cpuTimeSeconds = cpuTimeSeconds
+        self.threadCount = threadCount
         self.executablePath = executablePath
         self.responsiblePID = responsiblePID
     }
@@ -101,5 +105,11 @@ public struct ProcessSnapshot: Codable, Sendable {
 
     public var restrictedUsageCount: Int {
         processes.filter { $0.cpuPercentOfMachine.availability == .restricted }.count
+    }
+
+    /// Threads across the processes whose count was read, and how many were not.
+    public var threadTotal: (threads: Int, unread: Int) {
+        let counts = processes.map { $0.threadCount.numericValue }
+        return (counts.compactMap { $0 }.reduce(0) { $0 + Int($1) }, counts.filter { $0 == nil }.count)
     }
 }

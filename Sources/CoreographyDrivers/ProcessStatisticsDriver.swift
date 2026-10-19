@@ -52,13 +52,16 @@ public struct RawProcessInfo: Sendable {
     /// Absent when the path or the private responsibility lookup is unreadable.
     public let executablePath: String?
     public let responsiblePID: Int32?
+    /// Threads the process has now; a gauge, read with the counters.
+    public let threads: Result<Int, ProcessDriverError>
 
     public init(
         pid: Int32, parentPID: UInt32, uid: UInt32,
         startSeconds: UInt64, startMicroseconds: UInt64, name: String,
         monotonicNanoseconds: UInt64,
         counters: Result<ProcessCounters, ProcessDriverError>,
-        executablePath: String? = nil, responsiblePID: Int32? = nil
+        executablePath: String? = nil, responsiblePID: Int32? = nil,
+        threads: Result<Int, ProcessDriverError> = .failure(.unsupportedPlatform)
     ) {
         self.pid = pid
         self.parentPID = parentPID
@@ -70,6 +73,7 @@ public struct RawProcessInfo: Sendable {
         self.counters = counters
         self.executablePath = executablePath
         self.responsiblePID = responsiblePID
+        self.threads = threads
     }
 }
 
@@ -196,7 +200,10 @@ public actor ProcessStatisticsDriver: ProcessSampleReading {
                 name: name.isEmpty ? "PID \(pid)" : name,
                 monotonicNanoseconds: time, counters: counters,
                 executablePath: path?.isEmpty == false ? path : nil,
-                responsiblePID: sample.responsible_error == 0 ? sample.responsible_pid : nil
+                responsiblePID: sample.responsible_error == 0 ? sample.responsible_pid : nil,
+                threads: sample.threads_error == 0
+                    ? .success(Int(sample.threads))
+                    : .failure(Self.failure(sample.threads_error, operation: "PROC_PIDTASKINFO"))
             ))
         }
         return .success(ProcessEnumeration(
