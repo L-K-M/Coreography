@@ -525,9 +525,12 @@ jobs:
           while time.time() < end:
               client.sendall(b"x" * 65536); time.sleep(0.05)
           ' "$RUNNER_TEMP/traffic.pid" &
-          until [ -s "$RUNNER_TEMP/traffic.pid" ]; do sleep 0.2; done
+          streamer=$!
+          # Bounded: a streamer that dies before writing its PID fails the step instead of hanging it.
+          for _ in $(seq 50); do [ -s "$RUNNER_TEMP/traffic.pid" ] && break; sleep 0.2; done
+          [ -s "$RUNNER_TEMP/traffic.pid" ] || { echo "traffic streamer never started" >&2; exit 1; }
           dist/Coreography.app/Contents/Helpers/coreo traffic --once --json > "$RUNNER_TEMP/traffic.json"
-          wait
+          wait "$streamer"
           python3 - "$RUNNER_TEMP/traffic.json" "$(cat "$RUNNER_TEMP/traffic.pid")" <<'PY'
           import json, sys
           with open(sys.argv[1]) as source:

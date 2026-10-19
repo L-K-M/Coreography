@@ -227,7 +227,12 @@ final class NetworkStatisticsSession: @unchecked Sendable {
 
     private init(functions: Functions) { self.functions = functions }
 
-    deinit { if let manager { functions.destroy(manager) } }
+    /// On the queue every callback runs on, so a callback in flight never meets a destroyed manager.
+    deinit {
+        guard let manager else { return }
+        let teardown = Teardown(destroy: functions.destroy, manager: manager)
+        queue.async { teardown.run() }
+    }
 
     static func make() -> Result<NetworkStatisticsSession, TrafficDriverError> {
         guard let functions = resolve() else {
@@ -257,17 +262,15 @@ final class NetworkStatisticsSession: @unchecked Sendable {
                 guard let manager else { return continuation.resume(returning: .failure(.unavailable("No NetworkStatistics manager"))) }
                 let state = QueryState()
                 let finish: @Sendable () -> Void = { [self] in
-                    state.pending -= 1
-                    guard state.pending == 0, !state.finished else { return }
-                    state.finished = true
+                    guard state.arrive() else { return }
                     let traffic = ledger.totals()
                     continuation.resume(returning: .success((traffic, ledger.unattributedReceived, ledger.unattributedSent)))
                 }
                 functions.queryDescriptions(manager) { finish() }
                 functions.queryCounts(manager) { finish() }
-                queue.asyncAfter(deadline: .now() + timeout) {
-                    guard !state.finished else { return }
-                    state.finished = true
+                // Off the session queue: if the framework stalls it, the timeout must still answer.
+                DispatchQueue.global().asyncAfter(deadline: .now() + timeout) {
+                    guard state.expire() else { return }
                     continuation.resume(returning: .failure(.unavailable("NetworkStatistics did not answer within \(Int(timeout)) s")))
                 }
             }
@@ -321,8 +324,38 @@ final class NetworkStatisticsSession: @unchecked Sendable {
 }
 
 /// One query's progress; touched only on the session's queue.
+/// The manager pointer and its destroy function, handed to the session queue
+/// once nothing else holds the session.
+private struct Teardown: @unchecked Sendable {
+    let destroy: NetworkStatisticsSession.ManagerAction
+    let manager: UnsafeMutableRawPointer
+
+    func run() { destroy(manager) }
+}
+
+/// Both callbacks or the timeout answer a query, exactly once, from either queue.
 private final class QueryState: @unchecked Sendable {
-    var pending = 2
-    var finished = false
+    private let lock = NSLock()
+    private var pending = 2
+    private var finished = false
+
+    /// True for the callback that completes the pair before the timeout.
+    func arrive() -> Bool {
+        lock.withLock {
+            pending -= 1
+            guard pending == 0, !finished else { return false }
+            finished = true
+            return true
+        }
+    }
+
+    /// True when the timeout comes first.
+    func expire() -> Bool {
+        lock.withLock {
+            guard !finished else { return false }
+            finished = true
+            return true
+        }
+    }
 }
 #endif
