@@ -89,9 +89,13 @@ final class AutomationAppDelegate: NSObject, NSApplicationDelegate {
     /// A stuck disk must not stop the app from quitting.
     private static let terminationGrace: Duration = .seconds(3)
     private static var terminationAnswered = false
+    private static var terminationStarted = false
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        // A second Quit while the work runs waits with the first instead of cutting it off.
+        if Self.terminationStarted, !Self.terminationAnswered { return .terminateLater }
         guard let work = Self.beforeTerminate else { return .terminateNow }
+        Self.terminationStarted = true
         Self.beforeTerminate = nil
         // Whichever finishes first, the work or the grace period, lets the app quit.
         Task { @MainActor in

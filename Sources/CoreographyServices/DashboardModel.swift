@@ -674,6 +674,18 @@ public final class DashboardModel {
 
     /// Hand the newest live readings to the recorder, which batches writes.
     /// The same readings feed an active session, which keeps them past the live hour.
+    /// Each record call waits for the one before it, so waiting for the
+    /// newest is waiting for all of them (quitting needs that).
+    @ObservationIgnored private var lastRecord: Task<Void, Never>?
+
+    private func enqueueRecord(_ work: @escaping @MainActor @Sendable () async -> Void) {
+        let previous = lastRecord
+        lastRecord = Task { @MainActor in
+            await previous?.value
+            await work()
+        }
+    }
+
     private func recordHistory() {
         guard historyRecorder != nil || sessionRecording != nil else { return }
         let samples = HistorySamples.latest(
@@ -684,7 +696,7 @@ public final class DashboardModel {
         sessionRecording?.record(samples)
         guard let historyRecorder else { return }
         let now = Date()
-        Task { [weak self] in
+        enqueueRecord { [weak self] in
             await historyRecorder.record(samples, at: now)
             let problem = await historyRecorder.lastError
             self?.historyProblem = problem
@@ -1534,7 +1546,7 @@ public final class DashboardModel {
                         let interval = self.liveLedger.record(
                             processes, traffic: traffic, logicalCPUCount: history.last?.inventory.logicalCPUCount
                         )
-                        if let interval, let recorder = self.historyRecorder { Task { await recorder.recordLedger(interval) } }
+                        if let interval, let recorder = self.historyRecorder { self.enqueueRecord { await recorder.recordLedger(interval) } }
                         if let interval { self.sessionRecording?.record(interval) }
                         self.liveLifecycle.record(processes)
                         self.recordSelectedHistory(processes, traffic: traffic)
@@ -1641,6 +1653,8 @@ public final class DashboardModel {
     /// quitting does not lose the seconds since the last write.
     public func stopForQuit() async {
         halt()
+        // Records still on their way to the recorder go into this last write.
+        await lastRecord?.value
         await historyRecorder?.flush()
     }
 
