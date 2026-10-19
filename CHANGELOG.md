@@ -70,6 +70,8 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
   now bridges to the app; `--standalone` keeps in-process sampling.
 - Network bytes per app in the ledger, stored history, range reports
   ("Top network"), daily totals, `get_top_processes` and `coreo diagnose`.
+  A range that read network in only some intervals marks its totals as
+  lower bounds.
 - An alert for a startup disk under 10% free, and Settings > Alerts to
   run one of your Shortcuts when a rule is raised.
 - The Dock icon can show a live CPU or memory graph (Settings > Dock).

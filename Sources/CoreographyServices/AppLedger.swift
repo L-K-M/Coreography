@@ -9,15 +9,36 @@ public struct AppRangeTotal: Identifiable, Codable, Sendable {
     public let diskBytes: Double
     /// TCP and UDP bytes in and out; nil when no interval in the range read network.
     public let networkBytes: Double?
-    /// Some member was unreadable in some sample, so the totals are lower bounds.
+    /// Some member was unreadable in some sample, so the CPU and disk totals are lower bounds.
     public let isLowerBound: Bool
+    /// Some interval in the range did not read network, so `networkBytes` is a lower bound.
+    public let networkIsLowerBound: Bool
 
-    init(name: String, cpuSeconds: Double, diskBytes: Double, networkBytes: Double? = nil, isLowerBound: Bool) {
+    init(
+        name: String, cpuSeconds: Double, diskBytes: Double, networkBytes: Double? = nil, isLowerBound: Bool,
+        networkIsLowerBound: Bool = false
+    ) {
         self.name = name
         self.cpuSeconds = cpuSeconds
         self.diskBytes = diskBytes
         self.networkBytes = networkBytes
         self.isLowerBound = isLowerBound
+        self.networkIsLowerBound = networkIsLowerBound
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case name, cpuSeconds, diskBytes, networkBytes, isLowerBound, networkIsLowerBound
+    }
+
+    /// Sessions saved before network bounds existed have no `networkIsLowerBound`.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        name = try container.decode(String.self, forKey: .name)
+        cpuSeconds = try container.decode(Double.self, forKey: .cpuSeconds)
+        diskBytes = try container.decode(Double.self, forKey: .diskBytes)
+        networkBytes = try container.decodeIfPresent(Double.self, forKey: .networkBytes)
+        isLowerBound = try container.decode(Bool.self, forKey: .isLowerBound)
+        networkIsLowerBound = try container.decodeIfPresent(Bool.self, forKey: .networkIsLowerBound) ?? false
     }
 }
 
@@ -143,12 +164,15 @@ struct AppLedger: Sendable {
             network[entry.app, default: 0] += entry.networkBytes
             if entry.isLowerBound { lowerBound.insert(entry.app) }
         }
-        // Without one interval that read network, zero would be a claim the ledger cannot make.
+        // Without one interval that read network, zero would be a claim the ledger cannot make;
+        // with some but not all, the sum is a lower bound.
         let coversNetwork = included.contains(where: \.coversNetwork)
+        let partialNetwork = coversNetwork && !included.allSatisfy(\.coversNetwork)
         let apps = Set(cpu.keys).union(disk.keys).map { app in
             AppRangeTotal(
                 name: names[app], cpuSeconds: cpu[app] ?? 0, diskBytes: disk[app] ?? 0,
-                networkBytes: coversNetwork ? network[app] ?? 0 : nil, isLowerBound: lowerBound.contains(app)
+                networkBytes: coversNetwork ? network[app] ?? 0 : nil, isLowerBound: lowerBound.contains(app),
+                networkIsLowerBound: partialNetwork
             )
         }
         return (apps, first.start...last.end)
@@ -182,18 +206,20 @@ struct AppLedger: Sendable {
         _ older: (apps: [AppRangeTotal], covered: ClosedRange<Date>?),
         _ newer: (apps: [AppRangeTotal], covered: ClosedRange<Date>?)
     ) -> (apps: [AppRangeTotal], covered: ClosedRange<Date>?) {
+        // Totals read network for every app or none, so one app tells for its side. A side
+        // with activity but no network reading leaves the other side's bytes a lower bound.
+        let reads = [older.apps, newer.apps].filter { !$0.isEmpty }.map { $0.contains { $0.networkBytes != nil } }
+        let readsNetwork = reads.contains(true)
+        let partialNetwork = readsNetwork && reads.contains(false)
         var merged: [String: AppRangeTotal] = [:]
         for app in older.apps + newer.apps {
-            guard let existing = merged[app.name] else {
-                merged[app.name] = app
-                continue
-            }
-            let network = existing.networkBytes == nil && app.networkBytes == nil
-                ? nil : (existing.networkBytes ?? 0) + (app.networkBytes ?? 0)
+            let existing = merged[app.name]
             merged[app.name] = AppRangeTotal(
-                name: app.name, cpuSeconds: existing.cpuSeconds + app.cpuSeconds,
-                diskBytes: existing.diskBytes + app.diskBytes, networkBytes: network,
-                isLowerBound: existing.isLowerBound || app.isLowerBound
+                name: app.name, cpuSeconds: (existing?.cpuSeconds ?? 0) + app.cpuSeconds,
+                diskBytes: (existing?.diskBytes ?? 0) + app.diskBytes,
+                networkBytes: readsNetwork ? (existing?.networkBytes ?? 0) + (app.networkBytes ?? 0) : nil,
+                isLowerBound: (existing?.isLowerBound ?? false) || app.isLowerBound,
+                networkIsLowerBound: partialNetwork || (existing?.networkIsLowerBound ?? false) || app.networkIsLowerBound
             )
         }
         let spans = [older.covered, newer.covered].compactMap { $0 }

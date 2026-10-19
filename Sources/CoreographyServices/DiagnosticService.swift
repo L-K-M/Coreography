@@ -210,11 +210,18 @@ public actor DiagnosticService {
             sensors: await sensorMonitor.history(), processes: processes, ledger: ledger,
             maintenance: await MaintenanceStatusProvider().load(), silicon: await siliconMonitor.history()
         )
+        // Only unread network leaves the network list out; any other failure is reported.
+        let topNetworkApps: TopAppsPage?
+        do {
+            topNetworkApps = try DiagnosticTools.topApps(snapshot, metric: .network)
+        } catch DiagnosticError.unavailable {
+            topNetworkApps = nil
+        }
         return DiagnosisReport(
             summary: DiagnosticTools.summary(snapshot),
             topCPUApps: try DiagnosticTools.topApps(snapshot, metric: .cpu),
             topDiskApps: try DiagnosticTools.topApps(snapshot, metric: .disk),
-            topNetworkApps: try? DiagnosticTools.topApps(snapshot, metric: .network),
+            topNetworkApps: topNetworkApps,
             dataSources: DiagnosticTools.dataSources(snapshot)
         )
     }

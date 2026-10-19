@@ -75,6 +75,50 @@ final class ProcessNetworkTests: XCTestCase {
         XCTAssertEqual(ranked.rows.first?.value, 3_000)
     }
 
+    /// Bytes read in some intervals of a range are a lower bound for the range.
+    func testPartlyReadNetworkIsALowerBound() throws {
+        let safari: (Int32, String, String?, Int32?) = (10, "Safari", "/Applications/Safari.app/Contents/MacOS/Safari", nil)
+        let traffic = try trafficSnapshot([(10, "Safari", 1_000, 500)])
+        var ledger = AppLedger(capacity: 10)
+        ledger.record(try snapshot([safari], at: 0), traffic: traffic, logicalCPUCount: 4)
+        ledger.record(try snapshot([safari], at: 2), traffic: traffic, logicalCPUCount: 4)
+        ledger.record(try snapshot([safari], at: 4), logicalCPUCount: 4)
+        let range = stamp.wallTime.addingTimeInterval(-10)...stamp.wallTime.addingTimeInterval(10)
+        let total = try XCTUnwrap(ledger.totals(in: range).apps.first)
+        XCTAssertEqual(total.networkBytes, 3_000)
+        XCTAssertTrue(total.networkIsLowerBound, "the unread interval may have moved bytes")
+        XCTAssertFalse(total.isLowerBound, "CPU and disk were read throughout")
+
+        let ranked = try DiagnosticTools.topApps(DiagnosticSnapshot(
+            takenAt: stamp.wallTime.addingTimeInterval(4), host: [], network: [], gpu: [], power: [], sensors: [],
+            processes: nil, ledger: ledger
+        ), metric: .network)
+        XCTAssertEqual(ranked.rows.first?.isLowerBound, true)
+
+        // A stored part that read no network leaves the live part's network a lower bound.
+        let stored = (apps: [
+            AppRangeTotal(name: "Safari", cpuSeconds: 1, diskBytes: 0, isLowerBound: false),
+            AppRangeTotal(name: "Mail", cpuSeconds: 1, diskBytes: 0, isLowerBound: false)
+        ], covered: Optional(range))
+        let live = (apps: [AppRangeTotal(name: "Safari", cpuSeconds: 1, diskBytes: 0, networkBytes: 3_000, isLowerBound: false)],
+                    covered: Optional(range))
+        let combined = Dictionary(uniqueKeysWithValues: AppLedger.combine(stored, live).apps.map { ($0.name, $0) })
+        XCTAssertEqual(combined["Safari"]?.networkBytes, 3_000)
+        XCTAssertEqual(combined["Safari"]?.networkIsLowerBound, true)
+        XCTAssertEqual(combined["Mail"]?.networkBytes, 0, "read as zero where network was read")
+        XCTAssertEqual(combined["Mail"]?.networkIsLowerBound, true)
+        let whole = AppLedger.combine(live, live).apps.first
+        XCTAssertEqual(whole?.networkBytes, 6_000)
+        XCTAssertEqual(whole?.networkIsLowerBound, false)
+    }
+
+    func testTotalsSavedBeforeNetworkBoundsStillDecode() throws {
+        let saved = #"{"name":"Safari","cpuSeconds":1,"diskBytes":0,"isLowerBound":false}"#
+        let total = try JSONDecoder().decode(AppRangeTotal.self, from: Data(saved.utf8))
+        XCTAssertNil(total.networkBytes)
+        XCTAssertFalse(total.networkIsLowerBound)
+    }
+
     // MARK: Fixtures
 
     private func trafficSnapshot(_ rows: [(Int32, String, Double, Double)]) throws -> CapturedTraffic {

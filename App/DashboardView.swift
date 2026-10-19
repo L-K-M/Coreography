@@ -2432,7 +2432,7 @@ private struct RangePanel: View {
             Text(RangeText.apps(String(localized: "Top disk"), report.topDiskApps) { MetricText.bytes($0.diskBytes) })
                 .font(.callout)
             if let network = report.topNetworkApps {
-                Text(RangeText.apps(String(localized: "Top network"), network) { MetricText.bytes($0.networkBytes) })
+                Text(RangeText.apps(String(localized: "Top network"), network, bound: \.networkIsLowerBound) { MetricText.bytes($0.networkBytes) })
                     .font(.callout)
             }
             Text(RangeText.coverage(report)).font(.caption).foregroundStyle(.secondary)
@@ -2584,9 +2584,12 @@ private enum RangeText {
         return parts.isEmpty ? String(localized: "No samples in this range") : parts.joined(separator: " · ")
     }
 
-    static func apps(_ title: String, _ apps: [AppRangeTotal], value: (AppRangeTotal) -> String) -> String {
+    static func apps(
+        _ title: String, _ apps: [AppRangeTotal], bound: KeyPath<AppRangeTotal, Bool> = \.isLowerBound,
+        value: (AppRangeTotal) -> String
+    ) -> String {
         guard !apps.isEmpty else { return title + ": " + String(localized: "no recorded activity") }
-        let items = apps.map { $0.name + " " + value($0) + ($0.isLowerBound ? " " + String(localized: "est.") : "") }
+        let items = apps.map { $0.name + " " + value($0) + ($0[keyPath: bound] ? " " + String(localized: "est.") : "") }
         return title + ": " + items.joined(separator: " · ")
     }
 
