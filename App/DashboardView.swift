@@ -1240,6 +1240,7 @@ private struct NetworkLane: View {
                 Text("↑ " + MetricText.rate(sendReading?.numericValue))
                     .font(.system(size: 20, weight: .semibold))
                 interfacePicker
+                ContributorLine(model: model, subsystem: .network)
                 // A scoped app's TCP and UDP, every interface together (plan P8).
                 if let app = model.scopedApp {
                     Text(model.scopedNetworkRate.map { "\(app): \(MetricText.rate($0)) in + out" }
@@ -2977,7 +2978,7 @@ private struct ChartInteraction: View {
     }
 }
 
-private enum ContributorSubsystem { case cpu, memory, disk }
+private enum ContributorSubsystem { case cpu, memory, disk, network }
 
 /// "Top then": the leading apps at the process sample nearest the cursor.
 private struct ContributorLine: View {
@@ -2989,7 +2990,9 @@ private struct ContributorLine: View {
             .font(.caption)
             .foregroundStyle(.secondary)
             .lineLimit(2)
-            .help("Own-user processes grouped by app, from the process sample nearest the cursor")
+            .help(subsystem == .network
+                  ? String(localized: "TCP and UDP in plus out, grouped by app, from the process sample nearest the cursor")
+                  : String(localized: "Own-user processes grouped by app, from the process sample nearest the cursor"))
     }
 
     private var label: String {
@@ -3002,6 +3005,7 @@ private struct ContributorLine: View {
         case .cpu: snapshot.cpu
         case .memory: snapshot.memory
         case .disk: snapshot.disk
+        case .network: snapshot.network
         }
         let prefix = model.cursorTime == nil
             ? String(localized: "Top")
@@ -3011,7 +3015,7 @@ private struct ContributorLine: View {
             let value = switch subsystem {
             case .cpu: MetricText.percent(contributor.value)
             case .memory: MetricText.bytes(contributor.value)
-            case .disk: MetricText.rate(contributor.value)
+            case .disk, .network: MetricText.rate(contributor.value)
             }
             return contributor.name + " " + value + (contributor.isEstimate ? " " + String(localized: "est.") : "")
         }

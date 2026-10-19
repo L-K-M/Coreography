@@ -1773,7 +1773,7 @@ public final class DashboardModel {
                     }
                     if let processes {
                         self.liveProcesses = processes
-                        self.liveContributorHistory.append(Contributors.snapshot(from: processes))
+                        self.liveContributorHistory.append(Contributors.snapshot(from: processes, traffic: traffic))
                         self.liveContributorHistory = Array(self.liveContributorHistory.suffix(Self.contributorCapacity))
                         let interval = self.liveLedger.record(
                             processes, traffic: traffic, logicalCPUCount: history.last?.inventory.logicalCPUCount

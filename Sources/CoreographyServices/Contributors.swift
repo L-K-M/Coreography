@@ -20,19 +20,26 @@ public struct ContributorSnapshot: Identifiable, Sendable {
     public let cpu: [Contributor]
     public let memory: [Contributor]
     public let disk: [Contributor]
+    /// TCP and UDP in plus out; empty when no traffic sample matched.
+    public let network: [Contributor]
 }
 
 enum Contributors {
     static let limit = 3
 
-    static func snapshot(from processes: CapturedProcesses, id: UUID = UUID()) -> ContributorSnapshot {
-        let rows = ProcessGroups.rows(in: processes, matching: "", sortedBy: .name, grouping: .app)
+    static func snapshot(from processes: CapturedProcesses, traffic: CapturedTraffic? = nil, id: UUID = UUID()) -> ContributorSnapshot {
+        let rows = ProcessGroups.rows(
+            in: processes, matching: "", sortedBy: .name, grouping: .app, facts: ProcessFacts(traffic: traffic)
+        )
         return ContributorSnapshot(
             id: id, time: processes.stamp.wallTime,
             cpu: top(rows) { $0.cpuPercentOfMachine },
             memory: top(rows) { $0.memoryFootprintBytes },
             disk: top(rows) {
                 ProcessGroups.total([$0.diskReadBytesPerSecond, $0.diskWriteBytesPerSecond], overlap: nil)
+            },
+            network: top(rows) {
+                ProcessGroups.total([$0.networkReceivedBytesPerSecond, $0.networkSentBytesPerSecond], overlap: nil)
             }
         )
     }
