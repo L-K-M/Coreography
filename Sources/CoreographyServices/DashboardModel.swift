@@ -248,7 +248,9 @@ public final class DashboardModel {
     @ObservationIgnored private var storedLoad: Task<Void, Never>?
     @ObservationIgnored private var storedLoadedAt: Date?
     @ObservationIgnored private var recordedSources = RecordedSources()
-    @ObservationIgnored private var storedScopedCache: (app: String, loadedAt: Date, cpu: [DashboardPoint], disk: [DashboardPoint])?
+    @ObservationIgnored private var storedScopedCache: (
+        app: String, window: ClosedRange<Date>, cpu: [DashboardPoint], disk: [DashboardPoint]
+    )?
     @ObservationIgnored private var sleepState: SleepHistoryState = .notImported
     @ObservationIgnored private var sleepImport: Task<Void, Never>?
     @ObservationIgnored private var wakeImports = WakeImportSpacing()
@@ -1423,13 +1425,15 @@ public final class DashboardModel {
     /// to six hours of intervals, too many to walk on every redraw.
     private func storedScopedSeries(_ app: String) -> (cpu: [DashboardPoint], disk: [DashboardPoint])? {
         guard let storedHistory else { return nil }
-        if let cache = storedScopedCache, cache.app == app, cache.loadedAt == storedHistory.end {
+        // Keyed on the whole window: the reduction depends on its start as well as its end.
+        let window = storedHistory.start...storedHistory.end
+        if let cache = storedScopedCache, cache.app == app, cache.window == window {
             return (cache.cpu, cache.disk)
         }
         let series = storedHistory.ledger.series(for: app)
         let cpu = Decimation.points(series.cpu, start: storedHistory.start, end: storedHistory.end)
         let disk = Decimation.points(series.disk, start: storedHistory.start, end: storedHistory.end)
-        storedScopedCache = (app: app, loadedAt: storedHistory.end, cpu: cpu, disk: disk)
+        storedScopedCache = (app: app, window: window, cpu: cpu, disk: disk)
         return (cpu, disk)
     }
 

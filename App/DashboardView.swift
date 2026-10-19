@@ -2503,7 +2503,8 @@ private enum RangeText {
     static func exportScope(_ document: RangeExport.Document?, requested: ClosedRange<Date>) -> String {
         guard let document else { return String(localized: "Export covers live data only, which this range predates.") }
         guard document.start > requested.lowerBound else { return "" }
-        let start = document.start.formatted(date: .omitted, time: .shortened)
+        // With the date: a long range often starts the day before live data does.
+        let start = document.start.formatted(date: .abbreviated, time: .shortened)
         return String(localized: "Export starts at \(start), where live data begins; recorded history is not exported yet.")
     }
 
