@@ -111,7 +111,9 @@ struct ProcessLifecycle: Sendable {
     /// Google Chrome Helper.app/..." is "Google Chrome".
     private static func runningApps(_ processes: [ObservedProcess]) -> Set<String> {
         Set(processes.compactMap { process in
-            guard let path = process.executablePath, let bundle = path.range(of: bundleMarker) else { return nil }
+            // Volumes are usually case-insensitive, so "Old.APP" is a bundle too.
+            guard let path = process.executablePath,
+                  let bundle = path.range(of: bundleMarker, options: .caseInsensitive) else { return nil }
             let name = (String(path[..<bundle.lowerBound]) as NSString).lastPathComponent
             return name.isEmpty ? nil : name
         })

@@ -80,6 +80,20 @@ final class ProcessLifecycleTests: XCTestCase {
         XCTAssertTrue(lifecycle.appEvents.isEmpty, "events older than the live hour are dropped")
     }
 
+    /// An app left out of a truncated list is still running; a bundle's
+    /// extension can have any case on a case-insensitive volume.
+    func testATruncatedListNeitherEndsNorRestartsAnApp() throws {
+        let paths: [Int32: String] = [1: "/Applications/Mail.app/Contents/MacOS/Mail", 2: "/Applications/Old.APP/Contents/MacOS/Old"]
+        var lifecycle = ProcessLifecycle()
+        lifecycle.record(try snapshot(at: 0, pids: [1], paths: paths))
+        lifecycle.record(try snapshot(at: 2, pids: [1, 2], paths: paths))
+        XCTAssertEqual(lifecycle.appEvents.map(\.app), ["Old"])
+
+        lifecycle.record(try snapshot(at: 4, pids: [2], paths: paths, truncated: true))
+        lifecycle.record(try snapshot(at: 6, pids: [1, 2], paths: paths))
+        XCTAssertEqual(lifecycle.appEvents.map(\.app), ["Old"], "Mail was only left out, so it neither exited nor started")
+    }
+
     private func identity(_ pid: Int32) throws -> ProcessIdentity {
         try ProcessIdentity(pid: pid, startSeconds: 1, startMicroseconds: 0)
     }
