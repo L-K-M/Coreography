@@ -518,6 +518,15 @@ Implemented:
   shown in the process table and the inspector, and checked against the
   self-cost budget of 5 a second beyond the sampling tick. Gaps and
   restricted processes stay unknown, never zero.
+- GPU time and CPU power per process: GPU milliseconds per second from
+  the GPU user clients under each `IOAccelerator` (`IOUserClientCreator`
+  names the PID, `AppUsage` sums `accumulatedGPUTime` per command queue),
+  counted per client so a closed client never pulls its process back.
+  It reads for every process, other users' included, and a process with
+  no client reads as zero; it is labelled ms/s, not busy %. CPU power is
+  the estimate from `ri_energy_nj` (`RUSAGE_INFO_V6`); a process that ran
+  with a zero counter has no energy model on that Mac and reads as
+  unsupported. Both sum per app and sort the table.
 - More process actions: Suspend and Resume, Send Signal (hang-up,
   interrupt), Lower Priority (nice 10), Reveal in Finder and Copy as
   text or JSON join Quit and Force Quit, in the process menu and the
@@ -621,8 +630,8 @@ Implemented:
 
 The live buffers hold one hour per monitor. Per-volume disk accounting
 remains outstanding.
-IOReport fallback rungs (CLPC, PMP), per-app GPU time and the privileged
-helper remain outstanding. The store, MCP and model features above await stack delivery.
+IOReport fallback rungs (CLPC, PMP) and the privileged helper remain
+outstanding. The store, MCP and model features above await stack delivery.
 
 ## Verification
 
@@ -638,6 +647,7 @@ helper remain outstanding. The store, MCP and model features above await stack d
 | Native network MIB, wide-counter mapping and three-lane UI | Passed at `e62fac1`, including native C fixtures, live CLI and both executable architectures; integrated candidate pending |
 | Native IOKit storage counters and four-lane renderer | Passed [native CI](https://github.com/L-K-M/Coreography/actions/runs/39110306993) at `6434722`: 75 tests, 16 drivers, 32 measured rate fields, no inventory issues; owner checks pending |
 | On-disk history store and recorder | History slice: 148 Swift tests pass on Linux against the real system SQLite (round trip with gaps, duplicates, retention, reopen, permissions, WAL, batching); native CI checks the CLI and file permissions |
+| GPU time and CPU power per process | 283 Swift tests and the Linux C contract pass (per-client deltas with closed, new and reset clients, incomplete walks, gaps and clock changes, creator and queue decoding, the energy estimate and its missing counter, app totals and sorting); the native smoke requires a measured zero GPU time for `coreo` and an estimated or unsupported power; the registry walk and columns compile only in native CI |
 | Recordings | 274 Swift tests pass on Linux (round trip, consistent redaction of apps and marker names, newer, unreadable and backwards files refused, opening into the held display and returning to live); document registration and the open and save panels compile only in native CI |
 | Inspector history and threads | 271 Swift tests and the Linux C contract pass (history only after selection, cleared on change, threads through the model); the native contract counts this process's threads and refuses a wrong start time |
 | Menu bar items | 270 Swift tests pass on Linux (one per reading, three at most, never empty, saved); the label image compiles only in native CI and its look is an owner check |
@@ -765,7 +775,7 @@ totals. An absent driver is unavailable data, not measured idle.
 
 ## Process source and units
 
-`PROC_PIDTBSDINFO` and `RUSAGE_INFO_V2` are public but access may be denied
+`PROC_PIDTBSDINFO` and `RUSAGE_INFO_V6` are public but access may be denied
 for other users' processes. Those identity failures appear in coverage;
 they are not empty zero-usage rows. A failed usage read on an identified
 process keeps a restricted/unavailable row and drops its rate baseline.

@@ -105,7 +105,7 @@ enum GPUStatisticsDecoder {
         return percent
     }
 
-    private static func unsigned(_ value: Any?) -> UInt64? {
+    static func unsigned(_ value: Any?) -> UInt64? {
         guard let number = cfNumber(value) else { return nil }
         let native = unsafeBitCast(number, to: CFNumber.self)
         guard !CFNumberIsFloatType(native) else { return nil }

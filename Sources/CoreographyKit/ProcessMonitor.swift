@@ -10,30 +10,44 @@ public actor ProcessMonitor {
         provider: "processes", driver: "libproc", channel: "PROC_ALL_PIDS / PROC_PIDTBSDINFO"
     )
     private static let usageSource = MetricSource(
-        provider: "processes", driver: "libproc", channel: "RUSAGE_INFO_V2"
+        provider: "processes", driver: "libproc", channel: "RUSAGE_INFO_V6"
     )
+    private static let gpuSource = MetricSource(
+        provider: "processes", driver: "IOKit", channel: "IOAccelerator user clients"
+    )
+    private static let nanojoulesPerJoule = 1_000_000_000.0
+    private static let energyMethod = "The kernel's CPU energy model (ri_energy_nj)"
     private let driver: any ProcessSampleReading
+    private let gpuClients: any GPUClientTimeReading
     private let maximumGap: Duration
     private var continuity: ContinuityTracker
     private var rates: [ProcessIdentity: ProcessRates] = [:]
+    private var gpuLedger: GPUTimeLedger
 
-    public init() throws { try self.init(driver: ProcessStatisticsDriver()) }
+    public init() throws { try self.init(driver: ProcessStatisticsDriver(), gpuClients: GPUClientDriver()) }
 
-    init(driver: any ProcessSampleReading, maximumGap: Duration = .seconds(6)) throws {
+    init(
+        driver: any ProcessSampleReading, gpuClients: any GPUClientTimeReading = GPUClientDriver(),
+        maximumGap: Duration = .seconds(6)
+    ) throws {
         // Validate once; each process then uses the same bounded rate contract.
         _ = try CounterRateTracker(maxGap: maximumGap)
         self.driver = driver
+        self.gpuClients = gpuClients
         self.maximumGap = maximumGap
         self.continuity = ContinuityTracker(maximumGap: maximumGap)
+        gpuLedger = GPUTimeLedger(maximumGap: maximumGap)
     }
 
     public func reset() {
         continuity.reset()
         rates.removeAll()
+        gpuLedger.reset()
     }
 
     public func sample() async throws -> ProcessSnapshot {
         let raw = await driver.read()
+        let gpuUsage = gpuLedger.record(await gpuClients.read())
         try Task.checkCancellation()
         let stamp = SampleStamp(
             clockID: raw.clockID, monotonicNanoseconds: raw.monotonicNanoseconds,
@@ -91,12 +105,16 @@ public actor ProcessMonitor {
                 case .failure(let error):
                     readings = UsageReadings(missing: try missing(error, source: Self.usageSource))
                 }
+                // GPU time comes from the registry, readable even where usage is not.
+                let gpu = interrupted
+                    ? .gap(reason: "Sampling interrupted", source: Self.gpuSource)
+                    : try gpuReading(gpuUsage, pid: process.pid)
                 processes.append(ProcessReading(
                     id: identity, parentPID: process.parentPID, uid: process.uid,
                     name: process.name, stamp: processStamp,
                     cpuPercentOfMachine: readings.cpu, memoryFootprintBytes: readings.memory,
                     diskReadBytesPerSecond: readings.read, diskWriteBytesPerSecond: readings.write,
-                    wakeupsPerSecond: readings.wakeups,
+                    wakeupsPerSecond: readings.wakeups, gpuMillisecondsPerSecond: gpu, cpuPowerWatts: readings.power,
                     executablePath: process.executablePath, responsiblePID: process.responsiblePID
                 ))
             }
@@ -129,23 +147,38 @@ public actor ProcessMonitor {
         }
     }
 
+    private func gpuReading(_ usage: GPUTimeLedger.Usage, pid: Int32) throws -> MetricReading {
+        switch usage {
+        case .collecting: .collecting(source: Self.gpuSource)
+        case .gap(let reason): .gap(reason: reason, source: Self.gpuSource)
+        case .unavailable(let reason): try .unavailable(reason: reason, source: Self.gpuSource)
+        case .unsupported(let reason): .unsupported(reason: reason, source: Self.gpuSource)
+        case .millisecondsPerSecond(let times): try .measured(times[pid] ?? 0, source: Self.gpuSource)
+        }
+    }
+
     private struct UsageReadings {
         let cpu: MetricReading
         let memory: MetricReading
         let read: MetricReading
         let write: MetricReading
         let wakeups: MetricReading
+        let power: MetricReading
 
-        init(cpu: MetricReading, memory: MetricReading, read: MetricReading, write: MetricReading, wakeups: MetricReading) {
+        init(
+            cpu: MetricReading, memory: MetricReading, read: MetricReading, write: MetricReading,
+            wakeups: MetricReading, power: MetricReading
+        ) {
             self.cpu = cpu
             self.memory = memory
             self.read = read
             self.write = write
             self.wakeups = wakeups
+            self.power = power
         }
 
         init(missing: MetricReading) {
-            self.init(cpu: missing, memory: missing, read: missing, write: missing, wakeups: missing)
+            self.init(cpu: missing, memory: missing, read: missing, write: missing, wakeups: missing, power: missing)
         }
     }
 
@@ -154,12 +187,14 @@ public actor ProcessMonitor {
         var read: CounterRateTracker
         var write: CounterRateTracker
         var wakeups: CounterRateTracker
+        var energy: CounterRateTracker
 
         init(maximumGap: Duration) throws {
             cpu = try CounterRateTracker(maxGap: maximumGap, source: usageSource)
             read = try CounterRateTracker(maxGap: maximumGap, source: usageSource)
             write = try CounterRateTracker(maxGap: maximumGap, source: usageSource)
             wakeups = try CounterRateTracker(maxGap: maximumGap, source: usageSource)
+            energy = try CounterRateTracker(maxGap: maximumGap, source: usageSource)
         }
 
         mutating func record(
@@ -185,12 +220,24 @@ public actor ProcessMonitor {
             let readReading = read.record(counters.diskReadBytes, at: stamp)
             let writeReading = write.record(counters.diskWriteBytes, at: stamp)
             let wakeupReading = wakeups.record(counters.wakeups, at: stamp)
+            let powerReading: MetricReading
+            if counters.energyNanojoules == 0, total.partialValue > 0 {
+                // A process that ran but used no energy has no counter on this Mac, not zero watts.
+                energy.reset()
+                powerReading = .unsupported(reason: "No energy counter for this process", source: usageSource)
+            } else {
+                let rate = energy.record(counters.energyNanojoules, at: stamp)
+                powerReading = try rate.numericValue.map {
+                    try .estimated($0 / nanojoulesPerJoule, method: energyMethod, source: usageSource)
+                } ?? rate
+            }
             let gap = MetricReading.gap(reason: "Sampling interrupted", source: usageSource)
             return UsageReadings(
                 cpu: interrupted ? gap : cpuReading,
                 memory: try .measured(Double(counters.physicalFootprintBytes), source: usageSource),
                 read: interrupted ? gap : readReading, write: interrupted ? gap : writeReading,
-                wakeups: interrupted ? gap : wakeupReading
+                wakeups: interrupted ? gap : wakeupReading,
+                power: interrupted ? gap : powerReading
             )
         }
     }

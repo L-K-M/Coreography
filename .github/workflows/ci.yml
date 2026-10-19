@@ -206,6 +206,15 @@ jobs:
           for field in ("diskReadBytesPerSecond", "diskWriteBytesPerSecond", "wakeupsPerSecond"):
               assert own[field]["availability"] == "measured" and own[field]["numericValue"] >= 0
           assert own["executablePath"].endswith("/Coreography.app/Contents/Helpers/coreo")
+          # coreo opens no GPU connection, so its GPU time is a measured zero.
+          gpu = own["gpuMillisecondsPerSecond"]
+          assert gpu["availability"] == "measured" and gpu["numericValue"] == 0, gpu
+          # A VM may keep no energy counter; then power is unsupported, never zero.
+          power = own["cpuPowerWatts"]
+          assert power["availability"] in ("estimated", "unsupported"), power
+          assert power["availability"] != "estimated" or power["numericValue"] >= 0
+          busiest = max(snapshot["processes"], key=lambda row: row["gpuMillisecondsPerSecond"].get("numericValue", -1))
+          print(f"own power: {power}; most GPU time: {busiest['name']} {busiest['gpuMillisecondsPerSecond']}")
           # The responsibility SPI is optional by design; record whether it resolved.
           responsible = own.get("responsiblePID")
           assert responsible is None or (type(responsible) is int and responsible >= 0)

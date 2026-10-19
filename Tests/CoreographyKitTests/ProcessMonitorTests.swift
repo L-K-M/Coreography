@@ -51,6 +51,52 @@ final class ProcessMonitorTests: XCTestCase {
         XCTAssertEqual(process.wakeupsPerSecond.numericValue, 10, "20 wakeups over 2 s")
     }
 
+    func testPowerIsAnEstimateFromTheEnergyCounter() async throws {
+        let monitor = try makeMonitor([
+            fixture(time: 1, rows: [row(time: 1, cpu: 1_000_000_000, energy: 1_000_000_000)]),
+            fixture(time: 3, rows: [row(time: 3, cpu: 2_000_000_000, energy: 4_000_000_000)])
+        ])
+        let first = try await monitor.sample()
+        XCTAssertEqual(first.processes.first?.cpuPowerWatts.availability, .collecting)
+        let second = try await monitor.sample()
+        let power = try XCTUnwrap(second.processes.first?.cpuPowerWatts)
+        XCTAssertEqual(power.availability, .estimated)
+        XCTAssertEqual(power.numericValue, 1.5, "3 J over 2 s")
+        XCTAssertNotNil(power.method)
+    }
+
+    func testRunningProcessWithoutEnergyCounterIsNotZeroWatts() async throws {
+        let monitor = try makeMonitor([
+            fixture(time: 1, rows: [row(time: 1, cpu: 1_000_000_000)]),
+            fixture(time: 3, rows: [row(time: 3, cpu: 2_000_000_000)])
+        ])
+        _ = try await monitor.sample()
+        let second = try await monitor.sample()
+        let power = try XCTUnwrap(second.processes.first?.cpuPowerWatts)
+        XCTAssertEqual(power.availability, .unsupported)
+        XCTAssertNil(power.numericValue)
+    }
+
+    func testGPUTimeJoinsByPIDEvenWhereUsageIsRestricted() async throws {
+        let monitor = try makeMonitor(
+            [
+                fixture(time: 1, rows: [row(pid: 42, time: 1), row(pid: 43, time: 1), row(pid: 44, time: 1, failure: .restricted(code: 1))]),
+                fixture(time: 3, rows: [row(pid: 42, time: 3), row(pid: 43, time: 3), row(pid: 44, time: 3, failure: .restricted(code: 1))])
+            ],
+            gpu: [
+                gpuWalk(time: 1, [(7, 42, 100_000_000), (8, 44, 0)]),
+                gpuWalk(time: 3, [(7, 42, 500_000_000), (8, 44, 1_000_000_000)])
+            ]
+        )
+        let first = try await monitor.sample()
+        XCTAssertEqual(first.processes.first?.gpuMillisecondsPerSecond.availability, .collecting)
+        let times = Dictionary(uniqueKeysWithValues: try await monitor.sample().processes.map { ($0.id.pid, $0.gpuMillisecondsPerSecond) })
+        XCTAssertEqual(times[42]?.numericValue, 200, "400 ms of GPU time in 2 s")
+        XCTAssertEqual(times[43]?.availability, .measured, "no GPU client is no GPU use")
+        XCTAssertEqual(times[43]?.numericValue, 0)
+        XCTAssertEqual(times[44]?.numericValue, 500, "the registry is readable where rusage is not")
+    }
+
     func testBatchDurationDoesNotReplaceProcessSampleInterval() async throws {
         let monitor = try makeMonitor([
             fixture(time: 2, rows: [row(time: 1, cpu: 0, read: 0)]),
@@ -241,8 +287,19 @@ final class ProcessMonitorTests: XCTestCase {
     private static let clock = UUID(uuidString: "AFAE41C6-793E-4A64-A545-66CFA34571EB")!
     private static let epoch = Date(timeIntervalSince1970: 1_700_000_000)
 
-    private func makeMonitor(_ samples: [RawProcessSnapshot]) throws -> ProcessMonitor {
-        try ProcessMonitor(driver: FixtureProcessDriver(samples))
+    private func makeMonitor(_ samples: [RawProcessSnapshot], gpu: [RawGPUClientSnapshot] = []) throws -> ProcessMonitor {
+        try ProcessMonitor(driver: FixtureProcessDriver(samples), gpuClients: FixtureGPUClients(gpu))
+    }
+
+    private func gpuWalk(time: UInt64, _ clients: [(id: UInt64, pid: Int32, nanoseconds: UInt64)]) -> RawGPUClientSnapshot {
+        RawGPUClientSnapshot(
+            clockID: Self.clock, monotonicNanoseconds: time * 1_000_000_000,
+            wallTime: Self.epoch.addingTimeInterval(Double(time)),
+            walk: .success(GPUClientWalk(
+                clients: clients.map { RawGPUClient(registryEntryID: $0.id, pid: $0.pid, gpuNanoseconds: $0.nanoseconds) },
+                isComplete: true
+            ))
+        )
     }
 
     private func fixture(
@@ -262,14 +319,14 @@ final class ProcessMonitorTests: XCTestCase {
 
     private func row(
         pid: Int32 = 42, time: UInt64, start: UInt64 = 100,
-        cpu: UInt64 = 0, read: UInt64 = 0, wakeups: UInt64 = 0, failure: ProcessDriverError? = nil
+        cpu: UInt64 = 0, read: UInt64 = 0, wakeups: UInt64 = 0, energy: UInt64 = 0, failure: ProcessDriverError? = nil
     ) -> RawProcessInfo {
         RawProcessInfo(
             pid: pid, parentPID: 1, uid: 501, startSeconds: start, startMicroseconds: 123,
             name: "Fixture \(pid)", monotonicNanoseconds: time * 1_000_000_000,
             counters: failure.map { .failure($0) } ?? .success(ProcessCounters(
                 userNanoseconds: cpu, systemNanoseconds: 0, physicalFootprintBytes: 4096,
-                diskReadBytes: read, diskWriteBytes: 0, wakeups: wakeups
+                diskReadBytes: read, diskWriteBytes: 0, wakeups: wakeups, energyNanojoules: energy
             ))
         )
     }
@@ -281,5 +338,17 @@ private actor FixtureProcessDriver: ProcessSampleReading {
     func read() async -> RawProcessSnapshot {
         precondition(!samples.isEmpty, "Fixture exhausted")
         return samples.removeFirst()
+    }
+}
+
+/// Replays GPU walks; once they run out, reads as a Mac without the registry.
+private actor FixtureGPUClients: GPUClientTimeReading {
+    private var walks: [RawGPUClientSnapshot]
+    init(_ walks: [RawGPUClientSnapshot]) { self.walks = walks }
+    func read() async -> RawGPUClientSnapshot {
+        guard !walks.isEmpty else {
+            return RawGPUClientSnapshot(clockID: UUID(), monotonicNanoseconds: 0, wallTime: Date(), walk: .failure(.unsupportedPlatform))
+        }
+        return walks.removeFirst()
     }
 }

@@ -36,6 +36,10 @@ public struct ProcessRow: Identifiable, Sendable {
     /// TCP and UDP bytes per second; zero for a process with no socket open.
     public let networkReceivedBytesPerSecond: MetricReading
     public let networkSentBytesPerSecond: MetricReading
+    /// GPU ms per second; zero for a process with no GPU client. Not additive like a share.
+    public let gpuMillisecondsPerSecond: MetricReading
+    /// CPU power from the kernel's energy model; an estimate.
+    public let cpuPowerWatts: MetricReading
     /// Member rows for a group; nil for a leaf so tables show no disclosure.
     public let children: [ProcessRow]?
 }
@@ -111,6 +115,8 @@ enum ProcessGroups {
                 wakeupsPerSecond: total(all.map(\.wakeupsPerSecond), overlap: nil),
                 networkReceivedBytesPerSecond: total(network.map(\.received), overlap: nil),
                 networkSentBytesPerSecond: total(network.map(\.sent), overlap: nil),
+                gpuMillisecondsPerSecond: total(all.map(\.gpuMillisecondsPerSecond), overlap: nil),
+                cpuPowerWatts: total(all.map(\.cpuPowerWatts), overlap: nil),
                 children: children
             ))
         }
@@ -183,6 +189,8 @@ enum ProcessGroups {
             wakeupsPerSecond: process.wakeupsPerSecond,
             networkReceivedBytesPerSecond: network.received,
             networkSentBytesPerSecond: network.sent,
+            gpuMillisecondsPerSecond: process.gpuMillisecondsPerSecond,
+            cpuPowerWatts: process.cpuPowerWatts,
             children: nil
         )
     }
@@ -241,6 +249,8 @@ enum ProcessGroups {
         case .memory: row.memoryFootprintBytes.numericValue
         case .diskRead: row.diskReadBytesPerSecond.numericValue
         case .diskWrite: row.diskWriteBytesPerSecond.numericValue
+        case .gpu: row.gpuMillisecondsPerSecond.numericValue
+        case .power: row.cpuPowerWatts.numericValue
         case .name: nil
         }
     }

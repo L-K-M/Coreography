@@ -5,7 +5,7 @@ public typealias CapturedProcesses = ProcessSnapshot
 public typealias ObservedProcess = ProcessReading
 
 public enum ProcessSort: String, CaseIterable, Identifiable, Sendable {
-    case cpu, memory, diskRead, diskWrite, network, name
+    case cpu, memory, diskRead, diskWrite, network, gpu, power, name
 
     public var id: Self { self }
 }
@@ -43,6 +43,8 @@ enum ProcessList {
         case .memory: row.memoryFootprintBytes.numericValue
         case .diskRead: row.diskReadBytesPerSecond.numericValue
         case .diskWrite: row.diskWriteBytesPerSecond.numericValue
+        case .gpu: row.gpuMillisecondsPerSecond.numericValue
+        case .power: row.cpuPowerWatts.numericValue
         case .name, .network: nil
         }
     }

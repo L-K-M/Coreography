@@ -22,12 +22,16 @@ public struct ProcessCounters: Equatable, Sendable {
     public let diskWriteBytes: UInt64
     /// Cumulative package-idle and interrupt wakeups.
     public let wakeups: UInt64
+    /// Cumulative energy from the kernel's model; zero where it keeps none.
+    public let energyNanojoules: UInt64
 
     public init(
         userNanoseconds: UInt64, systemNanoseconds: UInt64,
-        physicalFootprintBytes: UInt64, diskReadBytes: UInt64, diskWriteBytes: UInt64, wakeups: UInt64 = 0
+        physicalFootprintBytes: UInt64, diskReadBytes: UInt64, diskWriteBytes: UInt64, wakeups: UInt64 = 0,
+        energyNanojoules: UInt64 = 0
     ) {
         self.wakeups = wakeups
+        self.energyNanojoules = energyNanojoules
         self.userNanoseconds = userNanoseconds
         self.systemNanoseconds = systemNanoseconds
         self.physicalFootprintBytes = physicalFootprintBytes
@@ -181,7 +185,7 @@ public actor ProcessStatisticsDriver: ProcessSampleReading {
                     systemNanoseconds: sample.system_nanoseconds,
                     physicalFootprintBytes: sample.physical_footprint_bytes,
                     diskReadBytes: sample.disk_read_bytes, diskWriteBytes: sample.disk_write_bytes,
-                    wakeups: sample.wakeups
+                    wakeups: sample.wakeups, energyNanojoules: sample.energy_nanojoules
                 ))
             } else {
                 counters = .failure(Self.failure(sample.usage_error, operation: "proc_pid_rusage"))
