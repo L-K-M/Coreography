@@ -277,6 +277,18 @@ public actor DiagnosticService {
         )
     }
 
+    /// Statistics of every recorded metric over the last N minutes; the CLI never writes history.
+    public func stats(minutes: Int) async throws -> HistoryStatsReport {
+        let recorder = try Self.storedHistory()
+        let window = Self.storedWindow(minutes: minutes)
+        var metrics: [MetricStats] = []
+        for metric in HistoryMetric.allCases {
+            let samples = try await recorder.samples(metric, from: window.lowerBound, to: window.upperBound)
+            metrics.append(HistoryStats.stats(metric, samples))
+        }
+        return HistoryStatsReport(windowStart: window.lowerBound, windowEnd: window.upperBound, metrics: metrics)
+    }
+
     /// Import the power-management log now; the CLI has no live samples.
     public func sleepHistory(hours: Int) async throws -> SleepHistoryReport {
         let state: SleepHistoryState
