@@ -1820,7 +1820,7 @@ private struct InspectorView: View {
         }
 
         InspectorSection("Since selected") {
-            ProcessHistoryCharts(points: model.selectedProcessHistory)
+            ProcessHistoryCharts(points: model.selectedProcessHistory, span: model.selectedHistorySpan)
         }
 
         InspectorSection("Identity") {
@@ -2955,6 +2955,8 @@ enum MetricText {
 private struct ProcessHistoryCharts: View {
     private static let chartHeight: CGFloat = 60
     let points: [ProcessHistoryPoint]
+    /// How far back the history reaches at the current cadence.
+    let span: TimeInterval
 
     var body: some View {
         if points.count < 2 {
@@ -2967,7 +2969,8 @@ private struct ProcessHistoryCharts: View {
                 Text("Footprint").font(.caption).foregroundStyle(.secondary)
                 chart(\.footprintBytes, color: .teal)
                 if let first = points.first?.time {
-                    Text("Since \(first.formatted(date: .omitted, time: .standard)); kept for an hour while selected")
+                    let kept = Duration.seconds(span).formatted(.units(allowed: [.hours, .minutes], width: .wide))
+                    Text("Since \(first.formatted(date: .omitted, time: .standard)); the last \(kept) kept while selected")
                         .font(.caption2).foregroundStyle(.secondary)
                 }
             }

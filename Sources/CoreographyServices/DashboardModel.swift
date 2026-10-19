@@ -168,6 +168,7 @@ public final class DashboardModel {
     /// The selected process's readings since it was selected, an hour at most.
     public private(set) var selectedProcessHistory: [ProcessHistoryPoint] = []
     @ObservationIgnored private var selectedHistorySegment = 0
+    @ObservationIgnored private var threadRead: Task<Void, Never>?
     /// Displayed (possibly held) power assertions; nil until first read.
     public private(set) var assertionSnapshot: CapturedAssertions?
     /// Displayed (possibly held) per-process network rates; nil until first read.
@@ -1090,9 +1091,14 @@ public final class DashboardModel {
 
     /// Append the selected process's live readings; a gap starts a new segment.
     private func recordSelectedHistory(_ processes: CapturedProcesses, traffic: CapturedTraffic?) {
-        guard let selectedProcessRow,
-              let process = processes.processes.first(where: { ProcessGroups.rowID($0) == selectedProcessRow }) else { return }
+        guard let selectedProcessRow else { return }
+        guard let process = processes.processes.first(where: { ProcessGroups.rowID($0) == selectedProcessRow }) else {
+            // A sample that missed the process is a gap the line must not bridge.
+            selectedHistorySegment += 1
+            return
+        }
         if processes.continuity != .continuous { selectedHistorySegment += 1 }
+        refreshSelectedThreads(process)
         let disk = ProcessGroups.total([process.diskReadBytesPerSecond, process.diskWriteBytesPerSecond], overlap: nil)
         let network = ProcessNetwork.rates(for: process, in: traffic)
         selectedProcessHistory.append(ProcessHistoryPoint(
@@ -1641,9 +1647,16 @@ public final class DashboardModel {
     public private(set) var samplingCadence: SamplingCadence = .normal
 
     /// Seconds between whole-machine samples at the current cadence.
-    public var samplingSeconds: Double {
-        let (seconds, attoseconds) = (interval * samplingCadence.multiplier).components
-        return Double(seconds) + Double(attoseconds) / Self.attosecondsPerSecond
+    public var samplingSeconds: Double { Self.seconds(interval * samplingCadence.multiplier) }
+
+    /// How far back the selected process's history reaches at the current cadence.
+    public var selectedHistorySpan: TimeInterval {
+        Double(Self.contributorCapacity) * Self.seconds(processInterval * samplingCadence.multiplier)
+    }
+
+    private static func seconds(_ duration: Duration) -> Double {
+        let (seconds, attoseconds) = duration.components
+        return Double(seconds) + Double(attoseconds) / attosecondsPerSecond
     }
     private static let attosecondsPerSecond = 1e18
 
@@ -1872,9 +1885,25 @@ public final class DashboardModel {
     /// The inspector's summary when nothing is selected.
     public func systemFacts() -> CapturedSystemFacts { SystemFacts.read() }
 
+    /// Reread the inspected process's thread count with each process sample;
+    /// a read still running skips this one.
+    private func refreshSelectedThreads(_ process: ObservedProcess) {
+        guard threadRead == nil, let inspector, processDetail?.process == process.id else { return }
+        threadRead = Task { [weak self] in
+            let read = await inspector.threads(of: process)
+            guard let self else { return }
+            self.threadRead = nil
+            guard !Task.isCancelled, self.processDetail?.process == process.id else { return }
+            self.processDetail?.threads = read.count
+            self.processDetail?.threadsProblem = read.problem
+        }
+    }
+
     /// Read the selected process's detail once per selection, off the main actor.
     private func inspectSelection() {
         inspection?.cancel()
+        threadRead?.cancel()
+        threadRead = nil
         processDetail = nil
         inspectedSockets = nil
         inspectedFiles = nil

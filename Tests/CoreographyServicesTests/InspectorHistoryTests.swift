@@ -14,18 +14,24 @@ final class InspectorHistoryTests: XCTestCase {
         )
         model.start()
         defer { model.stop() }
-        let deadline = ContinuousClock.now.advanced(by: .seconds(5))
-        while model.processSnapshot == nil, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(5)) }
+        func wait(until done: () -> Bool) async throws {
+            let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+            while !done(), ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(5)) }
+        }
+        try await wait { model.processSnapshot?.processes.contains { $0.id.pid == 42 } == true }
         XCTAssertTrue(model.selectedProcessHistory.isEmpty, "nothing is recorded before a selection")
 
         let first = try XCTUnwrap(model.processSnapshot?.processes.first { $0.id.pid == 42 })
         model.selectedProcessRow = ProcessGroups.rowID(first)
-        while model.selectedProcessHistory.count < 3 || model.processDetail == nil, ContinuousClock.now < deadline {
-            try await Task.sleep(for: .milliseconds(5))
-        }
+        try await wait { model.selectedProcessHistory.count >= 3 && model.processDetail != nil }
         XCTAssertGreaterThanOrEqual(model.selectedProcessHistory.count, 3)
         XCTAssertNotNil(model.selectedProcessHistory.last?.cpuPercent)
-        XCTAssertEqual(model.processDetail?.threads, 7)
+        XCTAssertGreaterThanOrEqual(model.processDetail?.threads ?? 0, 7)
+
+        // The fixture's thread count grows with each read, and PID 42 skips every fifth sample.
+        try await wait { (model.processDetail?.threads ?? 0) > 8 && Set(model.selectedProcessHistory.map(\.segment)).count > 1 }
+        XCTAssertGreaterThan(model.processDetail?.threads ?? 0, 8, "threads are reread while selected")
+        XCTAssertGreaterThan(Set(model.selectedProcessHistory.map(\.segment)).count, 1, "a skipped sample is a gap, not a bridge")
 
         let other = try XCTUnwrap(model.processSnapshot?.processes.first { $0.id.pid == 43 })
         model.selectedProcessRow = ProcessGroups.rowID(other)
@@ -33,7 +39,9 @@ final class InspectorHistoryTests: XCTestCase {
     }
 }
 
-private struct Threads: ProcessDetailReading {
+private actor Threads: ProcessDetailReading {
+    private var reads = 0
+
     func arguments(pid: Int32, startSeconds: UInt64, startMicroseconds: UInt64) async -> Result<[String], ProcessDetailError> {
         .success([])
     }
@@ -41,7 +49,8 @@ private struct Threads: ProcessDetailReading {
     func signing(path: String) async -> CodeSigning { CodeSigning(signature: .unknown, identifier: nil, teamID: nil) }
 
     func threads(pid: Int32, startSeconds: UInt64, startMicroseconds: UInt64) async -> Result<Int, ProcessDetailError> {
-        .success(7)
+        reads += 1
+        return .success(6 + reads)
     }
 }
 
@@ -61,7 +70,7 @@ private actor TwoProcesses: ProcessSampleReading {
         return RawProcessSnapshot(
             clockID: clock, monotonicNanoseconds: reads * 1_000_000_000,
             wallTime: Date(timeIntervalSince1970: 1_700_000_000 + Double(reads)), logicalCPUCount: 4, collectorPID: 42,
-            enumeration: .success(ProcessEnumeration(processes: [process(42), process(43)]))
+            enumeration: .success(ProcessEnumeration(processes: reads.isMultiple(of: 5) ? [process(43)] : [process(42), process(43)]))
         )
     }
 }
