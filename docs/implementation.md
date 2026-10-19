@@ -518,6 +518,12 @@ Implemented:
   shown in the process table and the inspector, and checked against the
   self-cost budget of 5 a second beyond the sampling tick. Gaps and
   restricted processes stay unknown, never zero.
+- Volume capacity: the Disk lane lists every visible mounted volume,
+  startup first, with its used share and space available for important
+  use (purgeable files count as available, as in Finder), read once a
+  minute off the sampling path; red marks a volume over 90 % full.
+  Volumes without a readable size are left out rather than shown empty.
+  `coreo volumes --json` reports the same list.
 - Per-process CPU scale: Settings > Processes switches the table, the
   inspector, the Startup tab and `cpu:` filters between whole-machine
   shares and one core = 100 % (`top`'s convention, above 100 % for
@@ -663,6 +669,7 @@ outstanding. The store, MCP and model features above await stack delivery.
 | Native network MIB, wide-counter mapping and three-lane UI | Passed at `e62fac1`, including native C fixtures, live CLI and both executable architectures; integrated candidate pending |
 | Native IOKit storage counters and four-lane renderer | Passed [native CI](https://github.com/L-K-M/Coreography/actions/runs/39110306993) at `6434722`: 75 tests, 16 drivers, 32 measured rate fields, no inventory issues; owner checks pending |
 | On-disk history store and recorder | History slice: 148 Swift tests pass on Linux against the real system SQLite (round trip with gaps, duplicates, retention, reopen, permissions, WAL, batching); native CI checks the CLI and file permissions |
+| Volume capacity | 305 Swift tests pass on Linux (important-use space with a plain-space fallback, names, kinds, clamping, unknown sizes left out, ordering, the model's minute read); the native smoke requires one startup volume at `/` whose size agrees with `statvfs`; the bars compile only in native CI |
 | Per-process CPU scale | 303 Swift tests pass on Linux (filter bounds in the chosen scale, the factor never zero, the saved choice); the column titles, cells and Settings picker compile only in native CI |
 | History review fixes | 295 Swift tests pass on Linux against the system SQLite (retention deletes planned as key searches, a held write lock waited for, a newer store refused and left labelled, battery draw recorded without a sensors frame, buffered history written before quitting returns; each failed before its fix); the quit hand-off and the confirmation compile only in native CI |
 | Lane layout | 290 Swift tests pass on Linux (moves past hidden lanes, the last visible lane kept, sizes, saved layouts with unknown, duplicate and missing lanes); the lane menus and Settings section compile only in native CI |

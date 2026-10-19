@@ -258,9 +258,11 @@ public final class DashboardModel {
     @ObservationIgnored private var shortcutStore = AlertShortcuts(defaults: .standard)
     @ObservationIgnored private let shortcutRunner: ShortcutLauncher?
     @ObservationIgnored private var runningShortcuts: Set<String> = []
-    @ObservationIgnored private let volumeReader: StartupVolumeMonitor?
+    @ObservationIgnored private let volumeReader: VolumeMonitor?
     @ObservationIgnored private var volumeRead: Task<Void, Never>?
     @ObservationIgnored private var startupFreeFraction: Double?
+    /// Every visible volume's capacity, read once a minute; nil before the first read.
+    public private(set) var volumes: CapturedVolumes?
     @ObservationIgnored private var volumeReadAt: Date?
     @ObservationIgnored private var askTask: Task<Void, Never>?
     @ObservationIgnored private let processMonitor: ProcessMonitor?
@@ -305,7 +307,7 @@ public final class DashboardModel {
         assertionReader = AssertionReader()
         openFileMonitor = OpenFileMonitor()
         shortcutRunner = ShortcutLauncher()
-        volumeReader = StartupVolumeMonitor()
+        volumeReader = VolumeMonitor()
         sessionArchive = SessionArchive.makeDefault()
         sampler = ProcessSampler()
         interval = .seconds(1)
@@ -359,7 +361,7 @@ public final class DashboardModel {
         inspector: ProcessInspector? = nil, assertionReader: AssertionReader? = nil,
         openFileMonitor: OpenFileMonitor? = nil, sessionArchive: SessionArchive? = nil,
         sampler: ProcessSampler? = nil, maintenanceProvider: MaintenanceStatusProvider? = nil,
-        shortcutRunner: ShortcutLauncher? = nil, volumeReader: StartupVolumeMonitor? = nil
+        shortcutRunner: ShortcutLauncher? = nil, volumeReader: VolumeMonitor? = nil
     ) {
         self.shortcutRunner = shortcutRunner
         self.volumeReader = volumeReader
@@ -816,9 +818,11 @@ public final class DashboardModel {
         volumeReadAt = now
         volumeRead = Task { [weak self] in
             let fraction = await volumeReader.freeFraction()
+            let volumes = await volumeReader.volumes()
             guard let self else { return }
             self.volumeRead = nil
             self.startupFreeFraction = fraction
+            self.volumes = volumes
         }
     }
 

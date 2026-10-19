@@ -168,6 +168,9 @@ public actor DiagnosticService {
     }
 
     /// Per-process network rates: a baseline, two seconds, then the interval.
+    /// Every visible volume's capacity; one read, no baseline needed.
+    public func volumes() async -> CapturedVolumes { await VolumeMonitor().volumes() }
+
     public func captureTrafficOnce() async throws -> CapturedTraffic {
         await trafficMonitor.reset()
         _ = try await trafficMonitor.sample()

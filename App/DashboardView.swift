@@ -1284,6 +1284,7 @@ private struct DiskLane: View {
                    inventory.enumerationTruncated || !inventory.issues.isEmpty {
                     Text("Storage inventory is incomplete.").font(.caption).foregroundStyle(.secondary)
                 }
+                VolumeBars(list: model.volumes)
             }
             .monospacedDigit()
             .frame(width: Layout.headerWidth, alignment: .leading)
@@ -3020,6 +3021,50 @@ private extension EnvironmentValues {
     var laneGraphHeight: CGFloat {
         get { self[LaneGraphHeightKey.self] }
         set { self[LaneGraphHeightKey.self] = newValue }
+    }
+}
+
+/// Each visible volume's used share and free space (plan: per-volume capacity).
+private struct VolumeBars: View {
+    private static let shown = 4
+    /// Red is for bad states only; this matches the startup-disk alert's 10 % free.
+    private static let nearlyFull = 0.9
+    let list: CapturedVolumes?
+
+    var body: some View {
+        if let list {
+            if let problem = list.problem {
+                Text(problem).font(.caption).foregroundStyle(.secondary)
+            }
+            ForEach(list.volumes.prefix(Self.shown)) { volume in
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("\(volume.name) · \(MetricText.bytes(Double(volume.availableBytes))) free")
+                        .font(.caption)
+                        .lineLimit(1)
+                    ProgressView(value: volume.usedFraction)
+                        .progressViewStyle(.linear)
+                        .tint(volume.usedFraction > Self.nearlyFull ? .red : .blue)
+                }
+                .help(VolumeText.detail(volume))
+                .accessibilityElement(children: .combine)
+            }
+            if list.volumes.count > Self.shown {
+                Text("+\(list.volumes.count - Self.shown) more volumes").font(.caption).foregroundStyle(.secondary)
+            }
+        }
+    }
+}
+
+private enum VolumeText {
+    static func detail(_ volume: CapturedVolume) -> String {
+        let kind = switch volume.kind {
+        case .internal: volume.isStartup ? String(localized: "Startup volume") : String(localized: "Internal volume")
+        case .external: String(localized: "External volume")
+        case .network: String(localized: "Network volume")
+        }
+        let free = MetricText.bytes(Double(volume.availableBytes))
+        let total = MetricText.bytes(Double(volume.totalBytes))
+        return String(localized: "\(kind) at \(volume.path): \(free) available of \(total), purgeable space included")
     }
 }
 
