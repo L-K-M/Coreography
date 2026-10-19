@@ -31,6 +31,8 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
   after the store first exceeds it.
 
 ### Added
+- With an app shown in the lanes, the network lane names its traffic, in
+  plus out, as the CPU and disk lanes do.
 - The by-user process view names accounts ("You, alice", "_spotlight")
   instead of bare UIDs, and free text finds a group by its name.
 - The CPU lane's detail, from its menu or a double-click on its title,

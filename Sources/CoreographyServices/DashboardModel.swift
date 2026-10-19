@@ -278,7 +278,7 @@ public final class DashboardModel {
     @ObservationIgnored private var storedLoadedAt: Date?
     @ObservationIgnored private var recordedSources = RecordedSources()
     @ObservationIgnored private var storedScopedCache: (
-        app: String, window: ClosedRange<Date>, cpu: [DashboardPoint], disk: [DashboardPoint]
+        app: String, window: ClosedRange<Date>, series: (cpu: [DashboardPoint], disk: [DashboardPoint], network: [DashboardPoint])
     )?
     @ObservationIgnored private var sleepState: SleepHistoryState = .notImported
     @ObservationIgnored private var sleepImport: Task<Void, Never>?
@@ -1626,31 +1626,35 @@ public final class DashboardModel {
 
     /// The scoped app's CPU share and disk rate from the ledger, for lane
     /// overlays; on the 6 h range, stored intervals come first.
-    public func scopedSeries() -> (cpu: [DashboardPoint], disk: [DashboardPoint])? {
+    /// The scoped app's network rate now; nil when not read lately.
+    public var scopedNetworkRate: Double? { scopedSeries().flatMap(AppLedger.currentNetworkRate) }
+
+    public func scopedSeries() -> (cpu: [DashboardPoint], disk: [DashboardPoint], network: [DashboardPoint])? {
         guard let scopedApp else { return nil }
         let live = ledger.series(for: scopedApp)
         guard let stored = storedScopedSeries(scopedApp) else { return live }
         let liveStart = ledger.intervals.first?.end
         return (
             prefixed(live.cpu, stored: stored.cpu, liveStart: liveStart),
-            prefixed(live.disk, stored: stored.disk, liveStart: liveStart)
+            prefixed(live.disk, stored: stored.disk, liveStart: liveStart),
+            prefixed(live.network, stored: stored.network, liveStart: liveStart)
         )
     }
 
     /// Built and reduced once per load and app: the stored ledger holds up
     /// to six hours of intervals, too many to walk on every redraw.
-    private func storedScopedSeries(_ app: String) -> (cpu: [DashboardPoint], disk: [DashboardPoint])? {
+    private func storedScopedSeries(_ app: String) -> (cpu: [DashboardPoint], disk: [DashboardPoint], network: [DashboardPoint])? {
         guard let storedHistory else { return nil }
         // Keyed on the whole window: the reduction depends on its start as well as its end.
         let window = storedHistory.start...storedHistory.end
-        if let cache = storedScopedCache, cache.app == app, cache.window == window {
-            return (cache.cpu, cache.disk)
-        }
+        if let cache = storedScopedCache, cache.app == app, cache.window == window { return cache.series }
         let series = storedHistory.ledger.series(for: app)
-        let cpu = Decimation.points(series.cpu, start: storedHistory.start, end: storedHistory.end)
-        let disk = Decimation.points(series.disk, start: storedHistory.start, end: storedHistory.end)
-        storedScopedCache = (app: app, window: window, cpu: cpu, disk: disk)
-        return (cpu, disk)
+        func reduce(_ points: [DashboardPoint]) -> [DashboardPoint] {
+            Decimation.points(points, start: storedHistory.start, end: storedHistory.end)
+        }
+        let reduced = (cpu: reduce(series.cpu), disk: reduce(series.disk), network: reduce(series.network))
+        storedScopedCache = (app: app, window: window, series: reduced)
+        return reduced
     }
 
     /// Does nothing while the person has paused recording.
