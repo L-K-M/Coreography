@@ -327,6 +327,7 @@ public final class DashboardModel {
     @ObservationIgnored private let interval: Duration
     @ObservationIgnored private let energyMode: EnergyModeMonitor?
     @ObservationIgnored private let processInterval: Duration
+    private static let attributionHostFrames = 16
     @ObservationIgnored private var worker: Task<Void, Never>?
     @ObservationIgnored private var generation = UUID()
     @ObservationIgnored private var liveFrames: [CapturedSnapshot] = []
@@ -1299,6 +1300,25 @@ public final class DashboardModel {
             if !found.isEmpty { self.signers.merge(found) { _, checked in checked } }
         }
         return signers
+    }
+
+    /// Whole-machine CPU outside the readable processes over the displayed
+    /// process interval: other users' processes, the kernel and processes
+    /// too short-lived to sample. Nil where the two do not line up.
+    public var unattributedCPUPercent: Double? {
+        guard let processSnapshot else { return nil }
+        // The interval spans a few host samples; the newest suffice.
+        let host = frames.suffix(Self.attributionHostFrames).map { (time: $0.stamp.wallTime, cpu: $0.cpuPercentOfMachine) }
+        return ProcessAttribution.unattributedCPU(
+            host: host, processes: processSnapshot, interval: Self.seconds(processInterval * samplingCadence.multiplier)
+        )
+    }
+
+    /// TCP and UDP bytes per second macOS counted but tied to no process.
+    public var unattributedNetworkBytesPerSecond: Double? {
+        trafficSnapshot.flatMap {
+            ProcessNetwork.total($0.unattributedReceivedBytesPerSecond, $0.unattributedSentBytesPerSecond)
+        }
     }
 
     /// One process's TCP and UDP rates from the displayed traffic sample.
