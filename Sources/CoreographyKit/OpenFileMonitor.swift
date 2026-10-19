@@ -52,12 +52,19 @@ public actor OpenFileMonitor {
     }
 
     /// One process's open files, for the inspector; nil when they cannot be read.
-    public func files(of process: ProcessReading) async -> [String]? {
+    public func files(of process: ProcessReading) async -> OpenFileList? {
         guard case .success(let read) = await read(process) else { return nil }
-        return read.paths
+        return OpenFileList(paths: read.paths, isComplete: !read.truncated)
     }
 
     private func read(_ process: ProcessReading) async -> Result<RawProcessFiles, DescriptorReadError> {
         await driver.files(pid: process.id.pid, startSeconds: process.id.startSeconds, startMicroseconds: process.id.startMicroseconds)
     }
+}
+
+/// One process's open files, and whether that is all of them.
+public struct OpenFileList: Equatable, Sendable {
+    public let paths: [String]
+    /// False when the process held more descriptors than one read keeps.
+    public let isComplete: Bool
 }

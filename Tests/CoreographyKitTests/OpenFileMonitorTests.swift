@@ -16,6 +16,15 @@ final class OpenFileMonitorTests: XCTestCase {
         XCTAssertEqual(unsupported.unavailableReason, "Open files need macOS")
     }
 
+    func testTheInspectorsListSaysWhenItIsCut() async throws {
+        let rows = try processes([10, 13]).processes
+        let complete = await OpenFileMonitor(driver: Files()).files(of: rows[0])
+        XCTAssertEqual(complete?.paths, ["/Users/me/Notes.txt"])
+        XCTAssertEqual(complete?.isComplete, true)
+        let cut = await OpenFileMonitor(driver: Files()).files(of: rows[1])
+        XCTAssertEqual(cut?.isComplete, false, "a process holding more than one read keeps")
+    }
+
     private func processes(_ pids: [Int32]) throws -> ProcessSnapshot {
         let stamp = SampleStamp(clockID: UUID(), monotonicNanoseconds: 1, wallTime: Date())
         let rows = try pids.map { pid in

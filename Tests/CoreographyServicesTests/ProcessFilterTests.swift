@@ -99,6 +99,14 @@ final class ProcessFilterTests: XCTestCase {
         XCTAssertEqual(ProcessFilter.parse("file:").issues, ["Unreadable file:; try file:~/Downloads"])
     }
 
+    func testOnlyTheOwnHomeExpands() {
+        let home = NSHomeDirectory()
+        XCTAssertEqual(ProcessFilter.expandingHome("~"), home)
+        XCTAssertEqual(ProcessFilter.expandingHome("~/Downloads"), home + "/Downloads")
+        XCTAssertEqual(ProcessFilter.expandingHome("~Shared/x"), "~Shared/x", "another account's home is not this one plus a name")
+        XCTAssertEqual(ProcessFilter.expandingHome("/tmp/~x"), "/tmp/~x")
+    }
+
     func testGroupsShowAllMembersOnlyForAppNameText() throws {
         let stamp = SampleStamp(clockID: UUID(), monotonicNanoseconds: 1, wallTime: Date())
         let host = try process(name: "Safari", cpu: 1, uid: 501, path: "/Applications/Safari.app/Contents/MacOS/Safari", pid: 10)

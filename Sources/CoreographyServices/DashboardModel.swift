@@ -162,6 +162,8 @@ public final class DashboardModel {
     public private(set) var openFileSnapshot: CapturedOpenFiles?
     /// The selected process's open files, read on selection.
     public private(set) var inspectedFiles: [String]?
+    /// The selected process held more files than one read keeps; the list is a start.
+    public private(set) var inspectedFilesCut = false
     /// The selected process's readings since it was selected, an hour at most.
     public private(set) var selectedProcessHistory: [ProcessHistoryPoint] = []
     @ObservationIgnored private var selectedHistorySegment = 0
@@ -1119,6 +1121,7 @@ public final class DashboardModel {
             if let files = openFileSnapshot {
                 if let reason = files.unavailableReason { issues.append("file: matches nothing: \(reason)") }
                 if files.restrictedProcesses > 0 { issues.append("file: covers your own processes; other users' need the helper") }
+                if files.failedProcesses > 0 { issues.append("file: could not read \(files.failedProcesses) of the processes") }
             } else {
                 issues.append("file: is waiting for open-file data")
             }
@@ -1829,6 +1832,7 @@ public final class DashboardModel {
         processDetail = nil
         inspectedSockets = nil
         inspectedFiles = nil
+        inspectedFilesCut = false
         guard let process = selectedProcess, let inspector else { return }
         if MaintenanceWork.of(process) != nil { refreshMaintenance(olderThan: Self.maintenanceSelectionAge) }
         let connectionMonitor = connectionMonitor
@@ -1841,7 +1845,8 @@ public final class DashboardModel {
             guard let self, !Task.isCancelled else { return }
             self.processDetail = readDetail
             self.inspectedSockets = readSockets.flatMap { $0 }
-            self.inspectedFiles = readFiles.flatMap { $0 }
+            self.inspectedFiles = readFiles.flatMap { $0 }?.paths
+            self.inspectedFilesCut = readFiles.flatMap { $0 }?.isComplete == false
         }
         if startupInventory == nil { refreshStartupItems() }
     }

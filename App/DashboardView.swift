@@ -1838,6 +1838,10 @@ private struct InspectorView: View {
                 if files.count > InspectorText.fileLimit {
                     Text("and \(files.count - InspectorText.fileLimit) more").font(.caption).foregroundStyle(.secondary)
                 }
+                if model.inspectedFilesCut {
+                    Text("It holds more open files than one read keeps; this list is not all of them.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
             } else {
                 Text(inspection.detail == nil ? "Reading…" : "Could not be read").foregroundStyle(.secondary)
             }
