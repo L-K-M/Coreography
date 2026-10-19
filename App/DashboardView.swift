@@ -2108,8 +2108,8 @@ private enum ProcessText {
     /// Example: "3,412 threads", or "at least 3,412 threads" when some counts were unreadable.
     static func threads(_ total: (threads: Int, unread: Int)) -> String {
         total.unread == 0
-            ? String(localized: "\(total.threads) threads")
-            : String(localized: "at least \(total.threads) threads")
+            ? String(localized: "\(total.threads.formatted()) threads")
+            : String(localized: "at least \(total.threads.formatted()) threads")
     }
 
     /// Example: "Oct 19, 9:14:03 AM" in English.
