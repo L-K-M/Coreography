@@ -257,7 +257,8 @@ test_sockets(void)
     assert(coreo_process_sockets(getpid(), self.start_seconds, self.start_microseconds,
                                  sockets, 64, &count, &truncated) == 0);
     for (int32_t i = 0; i < count; i++) {
-        if (sockets[i].kind == COREO_SOCKET_TCP && sockets[i].local_port == tcp_port) {
+        /* 127.0.0.1 and ::1 can be given the same ephemeral port; the family tells them apart. */
+        if (sockets[i].kind == COREO_SOCKET_TCP && sockets[i].ip_version == 4 && sockets[i].local_port == tcp_port) {
             assert(sockets[i].tcp_state == COREO_TCP_STATE_LISTEN);
             assert(sockets[i].ip_version == 4);
             assert(sockets[i].local_address[0] == 127 && sockets[i].remote_port == 0);
@@ -267,7 +268,7 @@ test_sockets(void)
             assert(sockets[i].tcp_state == COREO_TCP_STATE_NONE);
             found_udp = 1;
         }
-        if (sockets[i].kind == COREO_SOCKET_TCP && sockets[i].local_port == tcp6_port) {
+        if (sockets[i].kind == COREO_SOCKET_TCP && sockets[i].ip_version == 6 && sockets[i].local_port == tcp6_port) {
             assert(sockets[i].tcp_state == COREO_TCP_STATE_LISTEN);
             assert(sockets[i].ip_version == 6);
             assert(memcmp(sockets[i].local_address, &in6addr_loopback, 16) == 0);
@@ -278,7 +279,7 @@ test_sockets(void)
 
     assert(coreo_process_sockets(getpid(), self.start_seconds + 1, self.start_microseconds,
                                  sockets, 64, &count, &truncated) == EAGAIN);
-    assert(count == 0);
+    assert(count == 0 && truncated == 0);
     assert(coreo_process_sockets(getpid(), self.start_seconds, self.start_microseconds,
                                  sockets, 1, &count, &truncated) == 0);
     assert(count == 1 && truncated == 1);
