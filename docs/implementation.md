@@ -519,8 +519,9 @@ Implemented:
   one click; `coreo history --json METRIC` reads it, `coreo stats --json`
   gives every metric's minimum, nearest-rank median and 95th percentile,
   maximum and mean (none for pressure levels, which are ordinals) with
-  the count of samples without a value, and the CLI never records
-  samples. Rollups remain (S7, M4).
+  the count of samples without a value, `coreo export` prints every
+  sample as JSON or one CSV row each (gaps empty, metrics never paired
+  by time), and the CLI never records samples. Rollups remain (S7, M4).
 - The app ledger on disk: every two-second process interval, idle ones
   included, is written with the sample batches as per-app CPU-seconds,
   disk bytes and a lower-bound flag, under the same 6-hour and size
