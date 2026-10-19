@@ -16,7 +16,8 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
   history store; it reports that it needs updating.
 - Battery draw is recorded as system power on Macs without a sensors
   frame, as the window shows it.
-- Delete history asks for confirmation.
+- Delete history asks for confirmation, and a write that fails while
+  history is being deleted no longer brings the deleted readings back.
 - System-process notes require a system executable path, except for the
   kernel's PID 0, and no longer promise that quitting is safe.
 - The history size cap no longer drops more history on every write
