@@ -29,7 +29,10 @@ enum StoredTier: Sendable {
     /// 10 s buckets with minimum, maximum and mean for a week.
     case day
 
-    static func reading(_ span: TimeInterval) -> StoredTier { span > HistoryStore.retention ? .day : .recent }
+    /// A range longer than the 1 s retention reads the Day tier.
+    static func reading(_ span: TimeInterval, recentRetention: TimeInterval) -> StoredTier {
+        span > recentRetention ? .day : .recent
+    }
 
     /// A silence longer than three sampling steps (sleep, the app not running) is a gap.
     var maximumGap: TimeInterval { self == .recent ? 3 : 3 * HistoryStore.dayBucket }
@@ -60,8 +63,10 @@ struct StoredHistory: Sendable {
 
     /// Read and reduce every lane's series; runs off the main actor. Ranges
     /// beyond the Recent tier's six hours read the Day tier.
-    static func load(from recorder: HistoryRecorder, start: Date, end: Date) async throws -> StoredHistory {
-        let tier = StoredTier.reading(end.timeIntervalSince(start))
+    static func load(
+        from recorder: HistoryRecorder, start: Date, end: Date, recentRetention: TimeInterval = HistoryStore.retention
+    ) async throws -> StoredHistory {
+        let tier = StoredTier.reading(end.timeIntervalSince(start), recentRetention: recentRetention)
         let gap = tier.maximumGap
         var history = StoredHistory(start: start, end: end, tier: tier)
         for metric in lineMetrics {

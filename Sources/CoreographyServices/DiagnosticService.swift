@@ -212,10 +212,10 @@ public actor DiagnosticService {
         return recorder
     }
 
-    /// The last N minutes, clamped to 1 minute through the retention.
+    /// The last N minutes, clamped to 1 minute through the longest 1 s retention.
     private static func storedWindow(minutes: Int) -> ClosedRange<Date> {
         let end = Date()
-        let window = TimeInterval(min(max(minutes, 1), Int(HistoryStore.retention / 60)) * 60)
+        let window = TimeInterval(min(max(minutes, 1), Int(HistoryRetention.longestRecent / 60)) * 60)
         return end.addingTimeInterval(-window)...end
     }
 

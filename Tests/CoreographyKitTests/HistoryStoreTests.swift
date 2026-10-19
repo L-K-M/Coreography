@@ -135,6 +135,20 @@ final class HistoryStoreTests: XCTestCase {
         XCTAssertTrue(deleted.isEmpty)
     }
 
+    func testARetentionPlanAppliesFromTheNextWrite() async throws {
+        let store = try HistoryStore(directory: directory)
+        await store.setRetention(RetentionPlan(recent: 3600, day: 86_400))
+        try await store.append([sample(.cpu, -7200, 1), sample(.cpu, -60, 2), sample(.memoryUsed, -2 * 86_400, 3)], now: now)
+        let recent = try await store.samples(.cpu, from: .distantPast, to: now).map(\.value)
+        XCTAssertEqual(recent, [2], "an hour of readings")
+        let summary = try await store.rollups(.cpu, from: .distantPast, to: now).count
+        XCTAssertEqual(summary, 2, "a day of buckets keeps the two-hour-old reading")
+        let tooOld = try await store.rollups(.memoryUsed, from: .distantPast, to: now)
+        XCTAssertTrue(tooOld.isEmpty)
+        let size = try await store.size()
+        XCTAssertGreaterThan(size, 0)
+    }
+
     func testRetentionDropsSamplesOlderThanSixHours() async throws {
         let store = try HistoryStore(directory: directory)
         try await store.append([sample(.cpu, -HistoryStore.retention - 5, 1), sample(.cpu, -60, 2)], now: now)

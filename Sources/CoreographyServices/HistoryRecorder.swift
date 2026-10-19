@@ -91,6 +91,14 @@ public actor HistoryRecorder {
         try await store.samples(metric, from: start, to: end)
     }
 
+    func setRetention(_ plan: RetentionPlan) async {
+        await store.setRetention(plan)
+    }
+
+    func size() async throws -> Int64 {
+        try await store.size()
+    }
+
     func rollups(_ metric: HistoryMetric, from start: Date, to end: Date) async throws -> [HistoryRollup] {
         try await store.rollups(metric, from: start, to: end)
     }

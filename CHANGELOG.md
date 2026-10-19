@@ -11,6 +11,8 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
   after the store first exceeds it.
 
 ### Added
+- Settings: history retention presets with their disk cost and the
+  measured size, and a Data sources section.
 - A 24 h range drawn from a week of 10-second minimum, maximum and mean
   history.
 - Lanes mark sleep and wake, power source changes and pressure
