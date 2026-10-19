@@ -1238,6 +1238,11 @@ private struct NetworkLane: View {
                 Text("↑ " + MetricText.rate(sendReading?.numericValue))
                     .font(.system(size: 20, weight: .semibold))
                 interfacePicker
+                // A scoped app's TCP and UDP, every interface together (plan P8).
+                if let app = model.scopedApp {
+                    Text("\(app): \(MetricText.rate(model.scopedSeries()?.network.last?.value)) in + out")
+                        .font(.caption.weight(.medium)).foregroundStyle(.blue)
+                }
                 if let inventory = model.networkFrames.last {
                     if inventory.enumerationTruncated {
                         Text("Interface inventory reached capacity.")

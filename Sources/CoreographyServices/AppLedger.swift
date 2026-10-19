@@ -180,14 +180,22 @@ struct AppLedger: Sendable {
 
     /// One app's CPU share (% of machine) and disk rate per interval, at
     /// interval ends. An absent entry is idle (0); a missing interval is a gap.
-    func series(for name: String) -> (cpu: [DashboardPoint], disk: [DashboardPoint]) {
+    /// Network bytes per second (in plus out) only where the interval read
+    /// network; an interval that did not breaks the line.
+    func series(for name: String) -> (cpu: [DashboardPoint], disk: [DashboardPoint], network: [DashboardPoint]) {
         let app = indices[name]
         var cpu: [DashboardPoint] = []
         var disk: [DashboardPoint] = []
+        var network: [DashboardPoint] = []
         var segment = 0
+        // Network breaks at unread intervals too, so it counts its own segments.
+        var networkSegment = 0
         var previousEnd: Date?
         for interval in intervals {
-            if let previousEnd, previousEnd != interval.start { segment += 1 }
+            if let previousEnd, previousEnd != interval.start {
+                segment += 1
+                networkSegment += 1
+            }
             previousEnd = interval.end
             let seconds = interval.end.timeIntervalSince(interval.start)
             let entry = app.flatMap { app in interval.entries.first { $0.app == app } }
@@ -197,8 +205,15 @@ struct AppLedger: Sendable {
                 cpu.append(DashboardPoint(id: id, time: interval.end, value: share, segment: segment))
             }
             disk.append(DashboardPoint(id: id, time: interval.end, value: (entry?.diskBytes ?? 0) / seconds, segment: segment))
+            guard interval.coversNetwork else {
+                networkSegment += 1
+                continue
+            }
+            network.append(DashboardPoint(
+                id: id, time: interval.end, value: (entry?.networkBytes ?? 0) / seconds, segment: networkSegment
+            ))
         }
-        return (cpu, disk)
+        return (cpu, disk, network)
     }
 
     /// Two totals over disjoint intervals, combined per app.

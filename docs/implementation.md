@@ -168,6 +168,11 @@ Implemented:
   identifier. The process tree is read after the connection arrives, so
   a PID reused in between could name the wrong client.
 
+- Scoped network: with an app shown in the lanes, the network lane
+  names its TCP and UDP in plus out per second from the ledger, across
+  every interface, live and from stored intervals; an interval that did
+  not read network breaks the series rather than reading zero. Memory and
+  GPU overlays remain, as the ledger keeps neither per app.
 - Network in the ledger: each interval integrates every app's TCP and
   UDP rates (in plus out) from the traffic sample of the same moment
   and records whether network was read; a process's first interval with

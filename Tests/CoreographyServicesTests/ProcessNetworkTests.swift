@@ -117,6 +117,20 @@ final class ProcessNetworkTests: XCTestCase {
         XCTAssertEqual(whole?.networkIsLowerBound, false)
     }
 
+    /// Plan: a scoped app's share overlays every lane it is attributable in, network included.
+    func testAScopedAppHasANetworkSeriesOnlyWhereNetworkWasRead() throws {
+        let safari: (Int32, String, String?, Int32?) = (10, "Safari", "/Applications/Safari.app/Contents/MacOS/Safari", nil)
+        let traffic = try trafficSnapshot([(10, "Safari", 1_000, 500)])
+        var ledger = AppLedger(capacity: 10)
+        ledger.record(try snapshot([safari], at: 0), traffic: traffic, logicalCPUCount: 4)
+        ledger.record(try snapshot([safari], at: 2), traffic: traffic, logicalCPUCount: 4)
+        ledger.record(try snapshot([safari], at: 4), logicalCPUCount: 4)
+        ledger.record(try snapshot([safari], at: 6), traffic: traffic, logicalCPUCount: 4)
+        let network = ledger.series(for: "Safari").network
+        XCTAssertEqual(network.map(\.value), [1_500, 1_500], "in plus out per second; the unread interval is absent")
+        XCTAssertNotEqual(network[0].segment, network[1].segment, "and the line breaks there")
+    }
+
     func testTotalsSavedBeforeNetworkBoundsStillDecode() throws {
         let saved = #"{"name":"Safari","cpuSeconds":1,"diskBytes":0,"isLowerBound":false}"#
         let total = try JSONDecoder().decode(AppRangeTotal.self, from: Data(saved.utf8))
