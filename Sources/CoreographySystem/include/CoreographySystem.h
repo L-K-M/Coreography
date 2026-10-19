@@ -90,6 +90,18 @@ int32_t coreo_process_renice(int32_t pid, uint64_t start_seconds, uint64_t start
 int32_t coreo_process_threads(int32_t pid, uint64_t start_seconds, uint64_t start_microseconds,
                               int32_t *threads);
 
+/* Whether pid runs translated by Rosetta (P_TRANSLATED in its kinfo_proc),
+   while it still has the given start time. sysctl answers for every
+   user's process. Returns EINVAL for pid < 0 or a NULL output, ESRCH once
+   it is gone, EAGAIN when the pid names another process, ENOTSUP off
+   macOS. */
+int32_t coreo_process_translated(int32_t pid, uint64_t start_seconds, uint64_t start_microseconds,
+                                 int32_t *translated);
+
+/* Whether this Mac's CPU is Apple silicon (hw.optional.arm64), true
+   even when the caller itself runs translated. ENOTSUP off macOS. */
+int32_t coreo_host_is_arm64(int32_t *is_arm64);
+
 /* The largest argument block the kernel hands out (kern.argmax), or 0
    off macOS. Size the coreo_process_arguments buffer with it. */
 int32_t coreo_process_arguments_capacity(void);
