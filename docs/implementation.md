@@ -518,6 +518,9 @@ Implemented:
   shown in the process table and the inspector, and checked against the
   self-cost budget of 5 a second beyond the sampling tick. Gaps and
   restricted processes stay unknown, never zero.
+- Cluster sub-band: under the CPU graph, one row per core tier shaded
+  by its IOReport activity per sample, aligned with the graph's time axis;
+  samples without a reading leave holes, and a compact lane sheds it.
 - Low Power Mode: every sampling cadence halves while it is on (2 s
   for the lanes, 4 s for processes), within each monitor's gap limit, and
   the window says so. The 10-second record-only cadence for when nothing
@@ -673,6 +676,7 @@ outstanding. The store, MCP and model features above await stack delivery.
 | Native network MIB, wide-counter mapping and three-lane UI | Passed at `e62fac1`, including native C fixtures, live CLI and both executable architectures; integrated candidate pending |
 | Native IOKit storage counters and four-lane renderer | Passed [native CI](https://github.com/L-K-M/Coreography/actions/runs/39110306993) at `6434722`: 75 tests, 16 drivers, 32 measured rate fields, no inventory issues; owner checks pending |
 | On-disk history store and recorder | History slice: 148 Swift tests pass on Linux against the real system SQLite (round trip with gaps, duplicates, retention, reopen, permissions, WAL, batching); native CI checks the CLI and file permissions |
+| Cluster sub-band | 307 Swift tests pass on Linux (cells reaching the next sample, breaks not bridged, holes for missing readings, clamped shares); the strip compiles only in native CI and its look is an owner check |
 | Low Power Mode cadence | 306 Swift tests pass on Linux (the cadence following the mode both ways, the interval doubling); reading the flag and the note compile only in native CI; behaviour with Low Power Mode on is an owner check |
 | Volume capacity | 305 Swift tests pass on Linux (important-use space with a plain-space fallback, names, kinds, clamping, unknown sizes left out, ordering, the model's minute read); the native smoke requires one startup volume at `/` whose size agrees with `statvfs`; the bars compile only in native CI |
 | Per-process CPU scale | 303 Swift tests pass on Linux (filter bounds in the chosen scale, the factor never zero, the saved choice); the column titles, cells and Settings picker compile only in native CI |

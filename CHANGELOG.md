@@ -24,6 +24,8 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
   after the store first exceeds it.
 
 ### Added
+- The CPU lane shows each core tier's activity as a strip under the
+  graph.
 - Sampling slows to half rate while Low Power Mode is on, and the window
   says so.
 - The Disk lane shows each mounted volume's used share and free space;
