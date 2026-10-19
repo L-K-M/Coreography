@@ -371,7 +371,7 @@ jobs:
           MAX_RESPONSE_BYTES = 128 * 1024
           PROTOCOL_VERSION = "2025-06-18"
           server = subprocess.Popen(
-              [sys.argv[1], "mcp", "--stdio"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, bufsize=0
+              [sys.argv[1], "mcp", "--stdio", "--standalone"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, bufsize=0
           )
 
           def send(message):
@@ -430,6 +430,16 @@ jobs:
               server.stdin.close()
               server.stdout.close()
           PY
+
+      - name: Check the MCP bridge refuses without the app
+        run: |
+          set -euo pipefail
+          # No app is listening here, so the bridge must fail loudly, never fall back silently.
+          if dist/Coreography.app/Contents/Helpers/coreo mcp --stdio < /dev/null 2> "$RUNNER_TEMP/bridge.err"; then
+            echo "::error::coreo mcp --stdio succeeded without the app"; exit 1
+          fi
+          grep -q "MCP access" "$RUNNER_TEMP/bridge.err"
+          cat "$RUNNER_TEMP/bridge.err"
 
       - name: Smoke-test the on-disk history store
         run: |

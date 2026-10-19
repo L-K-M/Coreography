@@ -35,8 +35,10 @@ samples stays in memory, and charts keep every spike when zoomed out.
 A menu bar extra shows CPU in the menu bar and opens mini lanes; it shares
 the window's sampler and keeps sampling while the window is closed.
 
-MCP clients can query the same read-only diagnostic tools. For example, in
-an MCP client's server list:
+MCP clients can query the same read-only diagnostic tools through the
+running app. Turn on Settings > MCP access; the app asks once for each
+client app and lists approved clients with Revoke. For example, in an MCP
+client's server list:
 
 ```json
 {
@@ -53,8 +55,8 @@ In the window, Ask Coreography answers plain-language questions with your
 own Anthropic API key, stored in the Keychain from Settings, using the same
 read-only tools.
 
-The server samples in its own process for now; connecting it to the running
-app with per-client approval is planned.
+`coreo mcp --stdio --standalone` samples in its own process instead,
+without history or approval.
 
 Shortcuts and Spotlight get actions for the system summary, top apps,
 starting and stopping a recording, and finding who uses a port or has a

@@ -66,6 +66,7 @@ struct AskPanel: View {
 /// Settings: the provider key lives only in the Keychain.
 struct SettingsView: View {
     @Bindable var model: DashboardModel
+    let mcpAccess: MCPAccess
     @State private var key = ""
     @State private var message: String?
 
@@ -96,6 +97,7 @@ struct SettingsView: View {
                 }
                 .disabled(!model.recordsHistory)
             }
+            MCPAccessSection(access: mcpAccess)
             Section("Alerts") {
                 ForEach(model.alertRules) { rule in
                     Picker(rule.title, selection: Binding(

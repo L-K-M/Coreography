@@ -18,18 +18,28 @@ public actor MCPServer {
     private static let serverName = "coreography"
 
     private let snapshot: @Sendable () async -> DiagnosticSnapshot
+    /// Checked when a call is dispatched and again before its result is
+    /// delivered, so a grant revoked mid-query returns nothing.
+    private let authorize: @Sendable () async -> Bool
     private let version: String
     private var snapshots: [DiagnosticSnapshot] = []
     private var recentCalls: [Date] = []
     private let now: @Sendable () -> Date
 
-    public init(version: String, snapshot: @escaping @Sendable () async -> DiagnosticSnapshot) {
-        self.init(version: version, now: { Date() }, snapshot: snapshot)
+    public init(
+        version: String, authorize: @escaping @Sendable () async -> Bool = { true },
+        snapshot: @escaping @Sendable () async -> DiagnosticSnapshot
+    ) {
+        self.init(version: version, now: { Date() }, authorize: authorize, snapshot: snapshot)
     }
 
-    init(version: String, now: @escaping @Sendable () -> Date, snapshot: @escaping @Sendable () async -> DiagnosticSnapshot) {
+    init(
+        version: String, now: @escaping @Sendable () -> Date, authorize: @escaping @Sendable () async -> Bool = { true },
+        snapshot: @escaping @Sendable () async -> DiagnosticSnapshot
+    ) {
         self.version = version
         self.now = now
+        self.authorize = authorize
         self.snapshot = snapshot
     }
 
@@ -72,12 +82,14 @@ public actor MCPServer {
     private func call(_ params: [String: Any], id: Any) async -> String {
         guard let name = params["name"] as? String else { return encode(error: .invalidParams("Missing tool name"), id: id) }
         let arguments = params["arguments"] as? [String: Any] ?? [:]
+        guard await authorize() else { return encode(error: .accessRevoked, id: id) }
         guard admit() else {
             return encode(result: toolError("Rate limit: at most \(Self.callsPerSecond) tool calls per second"), id: id)
         }
         do {
             let snapshot = try await resolveSnapshot(arguments)
             let body = try DiagnosticToolCatalog.run(name, arguments: arguments, snapshot: snapshot)
+            guard await authorize() else { return encode(error: .accessRevoked, id: id) }
             return encode(result: [
                 "content": [["type": "text", "text": body]],
                 "isError": false,
@@ -119,7 +131,7 @@ public actor MCPServer {
     // MARK: Encoding
 
     private enum RPCError {
-        case parse, invalidRequest, methodNotFound
+        case parse, invalidRequest, methodNotFound, accessRevoked
         case invalidParams(String)
 
         var code: Int {
@@ -128,6 +140,8 @@ public actor MCPServer {
             case .invalidRequest: -32600
             case .methodNotFound: -32601
             case .invalidParams: -32602
+            // Implementation-defined server error range.
+            case .accessRevoked: -32001
             }
         }
 
@@ -137,6 +151,7 @@ public actor MCPServer {
             case .invalidRequest: "Invalid request"
             case .methodNotFound: "Method not found"
             case .invalidParams(let detail): detail
+            case .accessRevoked: "Coreography access for this client is off or was revoked"
             }
         }
     }

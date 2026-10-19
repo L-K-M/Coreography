@@ -9,6 +9,8 @@ private struct CoreographyApp: App {
     @State private var hud: HUDController
     private let automation: AutomationRouter
     private let dockTile: DockTileController
+    private let mcpAccess: MCPAccess
+    private let mcpApproval: MCPApprovalPresenter
 
     /// One sampler for every surface, running from launch, so the menu bar
     /// extra stays live while the window is closed.
@@ -21,11 +23,17 @@ private struct CoreographyApp: App {
         automation = AutomationRouter(model: model, hud: hud)
         automation.install()
         dockTile = DockTileController(model: model)
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "development"
+        let access = MCPAccess(version: version) { model.diagnosticSnapshot() }
+        mcpAccess = access
+        mcpApproval = MCPApprovalPresenter(access: access, automation: automation)
+        AutomationAppDelegate.onTerminate = { access.shutdown() }
     }
 
     var body: some Scene {
         Window("Coreography", id: "dashboard") {
             DashboardView(model: dashboard, hud: hud)
+                .modifier(MCPApprovalAlert(access: mcpAccess))
         }
         .defaultSize(width: 1120, height: 900)
         .commands {
@@ -48,7 +56,7 @@ private struct CoreographyApp: App {
         .menuBarExtraStyle(.window)
 
         Settings {
-            SettingsView(model: dashboard)
+            SettingsView(model: dashboard, mcpAccess: mcpAccess)
         }
     }
 }

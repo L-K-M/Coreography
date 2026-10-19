@@ -64,8 +64,15 @@ final class AutomationRouter {
 /// Receives links whether or not the window is open.
 @MainActor
 final class AutomationAppDelegate: NSObject, NSApplicationDelegate {
+    /// Work that must finish before the process ends, such as closing the MCP socket.
+    static var onTerminate: (() -> Void)?
+
     func application(_ application: NSApplication, open urls: [URL]) {
         urls.forEach(AutomationRouter.receive)
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        Self.onTerminate?()
     }
 }
 
