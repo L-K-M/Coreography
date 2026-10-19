@@ -9,6 +9,8 @@ public typealias CapturedGPU = GPUSnapshot
 public typealias CapturedGPUDevice = GPUDeviceReading
 public typealias CapturedPower = PowerSnapshot
 public typealias CapturedSensors = SensorSnapshot
+public typealias CapturedSilicon = SiliconSnapshot
+public typealias CapturedCPUTier = CPUTierReading
 
 public enum NativeSamplingSupport: String, Codable, Sendable {
     case supported
@@ -65,6 +67,7 @@ public actor DiagnosticService {
     private let gpuMonitor: GPUMonitor
     private let powerMonitor: PowerMonitor
     private let sensorMonitor: SensorMonitor
+    private let siliconMonitor: SiliconMonitor
     private let connectionMonitor = ConnectionMonitor()
 
     public init() throws {
@@ -75,6 +78,7 @@ public actor DiagnosticService {
         gpuMonitor = try GPUMonitor()
         powerMonitor = try PowerMonitor()
         sensorMonitor = try SensorMonitor()
+        siliconMonitor = try SiliconMonitor()
     }
 
     public func report() async throws -> DiagnosticReport {
@@ -127,6 +131,14 @@ public actor DiagnosticService {
         try await sensorMonitor.sample()
     }
 
+    /// Energy and residency are deltas: a baseline, one second, then the interval.
+    public func captureSiliconOnce() async throws -> CapturedSilicon {
+        await siliconMonitor.reset()
+        _ = try await siliconMonitor.sample()
+        try await Task.sleep(for: Self.warmupInterval)
+        return try await siliconMonitor.sample()
+    }
+
     /// Sockets need process identities, not rates, so one process sample suffices.
     public func captureConnectionsOnce() async throws -> CapturedConnections {
         await connectionMonitor.sample(try await processMonitor.sample())
@@ -144,6 +156,7 @@ public actor DiagnosticService {
             _ = try await gpuMonitor.sample()
             _ = try await powerMonitor.sample()
             _ = try await sensorMonitor.sample()
+            _ = try await siliconMonitor.sample()
             if second.isMultiple(of: Self.processEverySeconds) {
                 let sample = try await processMonitor.sample()
                 processes = sample
@@ -155,7 +168,7 @@ public actor DiagnosticService {
             takenAt: Date(), host: await monitor.history(), network: await networkMonitor.history(),
             gpu: await gpuMonitor.history(), power: await powerMonitor.history(),
             sensors: await sensorMonitor.history(), processes: processes, ledger: ledger,
-            maintenance: await MaintenanceStatusProvider().load()
+            maintenance: await MaintenanceStatusProvider().load(), silicon: await siliconMonitor.history()
         )
         return DiagnosisReport(
             summary: DiagnosticTools.summary(snapshot),

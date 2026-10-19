@@ -3,7 +3,7 @@
 Track actual delivery against the [product plan](plan.md). A stage is
 complete only after its relevant checks and review pass and its PR merges.
 
-## Current slice: command palette
+## Current slice: Apple Silicon power and frequency
 
 The native foundation merged in [PR #5](https://github.com/L-K-M/Coreography/pull/5)
 at `aee9494` after two GLM rounds and passing CI. Process monitoring merged
@@ -37,10 +37,32 @@ the filter grammar in [PR #28](https://github.com/L-K-M/Coreography/pull/28).
 Process role notes and current assertion facts are shared with
 diagnostic clients in [PR #52](https://github.com/L-K-M/Coreography/pull/52).
 Maintenance states follow in [PR #53](https://github.com/L-K-M/Coreography/pull/53)
-and automation in [PR #54](https://github.com/L-K-M/Coreography/pull/54).
-This slice adds the command palette.
+and automation in [PR #54](https://github.com/L-K-M/Coreography/pull/54),
+the command palette in [PR #55](https://github.com/L-K-M/Coreography/pull/55).
+This slice adds IOReport power and frequency (M2, first rung).
 
 Implemented:
+
+- Apple Silicon power and frequency: the private IOReport library
+  (owner-approved), loaded at run time from the shared cache, subscribed
+  to the Energy Model, CPU Core Performance States and GPU Performance
+  States channels and sampled every second as deltas over the real
+  elapsed interval. CPU energy is the sum of `…CPU Energy` channels
+  (cluster and SRAM subtotals would double count), GPU `GPU Energy`,
+  ANE `ANE…` and DRAM `DRAM…`, in mJ, µJ or nJ. Each core tier is named
+  as IOReport names it (E, M or P): its cores' mean active residency and
+  the residency-weighted frequency from the power manager's DVFS table,
+  M1-M4 keys first and `acc-clusters` otherwise, scaled from hertz or
+  kilohertz by which gives a plausible top frequency. A table that does
+  not fit the reported states gives no frequency; an idle tier is a gap,
+  not its lowest frequency. Everything is estimated with its method. A
+  virtual machine is unsupported, a missing channel unavailable, and a
+  CPU counter that stays still for five busy intervals is unavailable as
+  frozen rather than read as zero. The CPU lane shows tiers, the Power
+  lane block watts, the HUD the top tier and GPU clock; diagnostics add
+  them to the summary and data sources; `coreo silicon --once --json`
+  prints one interval. The CLPC and PMP fallback rungs, per-cluster
+  history and S1 validation against `powermetrics` remain.
 
 - Command palette (Command-Shift-P): every window action by name:
   inspector, hold, recording, HUD, Settings, each range, pane, grouping
@@ -422,8 +444,8 @@ Implemented:
 
 The live buffers hold one hour per monitor. Process history/attribution,
 per-volume disk accounting and per-process network attribution remain outstanding.
-IOReport power/frequency, per-app GPU time and the privileged helper remain
-outstanding. The store, MCP and model features above await stack delivery.
+IOReport fallback rungs (CLPC, PMP), per-app GPU time and the privileged
+helper remain outstanding. The store, MCP and model features above await stack delivery.
 
 ## Verification
 
@@ -439,6 +461,7 @@ outstanding. The store, MCP and model features above await stack delivery.
 | Native network MIB, wide-counter mapping and three-lane UI | Passed at `e62fac1`, including native C fixtures, live CLI and both executable architectures; integrated candidate pending |
 | Native IOKit storage counters and four-lane renderer | Passed [native CI](https://github.com/L-K-M/Coreography/actions/runs/39110306993) at `6434722`: 75 tests, 16 drivers, 32 measured rate fields, no inventory issues; owner checks pending |
 | On-disk history store and recorder | History slice: 148 Swift tests pass on Linux against the real system SQLite (round trip with gaps, duplicates, retention, reopen, permissions, WAL, batching); native CI checks the CLI and file permissions |
+| Apple Silicon power and frequency | 238 Swift tests pass on Linux (block sums without subtotals, units, residency weighting, idle and unfitting tables, hertz or kilohertz tables, legacy and `acc-clusters` assignment, baseline, frozen counters, virtual machines); the IOReport driver compiles only in native CI, whose virtual runner must report unsupported with its reason. Accuracy against `powermetrics` is an owner check (S1) |
 | Command palette | 229 Swift tests pass on Linux (ranking, unavailable reasons, target names, actions applied through the model, unconfirmed process actions ignored); the palette view compiles only in native CI; keyboard use is an owner check |
 | Automation | 227 Swift tests pass on Linux (every link form, refusals with reasons, holder lookups with their limits, commands applied through the model); intents and link delivery compile only in native CI, which checks the scheme and intent metadata |
 | Maintenance states | 222 Swift tests pass on Linux (running, unknown-progress, idle and unrecognised `tmutil` answers; `mdutil` states; cut-off and failed tools unavailable; path-qualified processes only; no end promised for Spotlight; the summary's state and signal; one read per refresh window through the model). Native CI compares `coreo diagnose` with independent `tmutil` and `mdutil` reads; the inspector's display is an owner check |

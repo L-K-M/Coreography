@@ -106,6 +106,8 @@ public final class DashboardModel {
     public private(set) var gpuFrames: [CapturedGPU] = []
     public private(set) var powerFrames: [CapturedPower] = []
     public private(set) var sensorFrames: [CapturedSensors] = []
+    /// Apple Silicon power, cluster activity and frequency; empty without IOReport.
+    public private(set) var siliconFrames: [CapturedSilicon] = []
     public var processFilter = "" {
         didSet {
             if wantsConnections { sampleConnections() }
@@ -246,6 +248,7 @@ public final class DashboardModel {
     @ObservationIgnored private let gpuMonitor: GPUMonitor?
     @ObservationIgnored private let powerMonitor: PowerMonitor?
     @ObservationIgnored private let sensorMonitor: SensorMonitor?
+    @ObservationIgnored private let siliconMonitor: SiliconMonitor?
     @ObservationIgnored private let interval: Duration
     @ObservationIgnored private let processInterval: Duration
     @ObservationIgnored private var worker: Task<Void, Never>?
@@ -262,6 +265,7 @@ public final class DashboardModel {
     @ObservationIgnored private var liveGPUFrames: [CapturedGPU] = []
     @ObservationIgnored private var livePowerFrames: [CapturedPower] = []
     @ObservationIgnored private var liveSensorFrames: [CapturedSensors] = []
+    @ObservationIgnored private var liveSiliconFrames: [CapturedSilicon] = []
 
     /// - Parameter notifier: system notifications for actionable alerts; nil
     ///   (as in command-line hosts) keeps alerts to tints and markers.
@@ -291,6 +295,7 @@ public final class DashboardModel {
             let gpu = try GPUMonitor()
             let power = try PowerMonitor()
             let sensors = try SensorMonitor()
+            let silicon = try SiliconMonitor()
             monitor = system
             processMonitor = processes
             networkMonitor = network
@@ -298,6 +303,7 @@ public final class DashboardModel {
             gpuMonitor = gpu
             powerMonitor = power
             sensorMonitor = sensors
+            siliconMonitor = silicon
         } catch {
             monitor = nil
             processMonitor = nil
@@ -306,6 +312,7 @@ public final class DashboardModel {
             gpuMonitor = nil
             powerMonitor = nil
             sensorMonitor = nil
+            siliconMonitor = nil
             collectionError = "Cannot initialize monitoring: \(error)"
         }
         applyRetention()
@@ -317,7 +324,8 @@ public final class DashboardModel {
         processMonitor: ProcessMonitor? = nil, processInterval: Duration = .seconds(2),
         networkMonitor: NetworkMonitor? = nil, diskMonitor: DiskMonitor? = nil,
         gpuMonitor: GPUMonitor? = nil, powerMonitor: PowerMonitor? = nil,
-        sensorMonitor: SensorMonitor? = nil, controller: ProcessController = ProcessController(),
+        sensorMonitor: SensorMonitor? = nil, siliconMonitor: SiliconMonitor? = nil,
+        controller: ProcessController = ProcessController(),
         askService: AskService = AskService(), notifier: AlertDelivery? = nil,
         historyRecorder: HistoryRecorder? = nil, sleepProvider: SleepHistoryProvider? = nil,
         connectionMonitor: ConnectionMonitor? = nil, startupProvider: StartupProvider? = nil,
@@ -347,6 +355,7 @@ public final class DashboardModel {
         self.gpuMonitor = gpuMonitor
         self.powerMonitor = powerMonitor
         self.sensorMonitor = sensorMonitor
+        self.siliconMonitor = siliconMonitor
     }
 
     deinit {
@@ -383,6 +392,9 @@ public final class DashboardModel {
     public var displayedSensorFrame: CapturedSensors? {
         atCursor(sensorFrames, tolerance: Self.cursorTolerance) { $0.stamp.wallTime }
     }
+    public var displayedSiliconFrame: CapturedSilicon? {
+        atCursor(siliconFrames, tolerance: Self.cursorTolerance) { $0.stamp.wallTime }
+    }
 
     /// System draw from one qualified source (plan): an SMC rail where the
     /// Mac publishes one, otherwise battery discharge while unplugged.
@@ -409,7 +421,8 @@ public final class DashboardModel {
         [
             latest?.stamp.wallTime, networkFrames.last?.stamp.wallTime,
             diskFrames.last?.stamp.wallTime, gpuFrames.last?.stamp.wallTime,
-            powerFrames.last?.stamp.wallTime, sensorFrames.last?.stamp.wallTime
+            powerFrames.last?.stamp.wallTime, sensorFrames.last?.stamp.wallTime,
+            siliconFrames.last?.stamp.wallTime
         ].compactMap { $0 }.max()
     }
 
@@ -668,7 +681,7 @@ public final class DashboardModel {
         DiagnosticSnapshot(
             takenAt: displayedEndTime ?? Date(), host: frames, network: networkFrames, gpu: gpuFrames,
             power: powerFrames, sensors: sensorFrames, processes: processSnapshot, ledger: ledger,
-            sleep: sleepState, assertions: assertionSnapshot, maintenance: maintenanceStatus
+            sleep: sleepState, assertions: assertionSnapshot, maintenance: maintenanceStatus, silicon: siliconFrames
         )
     }
 
@@ -1096,6 +1109,7 @@ public final class DashboardModel {
         let gpuMonitor = gpuMonitor
         let powerMonitor = powerMonitor
         let sensorMonitor = sensorMonitor
+        let siliconMonitor = siliconMonitor
         let assertionReader = assertionReader
 
         importSleepHistory(after: .zero)
@@ -1110,6 +1124,7 @@ public final class DashboardModel {
             await gpuMonitor?.reset()
             await powerMonitor?.reset()
             await sensorMonitor?.reset()
+            await siliconMonitor?.reset()
             var nextProcessSample = ContinuousClock.now
             while !Task.isCancelled {
                 do {
@@ -1142,6 +1157,11 @@ public final class DashboardModel {
                         sensors = await sensorMonitor.history()
                         temperatures = await sensorMonitor.temperatures()
                     }
+                    var silicon: [CapturedSilicon]?
+                    if let siliconMonitor {
+                        _ = try await siliconMonitor.sample()
+                        silicon = await siliconMonitor.history()
+                    }
                     var processes: CapturedProcesses?
                     var assertions: CapturedAssertions?
                     if let processMonitor, ContinuousClock.now >= nextProcessSample {
@@ -1170,6 +1190,7 @@ public final class DashboardModel {
                     if let disks { self.liveDiskFrames = disks }
                     if let gpus { self.liveGPUFrames = gpus }
                     if let power { self.livePowerFrames = power }
+                    if let silicon { self.liveSiliconFrames = silicon }
                     if let sensors {
                         self.liveSensorFrames = sensors
                         self.sensorStats.record(
@@ -1195,6 +1216,7 @@ public final class DashboardModel {
                         if let gpus { self.gpuFrames = gpus }
                         if let power { self.powerFrames = power }
                         if let sensors { self.sensorFrames = sensors }
+                        if let silicon { self.siliconFrames = silicon }
                         self.refreshSystemMarkers()
                     }
                     try await Task.sleep(for: self.interval)
@@ -1232,6 +1254,7 @@ public final class DashboardModel {
         gpuFrames = liveGPUFrames
         powerFrames = livePowerFrames
         sensorFrames = liveSensorFrames
+        siliconFrames = liveSiliconFrames
         connectionSnapshot = liveConnections
         assertionSnapshot = liveAssertions
         openFileSnapshot = liveOpenFiles

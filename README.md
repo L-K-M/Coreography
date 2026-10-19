@@ -19,6 +19,10 @@ numeric table add swap use, swap and page-in rates, and compression ratio.
 The thermal lane plots the hottest SMC temperature over the pressure
 bands and shows fan speeds; the power lane prefers the SMC system rail.
 
+On Apple Silicon, the CPU lane names each core tier's activity and
+frequency and the Power lane modeled CPU, GPU and ANE watts, all from
+IOReport and labelled as estimates.
+
 The GPU lane plots each GPU's driver-reported busy percentage and shows
 memory in use. The power lane plots battery charge with an external-power
 band, battery watts, time estimate and health; system draw is shown while
@@ -120,6 +124,7 @@ swift run coreo disks --once --json     # macOS only; per-storage-driver rates
 swift run coreo gpu --once --json       # macOS only; per-GPU utilization
 swift run coreo power --once --json     # macOS only; battery and adapter
 swift run coreo sensors --once --json   # macOS only; SMC temperatures, fans, power
+swift run coreo silicon --once --json   # Apple Silicon; IOReport power and frequency
 swift run coreo connections --once --json # macOS only; your processes' sockets
 swift run coreo diagnose --json         # macOS only; summary, signals, top apps
 swift run coreo mcp --stdio             # macOS only; read-only MCP server

@@ -13,6 +13,10 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
   after the store first exceeds it.
 
 ### Added
+- Apple Silicon CPU, GPU, ANE and DRAM power from IOReport's energy
+  model, and each CPU tier's activity and frequency, in the CPU and
+  Power lanes, the HUD, diagnostics and `coreo silicon`. All are
+  estimates; a virtual machine or a stalled counter says so.
 - Command-Shift-P opens a command palette listing every window action
   by name, with the reason any of them cannot run now.
 - Shortcuts actions for the system summary, top apps, recording, and
