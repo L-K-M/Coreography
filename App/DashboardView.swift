@@ -648,6 +648,9 @@ private struct PowerLane: View {
                 Text(PowerText.systemSource(system)).font(.caption)
                 Text(PowerText.battery(latest)).font(.caption)
                 Text(PowerText.adapterAndHealth(latest)).font(.caption).foregroundStyle(.secondary)
+                if let awake = PowerText.keptAwake(model.sleepPreventers) {
+                    Text(awake).font(.caption).foregroundStyle(.orange)
+                }
                 Text(system?.reason ?? system?.method ?? "")
                     .font(.caption).foregroundStyle(.secondary)
             }
@@ -726,6 +729,31 @@ private enum PowerStyle {
 }
 
 private enum PowerText {
+    /// "Kept awake by Music (Playing audio, 12 min) and 1 other" (plan P2).
+    static func keptAwake(_ holders: [AssertionHolder]) -> String? {
+        guard let first = holders.first else { return nil }
+        let others = holders.count > 1 ? String(localized: " and \(holders.count - 1) other") : ""
+        return String(localized: "Kept awake by \(first.processName ?? "PID \(first.assertion.pid)") (\(detail(first.assertion)))") + others
+    }
+
+    /// "Prevents system sleep: Playing audio, 12 min".
+    static func assertion(_ assertion: CapturedAssertion) -> String {
+        let effect: String
+        switch assertion.effect {
+        case .preventsSystemSleep: effect = String(localized: "Prevents system sleep")
+        case .preventsDisplaySleep: effect = String(localized: "Keeps the display on")
+        case .other: effect = assertion.type
+        }
+        return effect + ": " + detail(assertion)
+    }
+
+    private static func detail(_ assertion: CapturedAssertion) -> String {
+        let name = assertion.name ?? assertion.type
+        guard let since = assertion.since else { return name }
+        let age = Duration.seconds(max(0, Date().timeIntervalSince(since)))
+        return name + ", " + age.formatted(.units(allowed: [.hours, .minutes], width: .abbreviated))
+    }
+
     static func systemSource(_ reading: DashboardReading?) -> String {
         guard reading?.numericValue != nil else { return String(localized: "System draw") }
         switch reading?.source?.channel {
@@ -1298,7 +1326,7 @@ private struct ProcessPane: View {
         DisclosureGroup("Processes") {
             VStack(alignment: .leading, spacing: 10) {
                 HStack {
-                    TextField("Filter: name, cpu:>10, mem:>1GB, user:me, port:443, #apps, #new, #listening", text: $model.processFilter)
+                    TextField("Filter: name, cpu:>10, mem:>1GB, user:me, port:443, #apps, #new, #listening, #preventing-sleep", text: $model.processFilter)
                         .textFieldStyle(.roundedBorder)
                         .focused(filterFocused)
                     Picker("Group", selection: $model.processGrouping) {
@@ -1488,6 +1516,14 @@ private struct InspectorView: View {
                 }
             } else {
                 Text("Reading…").foregroundStyle(.secondary)
+            }
+        }
+
+        if !model.selectedAssertions.isEmpty {
+            InspectorSection("Sleep assertions") {
+                ForEach(model.selectedAssertions) { assertion in
+                    Text(PowerText.assertion(assertion))
+                }
             }
         }
 

@@ -4,10 +4,29 @@ import CoreographyKit
 /// A parsed process filter (plan P22). Whitespace separates terms; every
 /// term must match. Examples: `safari`, `cpu:>10`, `mem:>1GB`, `disk:>5MB`,
 /// `pid:42`, `user:root`, `user:me`, `#apps`, `#mine`, `#third-party`, `#new`,
-/// `#listening`, `port:443`.
+/// `#listening`, `#preventing-sleep`, `port:443`.
 /// Terms that cannot be evaluated are reported, never silently dropped.
+public typealias CapturedAssertions = AssertionSnapshot
+public typealias CapturedAssertion = SleepAssertion
+public typealias CapturedAssertionEffect = AssertionEffect
+
+/// An assertion with the name of the process holding it, when observed.
+public struct AssertionHolder: Identifiable, Sendable {
+    public var id: String { assertion.id }
+    public let assertion: CapturedAssertion
+    public let processName: String?
+}
+
+/// What the filter knows about processes beyond their samples; each part
+/// is nil until its data has been read, and then its terms match nothing.
+struct ProcessFacts: Sendable {
+    var sockets: SocketFacts?
+    /// PIDs holding the Mac or its display awake.
+    var sleepPreventers: Set<Int32>?
+}
+
 /// What connection data says about each process, for `#listening` and `port:`.
-struct ProcessSocketFacts: Sendable {
+struct SocketFacts: Sendable {
     let listening: Set<ProcessIdentity>
     /// Every local and remote port of each process's sockets.
     let ports: [ProcessIdentity: Set<UInt16>]
@@ -39,7 +58,7 @@ public struct ProcessFilter: Equatable, Sendable {
     }
 
     enum Token: String, Sendable {
-        case apps, mine, root, thirdParty = "third-party", new, listening
+        case apps, mine, root, thirdParty = "third-party", new, listening, preventingSleep = "preventing-sleep"
     }
 
     enum Term: Equatable, Sendable {
@@ -57,7 +76,6 @@ public struct ProcessFilter: Equatable, Sendable {
     /// Tokens the plan names whose data sources do not exist yet.
     private static let pendingTokens: [String: String] = [
         "not-responding": "needs the helper's responsiveness check",
-        "preventing-sleep": "needs power assertions",
         "exited": "exited processes are listed below the table"
     ]
     private static let byteUnits: [(String, Double)] = [("TB", 1e12), ("GB", 1e9), ("MB", 1e6), ("KB", 1e3), ("B", 1)]
@@ -123,6 +141,8 @@ public struct ProcessFilter: Equatable, Sendable {
 
     var isEmpty: Bool { terms.isEmpty }
     /// Matching needs connection data, which is read only on demand.
+    var usesAssertions: Bool { terms.contains(.token(.preventingSleep)) }
+
     var usesSockets: Bool {
         terms.contains { term in
             switch term {
@@ -143,10 +163,9 @@ public struct ProcessFilter: Equatable, Sendable {
 
     /// Unknown readings never match a numeric predicate: they are not zero.
     /// Text also matches the member's app, so `safari cpu:>10` keeps Safari's helpers.
-    /// - Parameter sockets: what connection data says about each process;
-    ///   nil until it exists, when `#listening` and `port:` match nothing.
+    /// - Parameter facts: connection and assertion data, read on demand.
     func matches(
-        _ process: ObservedProcess, isNew: Bool, appName: String? = nil, sockets: ProcessSocketFacts? = nil,
+        _ process: ObservedProcess, isNew: Bool, appName: String? = nil, facts: ProcessFacts = ProcessFacts(),
         currentUser: UInt32 = UInt32(getuid())
     ) -> Bool {
         terms.allSatisfy { term in
@@ -179,9 +198,11 @@ public struct ProcessFilter: Equatable, Sendable {
             case .token(.new):
                 return isNew
             case .token(.listening):
-                return sockets?.listening.contains(process.id) ?? false
+                return facts.sockets?.listening.contains(process.id) ?? false
+            case .token(.preventingSleep):
+                return facts.sleepPreventers?.contains(process.id.pid) ?? false
             case .port(let port):
-                return sockets?.ports[process.id]?.contains(port) ?? false
+                return facts.sockets?.ports[process.id]?.contains(port) ?? false
             }
         }
     }

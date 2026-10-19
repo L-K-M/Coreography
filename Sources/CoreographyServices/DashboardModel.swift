@@ -142,6 +142,8 @@ public final class DashboardModel {
     public var connectionFilter = ""
     /// Displayed (possibly held) sockets; nil until first read.
     public private(set) var connectionSnapshot: CapturedConnections?
+    /// Displayed (possibly held) power assertions; nil until first read.
+    public private(set) var assertionSnapshot: CapturedAssertions?
     public var processSort: ProcessSort = .cpu
     public var processGrouping: ProcessGrouping = .app
     /// The shared hover time across all lanes; nil follows the live edge.
@@ -193,6 +195,8 @@ public final class DashboardModel {
     @ObservationIgnored private let connectionMonitor: ConnectionMonitor?
     @ObservationIgnored private var connectionSample: Task<Void, Never>?
     @ObservationIgnored private var liveConnections: CapturedConnections?
+    @ObservationIgnored private let assertionReader: AssertionReader?
+    @ObservationIgnored private var liveAssertions: CapturedAssertions?
     @ObservationIgnored private var sensorStats = SensorStats()
     @ObservationIgnored private let startupProvider: StartupProvider?
     @ObservationIgnored private let inspector: ProcessInspector?
@@ -245,6 +249,7 @@ public final class DashboardModel {
         connectionMonitor = ConnectionMonitor()
         startupProvider = StartupProvider()
         inspector = ProcessInspector()
+        assertionReader = AssertionReader()
         interval = .seconds(1)
         processInterval = .seconds(2)
         do {
@@ -284,7 +289,7 @@ public final class DashboardModel {
         askService: AskService = AskService(), notifier: AlertDelivery? = nil,
         historyRecorder: HistoryRecorder? = nil, sleepProvider: SleepHistoryProvider? = nil,
         connectionMonitor: ConnectionMonitor? = nil, startupProvider: StartupProvider? = nil,
-        inspector: ProcessInspector? = nil
+        inspector: ProcessInspector? = nil, assertionReader: AssertionReader? = nil
     ) {
         self.controller = controller
         self.askService = askService
@@ -294,6 +299,7 @@ public final class DashboardModel {
         self.connectionMonitor = connectionMonitor
         self.startupProvider = startupProvider
         self.inspector = inspector
+        self.assertionReader = assertionReader
         self.monitor = monitor
         self.interval = interval
         self.processMonitor = processMonitor
@@ -731,7 +737,10 @@ public final class DashboardModel {
         let lifecycle = lifecycle
         let rows = ProcessGroups.rows(
             in: processSnapshot, matching: processFilter, sortedBy: processSort, grouping: processGrouping,
-            isNew: { lifecycle.isNew($0, at: time) }, sockets: connectionSnapshot.map(ProcessSocketFacts.init)
+            isNew: { lifecycle.isNew($0, at: time) },
+            facts: ProcessFacts(
+                sockets: connectionSnapshot.map(SocketFacts.init), sleepPreventers: assertionSnapshot?.sleepPreventers
+            )
         )
         guard let scopedApp else { return rows }
         return rows.filter { $0.appName == scopedApp }
@@ -740,11 +749,16 @@ public final class DashboardModel {
     /// Filter terms that were not applied, named for the person who typed them.
     public var processFilterIssues: [String] {
         let filter = ProcessFilter.parse(processFilter)
-        guard filter.usesSockets else { return filter.issues }
-        guard let connections = connectionSnapshot else { return filter.issues + ["#listening and port: are waiting for connection data"] }
-        if let reason = connections.unavailableReason { return filter.issues + ["#listening and port: match nothing: \(reason)"] }
-        guard connections.restrictedProcesses > 0 else { return filter.issues }
-        return filter.issues + ["#listening and port: cover your own processes; other users' need the helper"]
+        var issues = filter.issues
+        if filter.usesAssertions {
+            if let reason = assertionSnapshot?.unavailableReason { issues.append("#preventing-sleep matches nothing: \(reason)") }
+            if assertionSnapshot == nil { issues.append("#preventing-sleep is waiting for power assertions") }
+        }
+        guard filter.usesSockets else { return issues }
+        guard let connections = connectionSnapshot else { return issues + ["#listening and port: are waiting for connection data"] }
+        if let reason = connections.unavailableReason { return issues + ["#listening and port: match nothing: \(reason)"] }
+        guard connections.restrictedProcesses > 0 else { return issues }
+        return issues + ["#listening and port: cover your own processes; other users' need the helper"]
     }
 
     /// The Connections tab's rows, by app, from displayed (possibly held) data.
@@ -823,6 +837,7 @@ public final class DashboardModel {
         let gpuMonitor = gpuMonitor
         let powerMonitor = powerMonitor
         let sensorMonitor = sensorMonitor
+        let assertionReader = assertionReader
 
         importSleepHistory(after: .zero)
         worker = Task { [weak self] in
@@ -869,8 +884,11 @@ public final class DashboardModel {
                         temperatures = await sensorMonitor.temperatures()
                     }
                     var processes: CapturedProcesses?
+                    var assertions: CapturedAssertions?
                     if let processMonitor, ContinuousClock.now >= nextProcessSample {
                         processes = try await processMonitor.sample()
+                        // One call to powerd; read beside processes so PIDs match the same moment.
+                        assertions = await assertionReader?.read()
                         nextProcessSample = ContinuousClock.now.advanced(by: processInterval)
                     }
                     guard let self, self.generation == run, !Task.isCancelled else { return }
@@ -886,6 +904,7 @@ public final class DashboardModel {
                         self.liveLifecycle.record(processes)
                         if self.wantsConnections { self.sampleConnections() }
                     }
+                    if let assertions { self.liveAssertions = assertions }
                     if let network { self.liveNetworkFrames = network }
                     if let disks { self.liveDiskFrames = disks }
                     if let gpus { self.liveGPUFrames = gpus }
@@ -902,6 +921,7 @@ public final class DashboardModel {
                     if self.timeRange.reachesStoredHistory, self.recordsHistory { self.refreshStoredHistory() }
                     if self.displayMode == .live {
                         self.frames = history
+                        if let assertions { self.assertionSnapshot = assertions }
                         if let processes {
                             self.processSnapshot = processes
                             self.contributorHistory = self.liveContributorHistory
@@ -951,6 +971,7 @@ public final class DashboardModel {
         powerFrames = livePowerFrames
         sensorFrames = liveSensorFrames
         connectionSnapshot = liveConnections
+        assertionSnapshot = liveAssertions
         if detailPane == .sensors { publishSensorStats() }
         refreshSystemMarkers()
     }
@@ -985,6 +1006,23 @@ public final class DashboardModel {
         return ProcessInspections.make(
             process, in: processSnapshot, startup: startupInventory, detail: processDetail, sockets: inspectedSockets
         )
+    }
+
+    /// Who holds the Mac or its display awake now (plan P2), joined to the
+    /// displayed process names; longest-held first.
+    public var sleepPreventers: [AssertionHolder] {
+        guard let assertionSnapshot else { return [] }
+        let names = Dictionary((processSnapshot?.processes ?? []).map { ($0.id.pid, $0.name) }) { first, _ in first }
+        return assertionSnapshot.assertions
+            .filter { $0.effect != .other }
+            .map { AssertionHolder(assertion: $0, processName: names[$0.pid]) }
+            .sorted { ($0.assertion.since ?? .distantFuture) < ($1.assertion.since ?? .distantFuture) }
+    }
+
+    /// The selected process's assertions, for the inspector.
+    public var selectedAssertions: [CapturedAssertion] {
+        guard let process = selectedProcess else { return [] }
+        return assertionSnapshot?.assertions.filter { $0.pid == process.id.pid } ?? []
     }
 
     /// The inspector's summary when nothing is selected.
