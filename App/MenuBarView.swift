@@ -33,7 +33,9 @@ struct MenuBarView: View {
                 Button(model.samplingPaused ? "Resume" : "Pause") {
                     model.samplingPaused ? model.resumeSampling() : model.pauseSampling()
                 }
-                .help("Pause recording; the pause stays as a labelled gap")
+                .help(model.samplingPaused
+                      ? "Resume recording; the pause stays as a labelled gap"
+                      : "Pause recording; the pause stays as a labelled gap")
                 Button(model.displayMode == .live ? "Hold display" : "Return to live") { model.toggleDisplayHold() }
                 Button(hud.isShown ? "Hide HUD" : "Show HUD") { hud.toggle() }
                 Spacer()

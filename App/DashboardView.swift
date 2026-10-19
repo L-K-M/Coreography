@@ -244,7 +244,11 @@ struct DashboardView: View {
             }
             ToolbarItem(placement: .primaryAction) {
                 Button("Marker", systemImage: "flag") { model.markerPromptShown = true }
-                    .keyboardShortcut(processFilterFocused ? nil : KeyboardShortcut("m", modifiers: []))
+                    // A plain letter must not fire while any text field takes typing.
+                    .keyboardShortcut(
+                        processFilterFocused || model.paletteShown || model.markerPromptShown
+                            ? nil : KeyboardShortcut("m", modifiers: [])
+                    )
                     .help("Drop a named marker on every lane (M)")
             }
             ToolbarItem(placement: .primaryAction) {
@@ -255,7 +259,9 @@ struct DashboardView: View {
                 ) {
                     model.samplingPaused ? model.resumeSampling() : model.pauseSampling()
                 }
-                .help("Stop sampling; the pause stays as a labelled gap in every series")
+                .help(model.samplingPaused
+                      ? "Start sampling again; the pause stays as a labelled gap in every series"
+                      : "Stop sampling; the pause stays as a labelled gap in every series")
             }
             ToolbarItem(placement: .primaryAction) {
                 Button(

@@ -121,11 +121,11 @@ Implemented:
   "Recording paused" and "Recording resumed"; reopening the window does
   not resume it, and the status line and menu bar title say so. Hold
   still only freezes the display. Command-0 returns to the live edge,
-  leaving hold and the cursor but keeping the range and selection. M (or
-  the palette) drops a named marker, up to 120 characters, a blank name
-  becoming the time; the person's markers draw solid in the accent colour
-  with their name, the others stay dashed and unlabelled. Markers last
-  for the session.
+  ending hold and clearing the cursor but keeping the range and
+  selection. M (or the palette) drops a named marker, up to 120
+  characters, a blank name becoming the time; the person's markers
+  draw solid in the accent colour with their name, the others stay
+  dashed and unlabelled. Markers last for the session.
 
 - MCP access through the app: off by default (Settings > MCP access).
   When on, the app listens on a Unix socket in a 0700 Application
