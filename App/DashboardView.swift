@@ -3459,6 +3459,8 @@ private enum LaneWindow {
 @MainActor
 final class ScrollPanner {
     static let shared = ScrollPanner()
+    /// About one text line, as AppKit scrolls by for a wheel notch.
+    nonisolated static let pointsPerLine: CGFloat = 10
     private var monitor: Any?
     private var owner: UUID?
     private var handler: ((CGFloat) -> Void)?
@@ -3469,8 +3471,10 @@ final class ScrollPanner {
         guard monitor == nil else { return }
         monitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { event in
             // Only plain values cross into the main actor; the event itself is not Sendable.
-            let deltaX = event.scrollingDeltaX
-            let deltaY = event.scrollingDeltaY
+            // A plain mouse wheel reports lines, a trackpad points; lines become points.
+            let scale = event.hasPreciseScrollingDeltas ? 1 : ScrollPanner.pointsPerLine
+            let deltaX = event.scrollingDeltaX * scale
+            let deltaY = event.scrollingDeltaY * scale
             let consumed = MainActor.assumeIsolated { () -> Bool in
                 guard let handler = ScrollPanner.shared.handler, abs(deltaX) > abs(deltaY) else { return false }
                 handler(deltaX)

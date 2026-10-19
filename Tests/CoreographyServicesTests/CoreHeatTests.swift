@@ -5,7 +5,7 @@ import CoreographyDrivers
 @testable import CoreographyServices
 
 final class CoreHeatTests: XCTestCase {
-    func testCellsSpanToTheNextSampleAndSkipUnreadCores() async throws {
+    func testCellsCoverTheIntervalTheyMeasureMergeAndSkipUnreadCores() async throws {
         let monitor = try SystemMonitor(driver: TwoCores())
         var frames: [CapturedSnapshot] = []
         for _ in 0..<3 { frames.append(try await monitor.sample()) }

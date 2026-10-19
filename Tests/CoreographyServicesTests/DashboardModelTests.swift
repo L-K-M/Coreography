@@ -91,7 +91,7 @@ final class DashboardModelTests: XCTestCase {
         let disk = LaneFacts.facts(.disk, LaneFacts.Inputs(volumes: volumes))
         // Sizes follow the locale; the mount point does not.
         let mounts = disk.filter { $0.label.hasPrefix("Volume") }.map(\.value)
-        XCTAssertEqual(mounts.count, 2)
+        guard mounts.count == 2 else { return XCTFail("two volumes, got \(mounts)") }
         XCTAssertTrue(mounts[0].hasSuffix(" at /Volumes/Untitled") && mounts[1].hasSuffix(" at /Volumes/Untitled 1"),
                       "each says where it is mounted, so the two can be told apart: \(mounts)")
         XCTAssertEqual(Set(disk.map(\.id)).count, disk.count, "row identities never repeat")
