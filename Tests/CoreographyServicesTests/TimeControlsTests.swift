@@ -53,6 +53,7 @@ final class TimeControlsTests: XCTestCase {
         model.selection = Date(timeIntervalSince1970: 0)...Date(timeIntervalSince1970: 10)
         model.comparison = Date(timeIntervalSince1970: 20)...Date(timeIntervalSince1970: 30)
         await model.run(.clearSelection)
+        XCTAssertNil(model.selection)
         XCTAssertNil(model.comparison, "a later selection must not revive it")
     }
 

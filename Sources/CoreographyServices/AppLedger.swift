@@ -207,8 +207,9 @@ struct AppLedger: Sendable {
         _ newer: (apps: [AppRangeTotal], covered: ClosedRange<Date>?)
     ) -> (apps: [AppRangeTotal], covered: ClosedRange<Date>?) {
         // Totals read network for every app or none, so one app tells for its side. A side
-        // with activity but no network reading leaves the other side's bytes a lower bound.
-        let reads = [older.apps, newer.apps].filter { !$0.isEmpty }.map { $0.contains { $0.networkBytes != nil } }
+        // with intervals but no network reading (or no app at all, which says nothing)
+        // leaves the other side's bytes a lower bound; a side without intervals changes nothing.
+        let reads = [older, newer].filter { $0.covered != nil }.map { $0.apps.contains { $0.networkBytes != nil } }
         let readsNetwork = reads.contains(true)
         let partialNetwork = readsNetwork && reads.contains(false)
         var merged: [String: AppRangeTotal] = [:]

@@ -12,8 +12,7 @@ after two GLM rounds and passing CI. The network slice in
 [PR #7](https://github.com/L-K-M/Coreography/pull/7) merged at `9ae6ca3`;
 storage-driver rates and a fourth lane merged in
 [PR #8](https://github.com/L-K-M/Coreography/pull/8) at `dc3d6bd`.
-Later slices, each merged after CI and review through PR #55; the rest are
-stacked work awaiting CI, completed review and merge:
+Later slices, each merged after CI and review:
 memory composition,
 swap and pressure in [PR #9](https://github.com/L-K-M/Coreography/pull/9);
 app grouping in [PR #10](https://github.com/L-K-M/Coreography/pull/10);

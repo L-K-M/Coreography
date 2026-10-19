@@ -246,7 +246,7 @@ struct DashboardView: View {
                 Button("Marker", systemImage: "flag") { model.markerPromptShown = true }
                     // A plain letter must not fire while any text field takes typing.
                     .keyboardShortcut(
-                        processFilterFocused || model.paletteShown || model.markerPromptShown
+                        processFilterFocused || model.paletteShown || model.markerPromptShown || !model.typingFields.isEmpty
                             ? nil : KeyboardShortcut("m", modifiers: [])
                     )
                     .help("Drop a named marker on every lane (M)")
@@ -1674,6 +1674,7 @@ private struct SampleReportView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 Button("Save…") {
+                    exportError = nil
                     exportName = "Sample of \(report.name)"
                     exportFile = ExportFile(data: Data(report.text.utf8))
                 }
@@ -2029,6 +2030,7 @@ private struct ConnectionsPane: View {
         DisclosureGroup("Connections") {
             VStack(alignment: .leading, spacing: 10) {
                 TextField("Filter: app, process, address or port", text: $model.connectionFilter)
+                    .modifier(ReportsTyping(model: model, field: "connections"))
                     .textFieldStyle(.roundedBorder)
                 Text(ConnectionText.coverage(model.connectionSnapshot))
                     .font(.caption)
@@ -2209,6 +2211,7 @@ private struct SessionNameField: View {
 
     var body: some View {
         TextField("Name", text: $name)
+            .modifier(ReportsTyping(model: model, field: "session-\(session.id)"))
             .textFieldStyle(.roundedBorder)
             .frame(width: 200)
             .onAppear { name = session.name }
@@ -3213,5 +3216,20 @@ enum LaneText {
         case .regular: String(localized: "Regular")
         case .tall: String(localized: "Tall")
         }
+    }
+}
+
+/// A text field that tells the model while it takes typing, so plain-letter
+/// shortcuts such as M stand aside.
+struct ReportsTyping: ViewModifier {
+    let model: DashboardModel
+    let field: String
+    @FocusState private var focused: Bool
+
+    func body(content: Content) -> some View {
+        content
+            .focused($focused)
+            .onChange(of: focused) { _, typing in model.setTyping(field, typing) }
+            .onDisappear { model.setTyping(field, false) }
     }
 }
