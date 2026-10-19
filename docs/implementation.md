@@ -439,11 +439,10 @@ Implemented:
   (critical memory pressure for 30 s, heavy thermal pressure for 30 s,
   battery under 15% while discharging), evaluated on live data even while
   the display is held. A raised rule tints its lane, names itself and drops
-  a marker; unknown readings pause the clocks rather than count. Only the
-  memory and battery rules notify, through UserNotifications (so Focus
-  applies), with a 15-minute cooldown and one banner per rule. The
-  startup-disk rule and Shortcut actions follow below; user-defined rules
-  remain.
+  a marker; unknown readings pause the clocks rather than count. The
+  memory, battery and startup-disk rules notify, through UserNotifications
+  (so Focus applies), with a 15-minute cooldown and one banner per rule;
+  Shortcut actions are described above. User-defined rules remain.
 - Process pane change highlighting: CPU, footprint and disk cells are
   shaded in their subsystem hue by share of the column's top row; a
   process first seen within 10 s (not present at launch) tints its name;

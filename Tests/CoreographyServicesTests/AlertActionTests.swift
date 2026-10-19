@@ -58,9 +58,12 @@ final class AlertActionTests: XCTestCase {
         XCTAssertEqual(runs, ["Free Up Space"], "one raise runs the Shortcut once")
         XCTAssertEqual(model.actionMessage, "Shortcut Free Up Space for “Startup disk under 10% free” failed: it exited with status 1")
         XCTAssertEqual(model.volumes?.volumes.map(\.name), ["Macintosh HD"], "the same read lists every volume")
+        XCTAssertTrue(model.markers.contains { $0.label == "Shortcut Free Up Space failed" }, "the timeline keeps the failure")
 
+        XCTAssertFalse(model.shortcutsUnlisted, "not listed yet is not a failure")
         await model.refreshShortcuts()
         XCTAssertEqual(model.availableShortcuts, ["Free Up Space", "Mute"])
+        XCTAssertFalse(model.shortcutsUnlisted)
     }
 }
 

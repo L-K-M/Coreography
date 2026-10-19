@@ -118,7 +118,7 @@ struct SettingsView: View {
                         ForEach(names, id: \.self) { Text($0).tag($0) }
                     }
                 }
-                Text(model.availableShortcuts == nil
+                Text(model.shortcutsUnlisted
                      ? "Shortcuts could not be listed; rules still tint their lane and notify."
                      : "A rule runs its Shortcut when it is raised, at most once every 15 minutes.")
                     .font(.caption).foregroundStyle(.secondary)

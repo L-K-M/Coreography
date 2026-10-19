@@ -819,6 +819,8 @@ public final class DashboardModel {
     public private(set) var alertShortcuts: [String: String] = [:]
     /// The person's Shortcuts, read on request; nil until read or when the tool failed.
     public private(set) var availableShortcuts: [String]?
+    /// Whether listing Shortcuts was tried and failed, as opposed to not tried yet.
+    public private(set) var shortcutsUnlisted = false
 
     public func setShortcut(_ name: String?, for ruleID: String) {
         alertShortcuts = shortcutStore.set(name, for: ruleID)
@@ -826,7 +828,13 @@ public final class DashboardModel {
 
     public func refreshShortcuts() async {
         guard let shortcutRunner else { return }
-        if case .success(let names) = await shortcutRunner.list() { availableShortcuts = names } else { availableShortcuts = nil }
+        if case .success(let names) = await shortcutRunner.list() {
+            availableShortcuts = names
+            shortcutsUnlisted = false
+        } else {
+            availableShortcuts = nil
+            shortcutsUnlisted = true
+        }
     }
 
     /// Tests keep their actions out of the person's preferences.
@@ -866,6 +874,8 @@ public final class DashboardModel {
                 self.markers.append(TimelineMarker(time: Date(), label: "Ran Shortcut \(name)", kind: .alert))
             case .failure(let error):
                 self.actionMessage = "Shortcut \(name) for “\(rule.title)” failed: \(error.description)"
+                // The timeline keeps failures too; "why did nothing run?" is asked afterwards.
+                self.markers.append(TimelineMarker(time: Date(), label: "Shortcut \(name) failed", kind: .alert))
             }
         }
     }
