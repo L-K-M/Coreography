@@ -1473,8 +1473,13 @@ private struct RangePanel: View {
             HStack {
                 Text(RangeText.span(report.requested)).font(.headline)
                 Spacer()
-                Button("Export JSON…") { export(as: .json) }
-                Button("Export CSV…") { export(as: .commaSeparatedText) }
+                let document = model.rangeExport
+                Group {
+                    Button("Export JSON…") { export(as: .json) }
+                    Button("Export CSV…") { export(as: .commaSeparatedText) }
+                }
+                .disabled(document == nil)
+                .help(RangeText.exportScope(document, requested: report.requested))
                 Button("Clear selection") { model.clearSelection() }
                     .keyboardShortcut(.cancelAction)
             }
@@ -1541,6 +1546,14 @@ private enum RangeText {
         return String(localized: "Range \(from)–\(to) (\(duration))")
     }
 
+    /// Exports carry live data only; say so when the selection reaches further back.
+    static func exportScope(_ document: RangeExport.Document?, requested: ClosedRange<Date>) -> String {
+        guard let document else { return String(localized: "Export covers live data only, which this range predates.") }
+        guard document.start > requested.lowerBound else { return "" }
+        let start = document.start.formatted(date: .omitted, time: .shortened)
+        return String(localized: "Export starts at \(start), where live data begins; recorded history is not exported yet.")
+    }
+
     static func lanes(_ report: RangeReport) -> String {
         var parts: [String] = []
         if let mean = report.cpuMeanPercent, let peak = report.cpuPeakPercent {
@@ -1553,7 +1566,9 @@ private enum RangeText {
             parts.append(String(localized: "GPU peak \(MetricText.percent(gpu))"))
         }
         if let hottest = report.hottest {
-            parts.append(String(localized: "hottest \(hottest.key) \(ThermalText.celsius(hottest.celsius))"))
+            let celsius = ThermalText.celsius(hottest.celsius)
+            parts.append(hottest.key.map { String(localized: "hottest \($0) \(celsius)") }
+                ?? String(localized: "hottest \(celsius)"))
         }
         return parts.isEmpty ? String(localized: "No samples in this range") : parts.joined(separator: " · ")
     }

@@ -12,6 +12,11 @@ import CoreographyKit
 /// Each series is decimated when loaded, so redraws never touch the disk.
 /// Stored series follow the recorder's choices: the primary interface, an
 /// automatic storage device and the first GPU.
+struct StoredValue: Sendable {
+    let time: Date
+    let value: Double
+}
+
 struct StoredHistory: Sendable {
     /// Recording runs at 1 s; a longer silence (sleep, the app not running) is a gap.
     static let maximumGap: TimeInterval = 3
@@ -19,6 +24,8 @@ struct StoredHistory: Sendable {
         .cpu, .memoryUsed, .networkReceived, .networkSent, .diskRead, .diskWritten,
         .gpuBusy, .batteryCharge, .hottestCelsius
     ]
+    /// Range reports need true means and peaks, not the drawn extremes.
+    private static let reportMetrics: Set<HistoryMetric> = [.cpu, .memoryUsed, .gpuBusy, .hottestCelsius]
     private static let stackMetrics: [(MemoryCategory, HistoryMetric)] = [
         (.app, .memoryApp), (.wired, .memoryWired), (.compressed, .memoryCompressed), (.cached, .memoryCached)
     ]
@@ -29,6 +36,10 @@ struct StoredHistory: Sendable {
     private(set) var memoryStack: [MemoryStackPoint] = []
     private(set) var memoryPressure: [MemoryPressureSpan] = []
     private(set) var thermalPressure: [ThermalPressureSpan] = []
+    /// Raw measured values for range reports; about 1.4 MB for six hours.
+    private(set) var reportValues: [HistoryMetric: [StoredValue]] = [:]
+    /// The stored app ledger, for range totals and scoped apps before the live hour.
+    private(set) var ledger = AppLedger(capacity: 1)
 
     /// Read and reduce every lane's series; runs off the main actor.
     static func load(from recorder: HistoryRecorder, start: Date, end: Date) async throws -> StoredHistory {
@@ -36,7 +47,13 @@ struct StoredHistory: Sendable {
         for metric in lineMetrics {
             let samples = try await recorder.samples(metric, from: start, to: end)
             history.lines[metric] = Decimation.points(points(samples), start: start, end: end)
+            if reportMetrics.contains(metric) {
+                history.reportValues[metric] = samples.compactMap { sample in
+                    sample.value.map { StoredValue(time: sample.time, value: $0) }
+                }
+            }
         }
+        history.ledger = AppLedger(stored: try await recorder.ledger(from: start, to: end))
 
         var layers: [MemoryCategory: [HistorySample]] = [:]
         for (category, metric) in stackMetrics {
@@ -55,6 +72,11 @@ struct StoredHistory: Sendable {
                     .map { ThermalPressureSpan(id: UUID(), start: span.start, end: span.end, level: $0) }
             }
         return history
+    }
+
+    /// Measured values in the range that predate `cutoff`, where live data takes over.
+    func values(_ metric: HistoryMetric, in range: ClosedRange<Date>, before cutoff: Date) -> [Double] {
+        (reportValues[metric] ?? []).filter { range.contains($0.time) && $0.time < cutoff }.map(\.value)
     }
 
     /// Missing readings and silences longer than `maximumGap` start new segments.

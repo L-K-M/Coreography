@@ -166,6 +166,47 @@ final class DashboardModelTests: XCTestCase {
         XCTAssertFalse(model.points(for: .cpu).contains { $0.time < now }, "deleted history leaves the screen")
     }
 
+    func testStoredLedgerReachesReportsAndScopeWhileExportStaysLive() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("coreo-ranges-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = try HistoryStore(directory: directory)
+        let now = Date()
+        let threeHoursAgo = now.addingTimeInterval(-3 * 3600)
+        let intervals = (0..<10).map { index in
+            LedgerInterval(
+                start: threeHoursAgo.addingTimeInterval(Double(index * 2)), end: threeHoursAgo.addingTimeInterval(Double(index * 2 + 2)),
+                cores: 4, entries: [LedgerEntry(app: "Worker", cpuSeconds: 2, diskBytes: 100, isLowerBound: false)]
+            )
+        }
+        try await store.append([], ledger: intervals, now: now)
+
+        let model = DashboardModel(
+            monitor: try SystemMonitor(driver: IncreasingHostDriver(origin: now)), interval: .milliseconds(10),
+            historyRecorder: HistoryRecorder(store: store)
+        )
+        model.start()
+        defer { model.stop() }
+        try await eventually { model.frames.count >= 2 }
+        model.scopedApp = "Worker"
+        model.timeRange = .sixHours
+        try await eventually { model.scopedSeries()?.cpu.contains { $0.time < now } ?? false }
+        XCTAssertEqual(model.scopedSeries()?.cpu.first?.value ?? 0, 25, accuracy: 1e-9, "2 CPU-seconds over 2 s of 4 cores")
+
+        model.selection = threeHoursAgo.addingTimeInterval(-60)...now.addingTimeInterval(60)
+        XCTAssertEqual(model.rangeReport?.topCPUApps.first?.cpuSeconds ?? 0, 20, accuracy: 1e-9)
+        let export = try XCTUnwrap(model.rangeExport)
+        XCTAssertGreaterThanOrEqual(export.start, now, "exports start where live data does")
+
+        model.selection = threeHoursAgo...threeHoursAgo.addingTimeInterval(20)
+        XCTAssertNil(model.rangeExport, "a selection entirely in stored history has no live data to export")
+    }
+
+    func testNothingExportsBeforeTheFirstLiveSample() async throws {
+        let model = DashboardModel(monitor: try SystemMonitor(driver: IncreasingHostDriver()), interval: .milliseconds(10))
+        model.selection = Date().addingTimeInterval(-60)...Date()
+        XCTAssertNil(model.rangeExport, "no live data, nothing to export")
+    }
+
     func testSixHourRangeWithoutRecordingNamesTheMissingHistory() async throws {
         let model = DashboardModel(monitor: try SystemMonitor(driver: IncreasingHostDriver()), interval: .milliseconds(10))
         model.timeRange = .sixHours
