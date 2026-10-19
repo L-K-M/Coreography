@@ -430,6 +430,14 @@ Implemented:
   explicitly; sleep history arrived with the sleep import below.
   `coreo diagnose --json [--seconds N]` samples 3-60 s and prints a report
   an assistant can use. MCP transport and the app bridge remain M5.
+- `coreo top [--json] [--count N] [--sort KEY]` ranks apps and lone
+  processes, grouped as the pane groups them, after a two-second
+  baseline, and without `--json` redraws every two seconds.
+  `coreo holders --json --port N` and `--file TEXT` answer which of your
+  processes hold a port or an open file, with the same limitations the
+  app's reverse lookup names. Native CI checks the memory order and that
+  a listener holding a port and a file is found. `record` and `export`
+  from the command line remain, since recordings belong to the app.
 - `coreo mcp --stdio`: a read-only MCP server (JSON-RPC 2.0, protocol
   2025-06-18, also accepting 2025-03-26 and 2024-11-05) exposing the six
   contract tools with JSON schemas and read-only annotations. It runs the
