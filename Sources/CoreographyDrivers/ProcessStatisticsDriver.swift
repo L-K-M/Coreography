@@ -40,6 +40,14 @@ public struct ProcessCounters: Equatable, Sendable {
     }
 }
 
+/// The instruction set a process runs, as the OS reports it.
+public enum ProcessCPUType: Equatable, Sendable {
+    case arm64
+    case x86_64
+    /// x86_64 code translated by Rosetta on Apple silicon.
+    case x86_64Translated
+}
+
 public struct RawProcessInfo: Sendable {
     public let pid: Int32
     public let parentPID: UInt32
@@ -54,6 +62,7 @@ public struct RawProcessInfo: Sendable {
     public let responsiblePID: Int32?
     /// Threads the process has now; a gauge, read with the counters.
     public let threads: Result<Int, ProcessDriverError>
+    public let cpuType: Result<ProcessCPUType, ProcessDriverError>
 
     public init(
         pid: Int32, parentPID: UInt32, uid: UInt32,
@@ -61,7 +70,8 @@ public struct RawProcessInfo: Sendable {
         monotonicNanoseconds: UInt64,
         counters: Result<ProcessCounters, ProcessDriverError>,
         executablePath: String? = nil, responsiblePID: Int32? = nil,
-        threads: Result<Int, ProcessDriverError> = .failure(.unsupportedPlatform)
+        threads: Result<Int, ProcessDriverError> = .failure(.unsupportedPlatform),
+        cpuType: Result<ProcessCPUType, ProcessDriverError> = .failure(.unsupportedPlatform)
     ) {
         self.pid = pid
         self.parentPID = parentPID
@@ -74,6 +84,7 @@ public struct RawProcessInfo: Sendable {
         self.executablePath = executablePath
         self.responsiblePID = responsiblePID
         self.threads = threads
+        self.cpuType = cpuType
     }
 }
 
@@ -135,6 +146,16 @@ public actor ProcessStatisticsDriver: ProcessSampleReading {
     private let clockID = UUID()
     private let logicalCPUCount = ProcessInfo.processInfo.processorCount
     private let collectorPID = ProcessInfo.processInfo.processIdentifier
+    /// A process's CPU type never changes, so each identity is asked once;
+    /// failures are not kept. Pruned to the processes of the latest read.
+    private var cpuTypes: [CPUTypeKey: ProcessCPUType] = [:]
+    private var hostIsARM64: Result<Bool, ProcessDriverError>?
+
+    private struct CPUTypeKey: Hashable {
+        let pid: Int32
+        let startSeconds: UInt64
+        let startMicroseconds: UInt64
+    }
 
     public init() {}
 
@@ -203,9 +224,16 @@ public actor ProcessStatisticsDriver: ProcessSampleReading {
                 responsiblePID: sample.responsible_error == 0 ? sample.responsible_pid : nil,
                 threads: sample.threads_error == 0
                     ? .success(Int(sample.threads))
-                    : .failure(Self.failure(sample.threads_error, operation: "PROC_PIDTASKINFO"))
+                    : .failure(Self.failure(sample.threads_error, operation: "PROC_PIDTASKINFO")),
+                cpuType: cpuType(CPUTypeKey(
+                    pid: pid, startSeconds: sample.start_seconds, startMicroseconds: sample.start_microseconds
+                ))
             ))
         }
+        let current = Set(processes.map {
+            CPUTypeKey(pid: $0.pid, startSeconds: $0.startSeconds, startMicroseconds: $0.startMicroseconds)
+        })
+        cpuTypes = cpuTypes.filter { current.contains($0.key) }
         return .success(ProcessEnumeration(
             processes: processes, failures: failures,
             isTruncated: truncated != 0 || Task.isCancelled
@@ -216,6 +244,31 @@ public actor ProcessStatisticsDriver: ProcessSampleReading {
     }
 
     #if os(macOS)
+    private func cpuType(_ key: CPUTypeKey) -> Result<ProcessCPUType, ProcessDriverError> {
+        if let known = cpuTypes[key] { return .success(known) }
+
+        var translated: Int32 = 0
+        let status = coreo_process_translated(key.pid, key.startSeconds, key.startMicroseconds, &translated)
+        guard status == 0 else { return .failure(Self.failure(status, operation: "KERN_PROC_PID")) }
+
+        let host = hostIsARM64 ?? Self.readHostIsARM64()
+        if case .success = host { hostIsARM64 = host }
+        let type: ProcessCPUType
+        switch host {
+        case .failure(let error): return .failure(error)
+        case .success(true): type = translated != 0 ? .x86_64Translated : .arm64
+        case .success(false): type = .x86_64
+        }
+        cpuTypes[key] = type
+        return .success(type)
+    }
+
+    private static func readHostIsARM64() -> Result<Bool, ProcessDriverError> {
+        var isARM64: Int32 = 0
+        let status = coreo_host_is_arm64(&isARM64)
+        return status == 0 ? .success(isARM64 != 0) : .failure(failure(status, operation: "hw.optional.arm64"))
+    }
+
     private static func failure(_ code: Int32, operation: String) -> ProcessDriverError {
         switch code {
         case EPERM, EACCES: .restricted(code: code)

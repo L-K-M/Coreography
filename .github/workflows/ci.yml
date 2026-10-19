@@ -208,6 +208,8 @@ jobs:
           assert own["executablePath"].endswith("/Coreography.app/Contents/Helpers/coreo")
           threads = own["threadCount"]
           assert threads["availability"] == "measured" and threads["numericValue"] >= 1, threads
+          # The universal coreo runs its native slice, never under Rosetta.
+          assert own.get("architecture") in ("appleSilicon", "intel"), own.get("architecture")
           # coreo opens no GPU connection, so its GPU time is a measured zero.
           gpu = own["gpuMillisecondsPerSecond"]
           assert gpu["availability"] == "measured" and gpu["numericValue"] == 0, gpu

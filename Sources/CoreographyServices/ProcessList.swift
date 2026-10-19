@@ -3,6 +3,7 @@ import CoreographyKit
 
 public typealias CapturedProcesses = ProcessSnapshot
 public typealias ObservedProcess = ProcessReading
+public typealias ObservedArchitecture = ProcessArchitecture
 
 public enum ProcessSort: String, CaseIterable, Identifiable, Sendable {
     case cpu, memory, diskRead, diskWrite, network, gpu, power, name

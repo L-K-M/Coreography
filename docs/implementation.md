@@ -383,7 +383,10 @@ Implemented:
   Threads are an opt-in column and sort too, read with each sample's
   task info; another user's count is restricted, never zero, and the
   header totals the counts it read ("at least" when some were not).
-  QoS, instructions, ports, architecture and signing columns remain.
+  Architecture is opt-in as well: Apple, Intel, or Intel under Rosetta
+  from the process's `P_TRANSLATED` flag, read once per process; an app
+  lists each kind its members run, and `#rosetta` filters to translated
+  processes. QoS, instructions, ports and signing columns remain.
 - The memory lane stacks the composition under the physical-memory line,
   draws a pressure band above it, and has a ten-column numeric table and
   per-layer chart accessibility. `coreo snapshot` exports the same detail.

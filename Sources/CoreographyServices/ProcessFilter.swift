@@ -4,7 +4,7 @@ import CoreographyKit
 /// A parsed process filter (plan P22). Whitespace separates terms; every
 /// term must match. Examples: `safari`, `cpu:>10`, `mem:>1GB`, `disk:>5MB`,
 /// `pid:42`, `user:root`, `user:me`, `user:alice`, `#apps`, `#mine`, `#third-party`, `#new`,
-/// `#listening`, `#preventing-sleep`, `port:443`, `file:~/Downloads`.
+/// `#listening`, `#preventing-sleep`, `#rosetta`, `port:443`, `file:~/Downloads`.
 /// Terms that cannot be evaluated are reported, never silently dropped.
 public typealias CapturedAssertions = AssertionSnapshot
 public typealias CapturedAssertion = SleepAssertion
@@ -68,6 +68,8 @@ public struct ProcessFilter: Equatable, Sendable {
 
     enum Token: String, Sendable {
         case apps, mine, root, thirdParty = "third-party", new, listening, preventingSleep = "preventing-sleep"
+        /// Intel code translated on Apple silicon.
+        case rosetta
     }
 
     enum Term: Equatable, Sendable {
@@ -242,6 +244,8 @@ public struct ProcessFilter: Equatable, Sendable {
                 return facts.sockets?.listening.contains(process.id) ?? false
             case .token(.preventingSleep):
                 return facts.sleepPreventers?.contains(process.id.pid) ?? false
+            case .token(.rosetta):
+                return process.architecture == .intelTranslated
             case .port(let port):
                 return facts.sockets?.ports[process.id]?.contains(port) ?? false
             case .file(let path):
