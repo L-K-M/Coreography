@@ -2070,7 +2070,7 @@ private enum ProcessText {
         return Duration.seconds(seconds).formatted(.time(pattern: .hourMinuteSecond))
     }
 
-    /// Example: "Oct 19, 09:14:03".
+    /// Example: "Oct 19, 9:14:03 AM" in English.
     static func started(_ date: Date) -> String {
         date.formatted(.dateTime.month(.abbreviated).day().hour().minute().second())
     }
