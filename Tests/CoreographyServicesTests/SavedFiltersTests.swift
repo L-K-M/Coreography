@@ -20,6 +20,17 @@ final class SavedFiltersTests: XCTestCase {
         XCTAssertEqual(store.all.first, "pid:19")
     }
 
+    func testStoredDuplicatesAndBlanksNeverReachTheChips() throws {
+        let suite = "coreo-filters-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        // An older build or a hand edit: the row keys chips by their text.
+        defaults.set(["cpu:>10", "\n", "cpu:>10", "#new"], forKey: "savedProcessFilters")
+        let store = SavedFilters(defaults: defaults)
+        XCTAssertEqual(store.all, ["cpu:>10", "#new"])
+        XCTAssertEqual(store.remove("#absent"), ["cpu:>10", "#new"])
+    }
+
     @MainActor
     func testTheModelSavesTheCurrentFilter() async throws {
         let suite = "coreo-model-filters-\(UUID().uuidString)"

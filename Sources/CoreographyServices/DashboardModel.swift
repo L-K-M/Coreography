@@ -1792,6 +1792,9 @@ public final class DashboardModel {
 
     public func saveProcessFilter() { savedFilters = filterStore.save(processFilter) }
 
+    /// Blank by the store's own test, so the button never offers a save that does nothing.
+    public var canSaveProcessFilter: Bool { !SavedFilters.isBlank(processFilter) }
+
     public func removeSavedFilter(_ filter: String) { savedFilters = filterStore.remove(filter) }
 
     /// Tests keep their chips out of the person's preferences.

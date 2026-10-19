@@ -1599,13 +1599,17 @@ private struct SavedFilterChips: View {
         HStack(spacing: 6) {
             Button("Save filter", systemImage: "bookmark") { model.saveProcessFilter() }
                 .labelStyle(.iconOnly)
-                .disabled(model.processFilter.trimmingCharacters(in: .whitespaces).isEmpty)
+                .disabled(!model.canSaveProcessFilter)
                 .help("Keep this filter as a chip")
             ForEach(model.savedFilters, id: \.self) { filter in
+                let active = model.processFilter.trimmingCharacters(in: .whitespacesAndNewlines) == filter
                 Button(filter) { model.processFilter = filter }
+                    .lineLimit(1)
                     .buttonStyle(.bordered)
                     .buttonBorderShape(.capsule)
                     .controlSize(.small)
+                    .tint(active ? .accentColor : nil)
+                    .help("Click to filter; right-click to remove")
                     .contextMenu { Button("Remove", role: .destructive) { model.removeSavedFilter(filter) } }
             }
         }
