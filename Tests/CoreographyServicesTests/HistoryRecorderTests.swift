@@ -47,6 +47,19 @@ final class HistoryRecorderTests: XCTestCase {
         XCTAssertEqual(samples.first { $0.metric == .thermalPressure }?.availability, .unavailable)
     }
 
+    /// Without an SMC rail (no sensors frame at all), the battery's draw is still the window's system power.
+    func testBatteryDrawIsRecordedWithoutASensorsFrame() async throws {
+        let monitor = try PowerMonitor(driver: Discharging())
+        let power = try await monitor.sample()
+        var sources = RecordedSources()
+        let samples = HistorySamples.latest(
+            host: nil, network: nil, disks: nil, gpu: nil, power: power, sensors: nil, sources: &sources
+        )
+        let system = try XCTUnwrap(samples.first { $0.metric == .systemPower })
+        XCTAssertEqual(system.value ?? 0, 12, accuracy: 1e-9)
+        XCTAssertEqual(system.time, power.stamp.wallTime)
+    }
+
     func testLedgerIntervalsReachTheStoreAndRebuildTheSameTotals() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("coreo-ledger-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -135,6 +148,23 @@ private actor HostOnce: HostSampleReading {
             )),
             swap: .success(SwapUsage(totalBytes: 0, usedBytes: 0)), memoryPressure: .success(.normal),
             thermalPressure: .failure(.systemCall(operation: "notify", code: 5))
+        )
+    }
+}
+
+/// Unplugged, drawing 12 W from the battery.
+private actor Discharging: PowerSampleReading {
+    func read() async -> RawPowerSnapshot {
+        RawPowerSnapshot(
+            clockID: UUID(), monotonicNanoseconds: 1, wallTime: Date(timeIntervalSince1970: 1_700_000_000),
+            battery: .success(BatteryState(
+                chargePercent: 80, powerSource: .battery, isCharging: false, minutesToEmpty: 300, minutesToFull: nil
+            )),
+            gauge: .success(BatteryGauge(
+                voltageMillivolts: 12_000, amperageMilliamps: -1_000, cycleCount: 10,
+                designCapacityMilliampHours: 5_000, fullChargeCapacityMilliampHours: 4_500
+            )),
+            adapterWatts: .failure(.unavailable(reason: "Fixture"))
         )
     }
 }

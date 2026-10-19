@@ -176,7 +176,7 @@ public actor HistoryStore {
     public static let monthBucket: TimeInterval = 60
     /// Hard size cap; the oldest rows go first when it is exceeded.
     public static let maximumBytes: Int64 = 256 * 1024 * 1024
-    private static let schemaVersion = 5
+    static let schemaVersion = 5
     /// Columns added after their tables shipped: (table, column, definition).
     private static let addedColumns = [
         ("ledger_intervals", "network", "INTEGER NOT NULL DEFAULT 0"),
@@ -223,6 +223,13 @@ public actor HistoryStore {
             try FileManager.default.setAttributes([.posixPermissions: Self.directoryPermissions], ofItemAtPath: directory.path)
             fileURL = directory.appendingPathComponent(Self.fileName)
             connection = try SQLiteConnection(path: fileURL.path)
+            // A newer build's store keeps its label and rows; this build cannot read its schema.
+            let version = try Self.userVersion(connection)
+            guard version <= Self.schemaVersion else {
+                throw HistoryStoreError.storage(
+                    "History was written by a newer Coreography (schema \(version)); update Coreography to keep recording"
+                )
+            }
             try connection.execute("PRAGMA journal_mode=WAL")
             try connection.execute("PRAGMA synchronous=NORMAL")
             try connection.execute("""
@@ -256,7 +263,7 @@ public actor HistoryStore {
                 ) WITHOUT ROWID
                 """)
             try Self.addMissingColumns(connection)
-            try connection.execute("PRAGMA user_version=\(Self.schemaVersion)")
+            if version != Self.schemaVersion { try connection.execute("PRAGMA user_version=\(Self.schemaVersion)") }
             for suffix in ["", "-wal", "-shm"] where FileManager.default.fileExists(atPath: fileURL.path + suffix) {
                 try FileManager.default.setAttributes([.posixPermissions: Self.filePermissions], ofItemAtPath: fileURL.path + suffix)
             }
@@ -548,22 +555,44 @@ public actor HistoryStore {
         appIDs.removeAll()
     }
 
+    /// Retention deletes, run on every write; each must seek its table's key.
+    /// Sample tables lead with the metric, so they delete one metric at a time.
+    enum Prune {
+        static let recentSamples = "DELETE FROM samples WHERE metric = ? AND t < ?"
+        static let ledgerIntervals = "DELETE FROM ledger_intervals WHERE t_end < ?"
+        static let ledgerEntries = "DELETE FROM ledger_entries WHERE t_end < ?"
+        static let daySamples = "DELETE FROM day_samples WHERE metric = ? AND t < ?"
+        static let monthSamples = "DELETE FROM month_samples WHERE metric = ? AND t < ?"
+        static let appDays = "DELETE FROM app_days WHERE day < ?"
+        static let all = [recentSamples, ledgerIntervals, ledgerEntries, daySamples, monthSamples, appDays]
+
+        /// One row per metric for the sample tables' deletes.
+        static func perMetric(before cutoff: Date) -> [[SQLiteValue]] {
+            HistoryMetric.allCases.map { [.integer(Int64($0.rawValue)), .real(cutoff.timeIntervalSince1970)] }
+        }
+    }
+
     private func pruneDay(before cutoff: Date) throws {
-        try connection.run("DELETE FROM day_samples WHERE t < ?", rows: [[.real(cutoff.timeIntervalSince1970)]])
+        try connection.run(Prune.daySamples, rows: Prune.perMetric(before: cutoff))
     }
 
     /// A day's totals stay until all of the day is older than the cutoff.
     private func pruneMonth(before cutoff: Date) throws {
-        try connection.run("DELETE FROM month_samples WHERE t < ?", rows: [[.real(cutoff.timeIntervalSince1970)]])
-        try connection.run("DELETE FROM app_days WHERE day < ?", rows: [[.real(day(of: cutoff.timeIntervalSince1970))]])
+        try connection.run(Prune.monthSamples, rows: Prune.perMetric(before: cutoff))
+        try connection.run(Prune.appDays, rows: [[.real(day(of: cutoff.timeIntervalSince1970))]])
     }
 
     /// The Recent tables only: the Day tier keeps its own, longer retention.
     private func prune(before cutoff: Date) throws {
         let time: [[SQLiteValue]] = [[.real(cutoff.timeIntervalSince1970)]]
-        try connection.run("DELETE FROM samples WHERE t < ?", rows: time)
-        try connection.run("DELETE FROM ledger_intervals WHERE t_end < ?", rows: time)
-        try connection.run("DELETE FROM ledger_entries WHERE t_end < ?", rows: time)
+        try connection.run(Prune.recentSamples, rows: Prune.perMetric(before: cutoff))
+        try connection.run(Prune.ledgerIntervals, rows: time)
+        try connection.run(Prune.ledgerEntries, rows: time)
+    }
+
+    private static func userVersion(_ connection: SQLiteConnection) throws -> Int {
+        guard case .integer(let version)? = try connection.query("PRAGMA user_version").first?.first else { return 0 }
+        return Int(version)
     }
 
     /// Over the cap, drop the oldest tenth of history until live data fits

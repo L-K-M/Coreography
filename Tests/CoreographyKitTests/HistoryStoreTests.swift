@@ -239,6 +239,27 @@ final class HistoryStoreTests: XCTestCase {
         XCTAssertEqual(days.first { $0.app == "New App" }?.networkBytes, 500)
     }
 
+    /// Retention runs on every write; a full scan of six hours of samples would cost CPU every second.
+    func testRetentionDeletesSeekTheKey() throws {
+        _ = try HistoryStore(directory: directory)
+        let connection = try SQLiteConnection(path: directory.appendingPathComponent("history.sqlite").path)
+        for statement in HistoryStore.Prune.all {
+            let plan = try connection.query("EXPLAIN QUERY PLAN " + statement, [.real(0)])
+                .compactMap { row in row.last.flatMap { if case .text(let detail) = $0 { detail } else { nil } } }
+            XCTAssertFalse(plan.isEmpty, statement)
+            XCTAssertTrue(plan.allSatisfy { $0.hasPrefix("SEARCH") }, "\(statement): \(plan)")
+        }
+    }
+
+    func testANewerStoreIsRefusedRatherThanRelabelled() throws {
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let path = directory.appendingPathComponent("history.sqlite").path
+        try SQLiteConnection(path: path).execute("PRAGMA user_version=\(HistoryStore.schemaVersion + 1)")
+        XCTAssertThrowsError(try HistoryStore(directory: directory))
+        let version = try SQLiteConnection(path: path).query("PRAGMA user_version").first?.first
+        XCTAssertEqual(version, .integer(Int64(HistoryStore.schemaVersion + 1)), "an older build leaves the newer label alone")
+    }
+
     func testARetentionPlanAppliesFromTheNextWrite() async throws {
         let store = try HistoryStore(directory: directory)
         await store.setRetention(RetentionPlan(recent: 3600, day: 86_400))
@@ -258,6 +279,19 @@ final class HistoryStoreTests: XCTestCase {
         try await store.append([sample(.cpu, -HistoryStore.retention - 5, 1), sample(.cpu, -60, 2)], now: now)
         let kept = try await store.samples(.cpu, from: .distantPast, to: now)
         XCTAssertEqual(kept.map(\.value), [2])
+    }
+
+    /// coreo opens the store beside the app; a held write lock must make it wait, not fail.
+    func testASecondWriterWaitsForTheLockInsteadOfFailing() throws {
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let path = directory.appendingPathComponent("lock.sqlite").path
+        nonisolated(unsafe) let holder = try SQLiteConnection(path: path)
+        try holder.execute("PRAGMA journal_mode=WAL; CREATE TABLE t(x)")
+        try holder.execute("BEGIN IMMEDIATE")
+        DispatchQueue.global().asyncAfter(deadline: .now() + 0.2) { try? holder.execute("COMMIT") }
+
+        let waiter = try SQLiteConnection(path: path)
+        XCTAssertNoThrow(try waiter.execute("INSERT INTO t VALUES (1)"))
     }
 
     func testPersistsAcrossReopenWithPrivateFilesInWALMode() async throws {

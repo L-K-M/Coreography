@@ -143,6 +143,24 @@ final class DashboardModelTests: XCTestCase {
         XCTAssertTrue(model.points(for: .cpu).allSatisfy { $0.time >= now }, "leaving the range drops the stored part")
     }
 
+    func testQuittingWritesTheBufferedHistory() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("coreo-quit-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = try HistoryStore(directory: directory)
+        let model = DashboardModel(
+            monitor: try SystemMonitor(driver: IncreasingHostDriver(origin: Date())), interval: .milliseconds(10),
+            historyRecorder: HistoryRecorder(store: store)
+        )
+        model.start()
+        try await eventually { model.frames.count >= 3 }
+        let buffered = try await store.sampleCount()
+        XCTAssertEqual(buffered, 0, "samples wait in the buffer between writes")
+
+        await model.stopForQuit()
+        let written = try await store.sampleCount()
+        XCTAssertGreaterThan(written, 0, "quitting writes them before it returns")
+    }
+
     func testDeletingHistoryDropsTheStoredPartAtOnceEvenWhileHeld() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("coreo-replay-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: directory) }

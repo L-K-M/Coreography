@@ -7,6 +7,17 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
 ## [Unreleased]
 
 ### Fixed
+- Quitting writes the history recorded since the last write instead of
+  dropping up to 30 seconds of it.
+- History retention deletes seek each table's key instead of scanning
+  six hours of samples on every write.
+- `coreo history` waits for the app's write instead of failing with
+  "database is locked", and an older build no longer relabels a newer
+  history store; it reports that it needs updating.
+- Battery draw is recorded as system power on Macs without a sensors
+  frame, as the window shows it.
+- Delete history asks for confirmation, and a write that fails while
+  history is being deleted no longer brings the deleted readings back.
 - System-process notes require a system executable path, except for the
   kernel's PID 0, and no longer promise that quitting is safe.
 - The history size cap no longer drops more history on every write

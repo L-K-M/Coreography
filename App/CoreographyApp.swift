@@ -30,6 +30,7 @@ private struct CoreographyApp: App {
         mcpAccess = access
         mcpApproval = MCPApprovalPresenter(access: access, automation: automation)
         AutomationAppDelegate.onTerminate = { access.shutdown() }
+        AutomationAppDelegate.beforeTerminate = { await model.stopForQuit() }
     }
 
     var body: some Scene {
