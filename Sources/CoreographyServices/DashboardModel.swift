@@ -111,8 +111,14 @@ public final class DashboardModel {
     }
     /// The pane under the lanes; connections are read only while shown or filtered on.
     public var detailPane: DetailPane = .processes {
-        didSet { if wantsConnections { sampleConnections() } }
+        didSet {
+            if wantsConnections { sampleConnections() }
+            if detailPane == .sensors { publishSensorStats() }
+        }
     }
+    /// The Sensors tab: each reading's current, minimum, maximum and mean since reset.
+    public private(set) var sensorRows: [SensorStatRow] = []
+    public private(set) var sensorStatsSince: Date?
     /// Free text over app, process, address and port in the Connections tab.
     public var connectionFilter = ""
     /// Displayed (possibly held) sockets; nil until first read.
@@ -152,6 +158,7 @@ public final class DashboardModel {
     @ObservationIgnored private let connectionMonitor: ConnectionMonitor?
     @ObservationIgnored private var connectionSample: Task<Void, Never>?
     @ObservationIgnored private var liveConnections: CapturedConnections?
+    @ObservationIgnored private var sensorStats = SensorStats()
     /// The on-disk part of a range longer than live history; nil otherwise.
     private var storedHistory: StoredHistory?
     @ObservationIgnored private var storedLoad: Task<Void, Never>?
@@ -781,9 +788,11 @@ public final class DashboardModel {
                         power = await powerMonitor.history()
                     }
                     var sensors: [CapturedSensors]?
+                    var temperatures: [CapturedTemperature] = []
                     if let sensorMonitor {
                         _ = try await sensorMonitor.sample()
                         sensors = await sensorMonitor.history()
+                        temperatures = await sensorMonitor.temperatures()
                     }
                     var processes: CapturedProcesses?
                     if let processMonitor, ContinuousClock.now >= nextProcessSample {
@@ -807,7 +816,13 @@ public final class DashboardModel {
                     if let disks { self.liveDiskFrames = disks }
                     if let gpus { self.liveGPUFrames = gpus }
                     if let power { self.livePowerFrames = power }
-                    if let sensors { self.liveSensorFrames = sensors }
+                    if let sensors {
+                        self.liveSensorFrames = sensors
+                        self.sensorStats.record(
+                            temperatures: temperatures, sensors: sensors.last, at: sensors.last?.stamp.wallTime ?? Date()
+                        )
+                        if self.displayMode == .live, self.detailPane == .sensors { self.publishSensorStats() }
+                    }
                     self.evaluateAlerts()
                     self.recordHistory()
                     if self.timeRange.reachesStoredHistory, self.recordsHistory { self.refreshStoredHistory() }
@@ -861,6 +876,19 @@ public final class DashboardModel {
         powerFrames = livePowerFrames
         sensorFrames = liveSensorFrames
         connectionSnapshot = liveConnections
+        if detailPane == .sensors { publishSensorStats() }
+    }
+
+    /// Start the Sensors tab's statistics over (plan P15).
+    public func resetSensorStats() {
+        sensorStats.reset()
+        publishSensorStats()
+    }
+
+    /// Rows change only while the Sensors tab shows, so a hidden tab costs no redraws.
+    private func publishSensorStats() {
+        sensorRows = sensorStats.rows()
+        sensorStatsSince = sensorStats.since
     }
 
     public func reading(for metric: DashboardMetric) -> DashboardReading? {

@@ -42,14 +42,16 @@ struct DashboardView: View {
                 Picker("Detail", selection: $model.detailPane) {
                     Text("Processes").tag(DetailPane.processes)
                     Text("Connections").tag(DetailPane.connections)
+                    Text("Sensors").tag(DetailPane.sensors)
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
-                .frame(width: 260)
+                .frame(width: 360)
 
                 switch model.detailPane {
                 case .processes: ProcessPane(model: model, filterFocused: $processFilterFocused)
                 case .connections: ConnectionsPane(model: model)
+                case .sensors: SensorsPane(model: model)
                 }
 
                 DisclosureGroup("Numeric readings") {
@@ -1462,6 +1464,50 @@ private struct ConnectionsPane: View {
                 .frame(height: 260)
             }
         }
+    }
+}
+
+/// Every sensor with current, minimum, maximum and mean since reset (plan P15).
+private struct SensorsPane: View {
+    let model: DashboardModel
+
+    var body: some View {
+        DisclosureGroup("Sensors") {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    Text(SensorText.since(model.sensorStatsSince))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Reset") { model.resetSensorStats() }
+                        .help("Start minimum, maximum and mean over from now")
+                }
+                Table(model.sensorRows) {
+                    TableColumn("Group") { Text($0.group) }
+                    TableColumn("Sensor") { Text($0.name) }
+                    TableColumn("Current") { Text(SensorText.value($0.current, of: $0)) }
+                    TableColumn("Min") { Text(SensorText.value($0.minimum, of: $0)) }
+                    TableColumn("Max") { Text(SensorText.value($0.maximum, of: $0)) }
+                    TableColumn("Average") { Text(SensorText.value($0.mean, of: $0)) }
+                }
+                .frame(height: 260)
+            }
+        }
+        .monospacedDigit()
+    }
+}
+
+private enum SensorText {
+    static func since(_ start: Date?) -> String {
+        guard let start else { return String(localized: "No sensor readings yet; Macs without AppleSMC have none") }
+        return String(localized: "Since \(start.formatted(date: .omitted, time: .standard))")
+    }
+
+    /// One decimal for temperatures and watts; whole revolutions for fans.
+    static func value(_ value: Double?, of row: SensorStatRow) -> String {
+        guard let value else { return "–" }
+        let digits = row.kind == .fan ? 0 : 1
+        return value.formatted(.number.precision(.fractionLength(digits))) + " " + row.unit
     }
 }
 

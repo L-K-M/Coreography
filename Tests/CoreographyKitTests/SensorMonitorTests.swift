@@ -49,6 +49,23 @@ final class SensorMonitorTests: XCTestCase {
         XCTAssertEqual(sensors.fans.first?.maximumRPM.availability, .unavailable)
     }
 
+    func testEveryPlausibleTemperatureOfTheNewestSampleIsListed() async throws {
+        let monitor = try SensorMonitor(driver: FixtureSensorDriver([.success(RawSensors(
+            power: [], temperatures: [
+                RawSensorValue(key: "Tp09", value: 71.5), RawSensorValue(key: "Te05", value: 48),
+                RawSensorValue(key: "TZ99", value: 400)
+            ],
+            fans: [], discoveryTruncated: false
+        ))]))
+        _ = try await monitor.sample()
+        let temperatures = await monitor.temperatures()
+        XCTAssertEqual(temperatures.map(\.key), ["Te05", "Tp09"], "faults excluded, sorted by key")
+        XCTAssertEqual(temperatures.first?.region, "CPU efficiency cores")
+        await monitor.reset()
+        let cleared = await monitor.temperatures()
+        XCTAssertTrue(cleared.isEmpty)
+    }
+
     func testDesktopRailFallbackAndFaultyRailsAreNotZero() async throws {
         let monitor = try SensorMonitor(driver: FixtureSensorDriver([
             .success(RawSensors(power: [RawSensorValue(key: "PSTR", value: 0), RawSensorValue(key: "PDTR", value: 31)],

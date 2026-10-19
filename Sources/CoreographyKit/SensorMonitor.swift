@@ -15,6 +15,9 @@ public actor SensorMonitor {
     private let driver: any SensorSampleReading
     private var continuity: ContinuityTracker
     private var buffer: SampleBuffer<SensorSnapshot>
+    /// Every plausible temperature of the newest sample. Kept apart from
+    /// history: an hour of every key per second would cost tens of MB.
+    private var latestTemperatures: [TemperatureReading] = []
 
     public init() throws { try self.init(driver: SensorDriver(), historyCapacity: LiveHistory.capacity) }
 
@@ -28,9 +31,13 @@ public actor SensorMonitor {
     public func reset() {
         continuity.reset()
         buffer.removeAll()
+        latestTemperatures = []
     }
 
     public func history() -> [SensorSnapshot] { buffer.elements }
+
+    /// The newest sample's plausible temperatures, by key.
+    public func temperatures() -> [TemperatureReading] { latestTemperatures }
 
     public func sample() async throws -> SensorSnapshot {
         let raw = await driver.read()
@@ -47,6 +54,7 @@ public actor SensorMonitor {
         switch raw.sensors {
         case .failure(let error):
             let missing = try missing(error)
+            latestTemperatures = []
             snapshot = SensorSnapshot(
                 id: UUID(), stamp: stamp, continuity: continuity, source: missing, systemPowerWatts: missing,
                 hottest: nil, plausibleTemperatureCount: 0, implausibleTemperatureCount: 0, fans: [],
@@ -54,12 +62,8 @@ public actor SensorMonitor {
             )
         case .success(let sensors):
             let plausible = sensors.temperatures.filter { Self.plausibleCelsius.contains($0.value) }
-            let hottest = try plausible.max { $0.value < $1.value }.map { value in
-                TemperatureReading(
-                    key: value.key, region: Self.regions[String(value.key.prefix(2))],
-                    celsius: try .measured(value.value, source: Self.source(value.key))
-                )
-            }
+            latestTemperatures = try plausible.map(temperature).sorted { $0.key < $1.key }
+            let hottest = try plausible.max { $0.value < $1.value }.map(temperature)
             snapshot = SensorSnapshot(
                 id: UUID(), stamp: stamp, continuity: continuity,
                 source: try .measured(Double(sensors.temperatures.count), source: Self.source),
@@ -71,6 +75,13 @@ public actor SensorMonitor {
         }
         buffer.append(snapshot)
         return snapshot
+    }
+
+    private func temperature(_ value: RawSensorValue) throws -> TemperatureReading {
+        TemperatureReading(
+            key: value.key, region: Self.regions[String(value.key.prefix(2))],
+            celsius: try .measured(value.value, source: Self.source(value.key))
+        )
     }
 
     /// The first published rail in preference order; a non-positive draw is a fault.
