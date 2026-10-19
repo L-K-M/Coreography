@@ -663,6 +663,7 @@ private struct GPULane: View {
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 Text(GPUText.status(latest, cursor: model.cursorTime)).font(.caption).foregroundStyle(.secondary)
+                ContributorLine(model: model, subsystem: .gpu)
                 ScopedReadingLine(model: model, metric: .gpu)
             }
             .monospacedDigit()
@@ -797,6 +798,7 @@ private struct PowerLane: View {
                 if let awake = PowerText.keptAwake(model.sleepPreventers) {
                     Text(awake).font(.caption).foregroundStyle(.orange)
                 }
+                ContributorLine(model: model, subsystem: .power)
                 Text(system?.reason ?? system?.method ?? "")
                     .font(.caption).foregroundStyle(.secondary)
             }
@@ -2978,7 +2980,7 @@ private struct ChartInteraction: View {
     }
 }
 
-private enum ContributorSubsystem { case cpu, memory, disk, network }
+private enum ContributorSubsystem { case cpu, memory, disk, network, gpu, power }
 
 /// "Top then": the leading apps at the process sample nearest the cursor.
 private struct ContributorLine: View {
@@ -2990,9 +2992,16 @@ private struct ContributorLine: View {
             .font(.caption)
             .foregroundStyle(.secondary)
             .lineLimit(2)
-            .help(subsystem == .network
-                  ? String(localized: "TCP and UDP in plus out, grouped by app, from the process sample nearest the cursor")
-                  : String(localized: "Own-user processes grouped by app, from the process sample nearest the cursor"))
+            .help(help)
+    }
+
+    private var help: String {
+        switch subsystem {
+        case .network: String(localized: "TCP and UDP in plus out, grouped by app, from the process sample nearest the cursor")
+        case .gpu: String(localized: "GPU time per second by app, not a share of the busy percentage; from the process sample nearest the cursor")
+        case .power: String(localized: "CPU power the kernel's energy model gives each app, an estimate without GPU work; from the process sample nearest the cursor")
+        case .cpu, .memory, .disk: String(localized: "Own-user processes grouped by app, from the process sample nearest the cursor")
+        }
     }
 
     private var label: String {
@@ -3006,6 +3015,8 @@ private struct ContributorLine: View {
         case .memory: snapshot.memory
         case .disk: snapshot.disk
         case .network: snapshot.network
+        case .gpu: snapshot.gpu
+        case .power: snapshot.power
         }
         let prefix = model.cursorTime == nil
             ? String(localized: "Top")
@@ -3016,6 +3027,8 @@ private struct ContributorLine: View {
             case .cpu: MetricText.percent(contributor.value)
             case .memory: MetricText.bytes(contributor.value)
             case .disk, .network: MetricText.rate(contributor.value)
+            case .gpu: ProcessText.gpuTime(contributor.value) + " ms/s"
+            case .power: ProcessText.power(contributor.value)
             }
             return contributor.name + " " + value + (contributor.isEstimate ? " " + String(localized: "est.") : "")
         }

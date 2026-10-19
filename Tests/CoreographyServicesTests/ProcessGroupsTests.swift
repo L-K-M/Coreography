@@ -160,6 +160,18 @@ final class ProcessGroupsTests: XCTestCase {
         XCTAssertEqual(contributors.disk.count, Contributors.limit)
     }
 
+    /// Plan: the GPU detail's per-app GPU time and the power detail's
+    /// per-app modeled energy, named like the other lanes' top apps.
+    func testContributorsRankGPUTimeAndModeledPower() throws {
+        let game = try process(pid: 600, name: "Game", cpu: 1, path: "/Applications/Game.app/Contents/MacOS/Game", gpu: 40, power: 2)
+        let tool = try process(pid: 700, name: "tool", cpu: 1, path: "/usr/local/bin/tool", gpu: 0, power: nil)
+        let contributors = Contributors.snapshot(from: try snapshot([game, tool]))
+        XCTAssertEqual(contributors.gpu.map(\.name), ["Game"], "no GPU time is no contributor")
+        XCTAssertEqual(contributors.gpu.first?.value, 40)
+        XCTAssertEqual(contributors.power.map(\.name), ["Game"], "no energy counter is no contributor")
+        XCTAssertEqual(contributors.power.first?.isEstimate, true, "modeled energy is an estimate")
+    }
+
     /// Plan: opt-in CPU time and start time columns, sortable.
     func testGroupsTotalCPUTimeAndStartWithTheirFirstMember() throws {
         let processes = try snapshot([safari, webContent(responsible: 100), standaloneDaemon])

@@ -37,6 +37,8 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
   header's thread total. `coreo top --sort threads` ranks by them.
 - The network lane names its top apps by traffic, live and under the
   cursor, as the CPU, memory and disk lanes do.
+- The GPU and power lanes name the apps using the most GPU time and
+  modeled CPU power.
 - With an app shown in the lanes, the network lane names its traffic, in
   plus out, as the CPU and disk lanes do.
 - With an app shown in the lanes, the memory and GPU lanes name its

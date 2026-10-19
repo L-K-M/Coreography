@@ -22,6 +22,10 @@ public struct ContributorSnapshot: Identifiable, Sendable {
     public let disk: [Contributor]
     /// TCP and UDP in plus out; empty when no traffic sample matched.
     public let network: [Contributor]
+    /// GPU time in ms per second; not a share of the GPU's busy percentage.
+    public let gpu: [Contributor]
+    /// CPU power from the kernel's energy model, always an estimate.
+    public let power: [Contributor]
 }
 
 enum Contributors {
@@ -40,7 +44,9 @@ enum Contributors {
             },
             network: top(rows) {
                 ProcessGroups.total([$0.networkReceivedBytesPerSecond, $0.networkSentBytesPerSecond], overlap: nil)
-            }
+            },
+            gpu: top(rows) { $0.gpuMillisecondsPerSecond },
+            power: top(rows) { $0.cpuPowerWatts }
         )
     }
 
