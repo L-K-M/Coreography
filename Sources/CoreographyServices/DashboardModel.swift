@@ -1138,7 +1138,7 @@ public final class DashboardModel {
         )
         let ranked = rangeRanked(rows)
         guard let scopedApp else { return ranked }
-        return ranked.filter { $0.appName == scopedApp }
+        return ProcessGroups.scoped(ranked, to: scopedApp)
     }
 
     /// With a selection, sorting by CPU ranks apps by their CPU-seconds
@@ -1355,7 +1355,8 @@ public final class DashboardModel {
         entries += TimeRange.allCases.map { entry(CommandPalette.rangeTitle($0), .range($0)) }
         entries += DetailPane.allCases.map { entry(CommandPalette.paneTitle($0), .pane($0)) }
         entries += [
-            entry("Group Processes by App", .grouping(.app)), entry("Show Processes Ungrouped", .grouping(.flat))
+            entry("Group Processes by App", .grouping(.app)), entry("Show Processes as a Tree", .grouping(.tree)),
+            entry("Show Processes Ungrouped", .grouping(.flat)), entry("Group Processes by User", .grouping(.user))
         ]
         entries += ProcessSort.allCases.map { entry(CommandPalette.sortTitle($0), .sort($0)) }
         entries += CommandPalette.filterPresets.map { entry($0.title, .filter($0.filter)) }

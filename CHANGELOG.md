@@ -31,6 +31,8 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
   after the store first exceeds it.
 
 ### Added
+- The process pane groups as a parent-child tree or by user, besides by
+  app and flat; filters and app scope keep the parents of each match.
 - The CPU lane shows each core tier's activity as a strip under the
   graph.
 - Sampling slows to half rate while Low Power Mode is on, and the window

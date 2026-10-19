@@ -349,7 +349,12 @@ Implemented:
   responsible app that started no later, otherwise under their
   outermost `.app` bundle. Group CPU and disk totals are measured only
   when every member is readable; otherwise they are labelled lower
-  bounds. Footprint sums are always estimates. A flat view remains.
+  bounds. Footprint sums are always estimates. A flat view remains, a
+  tree nests each process under its parent (a parent younger than its
+  child is a reused PID, so the child becomes a root; a parent loop
+  lists each process once) with its own readings, and a by-user view
+  totals each UID like an app. A filter or app scope in the tree keeps
+  the parents leading to each match.
 - The memory lane stacks the composition under the physical-memory line,
   draws a pressure band above it, and has a ten-column numeric table and
   per-layer chart accessibility. `coreo snapshot` exports the same detail.

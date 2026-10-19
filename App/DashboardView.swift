@@ -1468,10 +1468,12 @@ private struct ProcessPane: View {
                         .focused(filterFocused)
                     Picker("Group", selection: $model.processGrouping) {
                         Text("By app").tag(ProcessGrouping.app)
+                        Text("Tree").tag(ProcessGrouping.tree)
                         Text("Flat").tag(ProcessGrouping.flat)
+                        Text("By user").tag(ProcessGrouping.user)
                     }
                     .frame(width: 150)
-                    .help("By app folds helpers under their responsible app or app bundle")
+                    .help("By app folds helpers under their responsible app or app bundle; Tree nests each process under its parent")
                     Picker("Sort", selection: $model.processSort) {
                         Text("CPU").tag(ProcessSort.cpu)
                         Text("Memory").tag(ProcessSort.memory)
@@ -1514,12 +1516,14 @@ private struct ProcessPane: View {
                     TableColumn("Process") { row in
                         // New processes tint briefly (plan: change highlighting).
                         let isNew = row.process.map { model.isNewProcess($0.id) } ?? false
-                        Text(row.children == nil ? row.name : "\(row.name) (\(row.memberCount))")
+                        Text(row.process != nil ? row.name : "\(row.name) (\(row.memberCount))")
                             .padding(.horizontal, 4)
                             .background(isNew ? Color.accentColor.opacity(0.18) : Color.clear, in: RoundedRectangle(cornerRadius: 3))
                             .help(isNew ? String(localized: "Started within the last 10 seconds") : ProcessText.grouping(row.groupingMethod))
                             .contextMenu {
-                                Button("Show \(row.appName) in lanes") { model.scopedApp = row.appName }
+                                if !row.appName.isEmpty {
+                                    Button("Show \(row.appName) in lanes") { model.scopedApp = row.appName }
+                                }
                                 if let process = row.process {
                                     ProcessActionMenu(model: model, process: process, pendingAction: $pendingAction)
                                 }
@@ -1950,8 +1954,15 @@ private struct HeatScale {
     private let maxima: [Double]
 
     init(_ rows: [ProcessRow]) {
+        // Every level shades against one maximum: in the tree a child can outuse its parent.
+        var all: [ProcessRow] = []
+        var pending = rows
+        while let row = pending.popLast() {
+            all.append(row)
+            pending += row.children ?? []
+        }
         func top(_ reading: (ProcessRow) -> DashboardReading) -> Double {
-            rows.compactMap { reading($0).numericValue }.max() ?? 0
+            all.compactMap { reading($0).numericValue }.max() ?? 0
         }
         maxima = [
             top(\.cpuPercentOfMachine), top(\.memoryFootprintBytes),
