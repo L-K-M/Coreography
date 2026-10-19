@@ -254,6 +254,14 @@ struct DashboardView: View {
                     .help("Drop a named marker on every lane (M)")
             }
             ToolbarItem(placement: .primaryAction) {
+                Picker("Sampling rate", selection: $model.samplingRate) {
+                    ForEach(SamplingRate.allCases) { rate in
+                        Text("\(rate.rawValue) s").tag(rate)
+                    }
+                }
+                .help("Seconds between samples. Low Power Mode samples every 2 s whichever you choose.")
+            }
+            ToolbarItem(placement: .primaryAction) {
                 // Pausing stops sampling; Hold only freezes what is drawn.
                 Button(
                     model.samplingPaused ? "Resume recording" : "Pause recording",
@@ -1689,7 +1697,7 @@ private struct ProcessPane: View {
                         .help("Exit status is not available without the helper")
                 }
 
-                Text("\(ProcessText.cpuScaleNote(model.processCPUScaleInEffect)) App totals sum their members; footprint sums can count shared memory twice. Process sampling: 2 s; short-lived processes can be missed. Right-click a column header for wakeups, CPU time, start time, threads, architecture and signer.")
+                Text("\(ProcessText.cpuScaleNote(model.processCPUScaleInEffect)) App totals sum their members; footprint sums can count shared memory twice. Process sampling: \(model.processSamplingSeconds.formatted()) s; short-lived processes can be missed. Right-click a column header for wakeups, CPU time, start time, threads, architecture and signer.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
