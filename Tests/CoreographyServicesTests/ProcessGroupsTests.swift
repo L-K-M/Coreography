@@ -160,6 +160,73 @@ final class ProcessGroupsTests: XCTestCase {
         XCTAssertEqual(contributors.disk.count, Contributors.limit)
     }
 
+    /// Plan: grouping as a parent-child tree, each row with its own readings.
+    func testTreeNestsChildrenUnderTheirObservedParent() throws {
+        let launchd = try process(pid: 1, name: "launchd", cpu: 1, start: 1, parent: 0, uid: 0)
+        let terminal = try process(pid: 50, name: "Terminal", cpu: 2, start: 5,
+                                   path: "/System/Applications/Utilities/Terminal.app/Contents/MacOS/Terminal")
+        let shell = try process(pid: 60, name: "zsh", cpu: 3, start: 6, responsible: 50, parent: 50)
+        let job = try process(pid: 70, name: "python3", cpu: 40, start: 7, responsible: 50, parent: 60)
+        // PID 90 started after PID 80, so it reuses the PID of 80's real parent.
+        let orphan = try process(pid: 80, name: "orphan", cpu: 1, start: 8, parent: 90)
+        let reused = try process(pid: 90, name: "reused", cpu: 1, start: 9)
+        let processes = try snapshot([launchd, terminal, shell, job, orphan, reused])
+
+        let rows = ProcessGroups.rows(in: processes, matching: "", sortedBy: .cpu, grouping: .tree)
+        XCTAssertEqual(rows.map(\.name), ["launchd", "orphan"])
+        let root = try XCTUnwrap(rows.first)
+        XCTAssertEqual(root.kind, .process)
+        XCTAssertEqual(root.cpuPercentOfMachine.numericValue, 1, "a parent shows its own use, not its subtree's")
+        XCTAssertEqual(root.id, ProcessGroups.rowID(launchd), "selection survives a grouping change")
+        XCTAssertEqual(root.children?.map(\.name), ["Terminal", "reused"])
+        let python = try XCTUnwrap(root.children?.first?.children?.first?.children?.first)
+        XCTAssertEqual(python.name, "python3")
+        XCTAssertEqual(python.appName, "Terminal")
+        XCTAssertNil(python.children)
+        XCTAssertNil(rows.last?.children)
+
+        let filtered = ProcessGroups.rows(in: processes, matching: "python", sortedBy: .cpu, grouping: .tree)
+        XCTAssertEqual(filtered.map(\.name), ["launchd"], "a match keeps its ancestors")
+        XCTAssertEqual(filtered.first?.children?.map(\.name), ["Terminal"])
+
+        let scoped = ProcessGroups.scoped(rows, to: "Terminal")
+        XCTAssertEqual(scoped.map(\.name), ["launchd"])
+        XCTAssertEqual(scoped.first?.children?.map(\.name), ["Terminal"])
+        XCTAssertEqual(scoped.first?.children?.first?.children?.first?.children?.map(\.name), ["python3"])
+
+        let first = try process(pid: 20, name: "a", cpu: 1, start: 3, parent: 21)
+        let second = try process(pid: 21, name: "b", cpu: 1, start: 3, parent: 20)
+        let loop = ProcessGroups.rows(in: try snapshot([first, second]), matching: "", sortedBy: .name, grouping: .tree)
+        XCTAssertEqual(loop.map(\.name), ["a"], "a parent loop lists each process once")
+        XCTAssertEqual(loop.first?.children?.map(\.name), ["b"])
+    }
+
+    func testUserGroupsTotalEachUsersProcesses() throws {
+        let daemon = try process(pid: 2, name: "configd", cpu: 4, start: 1, uid: 0)
+        let guest = try process(pid: 400, name: "guest-tool", cpu: 1, uid: 502)
+        let processes = try snapshot([safari, webContent(responsible: 100), daemon, guest])
+
+        let rows = ProcessGroups.rows(in: processes, matching: "", sortedBy: .cpu, grouping: .user, currentUser: 501)
+        XCTAssertEqual(rows.map(\.name), ["You, UID 501", "root", "UID 502"])
+        XCTAssertEqual(rows.map(\.kind), [.user(501), .user(0), .user(502)])
+        let mine = try XCTUnwrap(rows.first)
+        XCTAssertNil(mine.process)
+        XCTAssertEqual(mine.memberCount, 2)
+        XCTAssertEqual(mine.cpuPercentOfMachine.numericValue, 30)
+        XCTAssertEqual(mine.children?.map(\.name), ["com.apple.WebKit.WebContent", "Safari"])
+        XCTAssertEqual(mine.children?.map(\.appName), ["Safari", "Safari"])
+        XCTAssertEqual(rows.last?.children?.count, 1, "one process is still its user's group")
+
+        let filtered = ProcessGroups.rows(in: processes, matching: "root", sortedBy: .cpu, grouping: .user, currentUser: 501)
+        XCTAssertEqual(filtered.map(\.name), ["root"])
+        XCTAssertEqual(filtered.first?.children?.map(\.name), ["configd"])
+
+        let scoped = ProcessGroups.scoped(rows, to: "Safari")
+        XCTAssertEqual(scoped.map(\.name), ["You, UID 501"])
+        XCTAssertEqual(scoped.first?.children?.count, 2)
+        XCTAssertEqual(ProcessGroups.rows(in: processes, matching: "", sortedBy: .cpu, grouping: .app).first?.kind, .app)
+    }
+
     private static let clock = UUID(uuidString: "0D3C1E39-58E6-4A35-8F2B-8B8C3D1E8E11")!
     private static let stamp = SampleStamp(
         clockID: clock, monotonicNanoseconds: 1, wallTime: Date(timeIntervalSince1970: 1_700_000_000)
@@ -187,12 +254,13 @@ final class ProcessGroupsTests: XCTestCase {
 
     private func process(
         pid: Int32, name: String, cpu: Double?, start: UInt64 = 10,
-        path: String? = nil, responsible: Int32? = nil, gpu: Double = 0, power: Double? = 0
+        path: String? = nil, responsible: Int32? = nil, gpu: Double = 0, power: Double? = 0,
+        parent: UInt32 = 1, uid: UInt32 = 501
     ) throws -> ObservedProcess {
         let source = MetricSource(provider: "processes", driver: "libproc")
         return ProcessReading(
             id: try ProcessIdentity(pid: pid, startSeconds: start, startMicroseconds: 0),
-            parentPID: 1, uid: 501, name: name, stamp: Self.stamp,
+            parentPID: parent, uid: uid, name: name, stamp: Self.stamp,
             cpuPercentOfMachine: try cpu.map { try .measured($0, source: source) }
                 ?? .restricted(reason: "EPERM", source: source),
             memoryFootprintBytes: try .measured(1_048_576, source: source),
