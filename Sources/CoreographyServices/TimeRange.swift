@@ -8,6 +8,8 @@ public enum TimeRange: Int, CaseIterable, Identifiable, Sendable {
     case hour = 3600
     case sixHours = 21_600
     case day = 86_400
+    case week = 604_800
+    case month = 2_592_000
 
     public var id: Self { self }
     public var seconds: TimeInterval { TimeInterval(rawValue) }

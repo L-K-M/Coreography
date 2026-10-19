@@ -26,3 +26,16 @@ final class HistoryRetentionTests: XCTestCase {
         XCTAssertEqual(StoredTier.reading(86_400, recentRetention: 12 * 3600), .day)
     }
 }
+
+final class StoredTierTests: XCTestCase {
+    func testLongerRangesReadCoarserTiers() {
+        XCTAssertEqual(StoredTier.reading(TimeRange.sixHours.seconds, recentRetention: HistoryStore.retention), .recent)
+        XCTAssertEqual(StoredTier.reading(TimeRange.day.seconds, recentRetention: HistoryStore.retention), .day)
+        XCTAssertEqual(StoredTier.reading(TimeRange.week.seconds, recentRetention: HistoryStore.retention), .day)
+        XCTAssertEqual(StoredTier.reading(TimeRange.month.seconds, recentRetention: HistoryStore.retention), .month)
+        XCTAssertEqual(StoredTier.month.rollupTier, .month)
+        XCTAssertEqual(StoredTier.month.maximumGap, 180)
+        XCTAssertTrue(HistoryRetention.allCases.allSatisfy { $0.estimatedBytes < HistoryRetention.sizeCap })
+        XCTAssertEqual(HistoryRetention.standard.monthDays, 30)
+    }
+}

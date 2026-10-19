@@ -2,8 +2,8 @@ import Foundation
 import CoreographyKit
 
 /// Stored readings shaped for the lanes, for the part of a range older than
-/// live history (plan: the 6 h pill reads the on-disk Recent tier, 24 h the
-/// Day tier).
+/// live history (plan: the 6 h pill reads the on-disk Recent tier, 24 h
+/// and 7 d the Day tier, 30 d the Month tier).
 ///
 /// ```text
 /// |<------------------- 6 h ------------------->|
@@ -28,14 +28,34 @@ enum StoredTier: Sendable {
     case recent
     /// 10 s buckets with minimum, maximum and mean for a week.
     case day
+    /// 1 min buckets with minimum, maximum and mean for a month.
+    case month
 
-    /// A range longer than the 1 s retention reads the Day tier.
-    static func reading(_ span: TimeInterval, recentRetention: TimeInterval) -> StoredTier {
-        span > recentRetention ? .day : .recent
+    /// A range longer than the 1 s retention reads the Day tier, and one
+    /// longer than the Day tier's retention the Month tier.
+    static func reading(
+        _ span: TimeInterval, recentRetention: TimeInterval, dayRetention: TimeInterval = HistoryStore.dayRetention
+    ) -> StoredTier {
+        if span > dayRetention { return .month }
+        return span > recentRetention ? .day : .recent
     }
 
     /// A silence longer than three sampling steps (sleep, the app not running) is a gap.
-    var maximumGap: TimeInterval { self == .recent ? 3 : 3 * HistoryStore.dayBucket }
+    var maximumGap: TimeInterval {
+        switch self {
+        case .recent: 3
+        case .day: 3 * HistoryStore.dayBucket
+        case .month: 3 * HistoryStore.monthBucket
+        }
+    }
+
+    var rollupTier: RollupTier? {
+        switch self {
+        case .recent: nil
+        case .day: .day
+        case .month: .month
+        }
+    }
 }
 
 struct StoredHistory: Sendable {
@@ -62,11 +82,13 @@ struct StoredHistory: Sendable {
     private(set) var ledger = AppLedger(capacity: 1)
 
     /// Read and reduce every lane's series; runs off the main actor. Ranges
-    /// beyond the Recent tier's six hours read the Day tier.
+    /// beyond the Recent tier's six hours read the Day tier, and beyond the
+    /// Day tier's week the Month tier.
     static func load(
-        from recorder: HistoryRecorder, start: Date, end: Date, recentRetention: TimeInterval = HistoryStore.retention
+        from recorder: HistoryRecorder, start: Date, end: Date, recentRetention: TimeInterval = HistoryStore.retention,
+        dayRetention: TimeInterval = HistoryStore.dayRetention
     ) async throws -> StoredHistory {
-        let tier = StoredTier.reading(end.timeIntervalSince(start), recentRetention: recentRetention)
+        let tier = StoredTier.reading(end.timeIntervalSince(start), recentRetention: recentRetention, dayRetention: dayRetention)
         let gap = tier.maximumGap
         var history = StoredHistory(start: start, end: end, tier: tier)
         for metric in lineMetrics {
@@ -117,10 +139,11 @@ struct StoredHistory: Sendable {
                 sample.value.map { StoredValue(time: sample.time, mean: $0, maximum: $0, count: 1) }
             }
             return Series(drawn: samples, means: samples, peaks: samples, report: report)
-        case .day:
+        case .day, .month:
             // A bucket draws its minimum at its start and its maximum mid-bucket, so both extremes survive.
-            let rollups = try await recorder.rollups(metric, from: start, to: end)
-            let middle = HistoryStore.dayBucket / 2
+            let rollupTier = tier.rollupTier ?? .day
+            let rollups = try await recorder.rollups(metric, tier: rollupTier, from: start, to: end)
+            let middle = rollupTier.bucket / 2
             func sample(_ time: Date, _ value: Double) -> HistorySample {
                 HistorySample(metric: metric, time: time, value: value, availability: .measured)
             }

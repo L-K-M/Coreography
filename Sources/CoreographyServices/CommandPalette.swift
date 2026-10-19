@@ -89,6 +89,8 @@ public enum CommandPalette {
         case .hour: "Range: 1 Hour"
         case .sixHours: "Range: 6 Hours"
         case .day: "Range: 24 Hours"
+        case .week: "Range: 7 Days"
+        case .month: "Range: 30 Days"
         }
     }
 

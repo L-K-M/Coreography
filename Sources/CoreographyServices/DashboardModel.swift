@@ -578,17 +578,22 @@ public final class DashboardModel {
         guard storedLoad == nil else { return }
         if let storedLoadedAt {
             if displayMode == .held && storedHistory != nil { return }
-            if now.timeIntervalSince(storedLoadedAt) < Self.storedReloadInterval { return }
+            // A long range redraws only when a new chart bucket fills: 30 d
+            // rereads its month of rollups every two hours, not every minute.
+            let reload = max(Self.storedReloadInterval, timeRange.seconds / Double(Decimation.defaultBuckets))
+            if now.timeIntervalSince(storedLoadedAt) < reload { return }
         }
 
         storedLoadedAt = now
         let start = now.addingTimeInterval(-timeRange.seconds)
         let recentRetention = historyRetention.plan.recent
+        let dayRetention = historyRetention.plan.day
         storedLoad = Task { [weak self] in
             let result: Result<StoredHistory, any Error>
             do {
                 result = .success(try await StoredHistory.load(
-                    from: historyRecorder, start: start, end: now, recentRetention: recentRetention
+                    from: historyRecorder, start: start, end: now, recentRetention: recentRetention,
+                    dayRetention: dayRetention
                 ))
             } catch {
                 result = .failure(error)

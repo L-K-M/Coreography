@@ -99,8 +99,12 @@ public actor HistoryRecorder {
         try await store.size()
     }
 
-    func rollups(_ metric: HistoryMetric, from start: Date, to end: Date) async throws -> [HistoryRollup] {
-        try await store.rollups(metric, from: start, to: end)
+    func rollups(_ metric: HistoryMetric, tier: RollupTier = .day, from start: Date, to end: Date) async throws -> [HistoryRollup] {
+        try await store.rollups(metric, tier: tier, from: start, to: end)
+    }
+
+    func appDays(from start: Date, to end: Date) async throws -> [AppDayTotal] {
+        try await store.appDays(from: start, to: end)
     }
 
     func ledger(from start: Date, to end: Date) async throws -> [LedgerInterval] {

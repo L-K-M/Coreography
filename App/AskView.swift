@@ -139,7 +139,7 @@ struct SettingsView: View {
 private enum RetentionText {
     static func label(_ preset: HistoryRetention) -> String {
         let cost = ByteCountFormatter.string(fromByteCount: preset.estimatedBytes, countStyle: .file)
-        return String(localized: "\(preset.detailedHours) h detailed, \(preset.summaryDays) days summarised (about \(cost))")
+        return String(localized: "\(preset.detailedHours) h detailed, \(preset.summaryDays) days summarised, \(preset.monthDays) days by minute (about \(cost))")
     }
 
     static func size(_ bytes: Int64?) -> String {

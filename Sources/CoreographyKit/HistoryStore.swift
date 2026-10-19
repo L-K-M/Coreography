@@ -71,8 +71,8 @@ public struct LedgerInterval: Equatable, Sendable {
     }
 }
 
-/// One metric over one Day-tier bucket. Only readings with values count,
-/// so a bucket with none is absent: a gap, not a zero.
+/// One metric over one Day- or Month-tier bucket. Only readings with
+/// values count, so a bucket with none is absent: a gap, not a zero.
 public struct HistoryRollup: Equatable, Sendable {
     public let metric: HistoryMetric
     /// The bucket's start.
@@ -92,16 +92,51 @@ public struct HistoryRollup: Equatable, Sendable {
     }
 }
 
+/// One app's totals over one local calendar day, from the ledger
+/// (plan: Month tier, per-app daily totals). Energy and network join when
+/// per-app sources for them exist.
+public struct AppDayTotal: Equatable, Sendable {
+    /// Local midnight starting the day.
+    public let day: Date
+    public let app: String
+    public let cpuSeconds: Double
+    public let diskBytes: Double
+    /// Some interval counted only readable members.
+    public let isLowerBound: Bool
+
+    public init(day: Date, app: String, cpuSeconds: Double, diskBytes: Double, isLowerBound: Bool) {
+        self.day = day
+        self.app = app
+        self.cpuSeconds = cpuSeconds
+        self.diskBytes = diskBytes
+        self.isLowerBound = isLowerBound
+    }
+}
+
+/// Which rollup tier a query reads.
+public enum RollupTier: Sendable {
+    /// 10 s buckets.
+    case day
+    /// 1 min buckets.
+    case month
+
+    var table: String { self == .day ? "day_samples" : "month_samples" }
+    public var bucket: TimeInterval { self == .day ? HistoryStore.dayBucket : HistoryStore.monthBucket }
+}
+
 /// How long each tier keeps its data.
 public struct RetentionPlan: Equatable, Sendable {
     /// 1 s readings and the app ledger.
     public let recent: TimeInterval
     /// 10 s buckets.
     public let day: TimeInterval
+    /// 1 min buckets and per-app daily totals.
+    public let month: TimeInterval
 
-    public init(recent: TimeInterval, day: TimeInterval) {
+    public init(recent: TimeInterval, day: TimeInterval, month: TimeInterval = HistoryStore.monthRetention) {
         self.recent = recent
         self.day = day
+        self.month = month
     }
 }
 
@@ -119,6 +154,8 @@ public enum HistoryStoreError: Error, Equatable, Sendable {
 /// ledger_entries(t_end, app, cpu_seconds, disk_bytes, lower_bound)  primary key (t_end, app)
 /// apps(id, name)                                             names interned, swept hourly
 /// day_samples(metric, t, minimum, maximum, total, count)     10 s buckets, 7 days
+/// month_samples(metric, t, minimum, maximum, total, count)   1 min buckets, 30 days
+/// app_days(day, app, cpu_seconds, disk_bytes, lower_bound)  per app and local day, 30 days
 /// ```
 public actor HistoryStore {
     /// The plan's defaults: six hours at 1 s, and the Day tier (10 s,
@@ -126,9 +163,11 @@ public actor HistoryStore {
     public static let retention: TimeInterval = 6 * 3600
     public static let dayRetention: TimeInterval = 7 * 86_400
     public static let dayBucket: TimeInterval = 10
+    public static let monthRetention: TimeInterval = 30 * 86_400
+    public static let monthBucket: TimeInterval = 60
     /// Hard size cap; the oldest rows go first when it is exceeded.
     public static let maximumBytes: Int64 = 256 * 1024 * 1024
-    private static let schemaVersion = 3
+    private static let schemaVersion = 4
     /// App names outlive their last interval by at most this long.
     private static let nameSweepInterval: TimeInterval = 3600
     private static let fileName = "history.sqlite"
@@ -143,6 +182,8 @@ public actor HistoryStore {
     private let connection: SQLiteConnection
     private let maximumBytes: Int64
     private var plan = RetentionPlan(recent: HistoryStore.retention, day: HistoryStore.dayRetention)
+    /// Days are local calendar days; tests fix the time zone.
+    private let calendar: Calendar
     private var appIDs: [String: Int64] = [:]
     private var lastNameSweep: Date?
 
@@ -156,8 +197,9 @@ public actor HistoryStore {
         try self.init(directory: directory, maximumBytes: Self.maximumBytes)
     }
 
-    init(directory: URL, maximumBytes: Int64) throws {
+    init(directory: URL, maximumBytes: Int64, calendar: Calendar = .current) throws {
         self.maximumBytes = maximumBytes
+        self.calendar = calendar
         do {
             try FileManager.default.createDirectory(
                 at: directory, withIntermediateDirectories: true,
@@ -186,6 +228,16 @@ public actor HistoryStore {
                     metric INTEGER NOT NULL, t REAL NOT NULL, minimum REAL NOT NULL, maximum REAL NOT NULL,
                     total REAL NOT NULL, count INTEGER NOT NULL,
                     PRIMARY KEY(metric, t)
+                ) WITHOUT ROWID;
+                CREATE TABLE IF NOT EXISTS month_samples(
+                    metric INTEGER NOT NULL, t REAL NOT NULL, minimum REAL NOT NULL, maximum REAL NOT NULL,
+                    total REAL NOT NULL, count INTEGER NOT NULL,
+                    PRIMARY KEY(metric, t)
+                ) WITHOUT ROWID;
+                CREATE TABLE IF NOT EXISTS app_days(
+                    day REAL NOT NULL, app INTEGER NOT NULL, cpu_seconds REAL NOT NULL,
+                    disk_bytes REAL NOT NULL, lower_bound INTEGER NOT NULL,
+                    PRIMARY KEY(day, app)
                 ) WITHOUT ROWID
                 """)
             try connection.execute("PRAGMA user_version=\(Self.schemaVersion)")
@@ -227,9 +279,11 @@ public actor HistoryStore {
                 }
             )
             try insert(ledger)
-            try rollUp(samples)
+            try rollUp(samples, into: .day)
+            try rollUp(samples, into: .month)
             try prune(before: now.addingTimeInterval(-plan.recent))
             try pruneDay(before: now.addingTimeInterval(-plan.day))
+            try pruneMonth(before: now.addingTimeInterval(-plan.month))
             try enforceSizeCap()
             try sweepNames(now: now)
         }
@@ -268,11 +322,13 @@ public actor HistoryStore {
         try storage { try liveBytes() }
     }
 
-    /// Day-tier buckets starting in the window, oldest first.
-    public func rollups(_ metric: HistoryMetric, from start: Date, to end: Date) throws -> [HistoryRollup] {
+    /// Buckets of one tier starting in the window, oldest first.
+    public func rollups(
+        _ metric: HistoryMetric, tier: RollupTier = .day, from start: Date, to end: Date
+    ) throws -> [HistoryRollup] {
         try storage {
             try connection.query(
-                "SELECT t, minimum, maximum, total, count FROM day_samples WHERE metric = ? AND t BETWEEN ? AND ? ORDER BY t",
+                "SELECT t, minimum, maximum, total, count FROM \(tier.table) WHERE metric = ? AND t BETWEEN ? AND ? ORDER BY t",
                 [.integer(Int64(metric.rawValue)), .real(start.timeIntervalSince1970), .real(end.timeIntervalSince1970)]
             ).compactMap { row in
                 guard case .real(let time) = row[0], case .real(let minimum) = row[1], case .real(let maximum) = row[2],
@@ -280,6 +336,23 @@ public actor HistoryStore {
                 return HistoryRollup(
                     metric: metric, time: Date(timeIntervalSince1970: time), minimum: minimum, maximum: maximum,
                     mean: total / Double(count), count: Int(count)
+                )
+            }
+        }
+    }
+
+    /// Per-app totals for the local days starting in the window, oldest day first.
+    public func appDays(from start: Date, to end: Date) throws -> [AppDayTotal] {
+        try storage {
+            try connection.query("""
+                SELECT d.day, a.name, d.cpu_seconds, d.disk_bytes, d.lower_bound
+                FROM app_days d JOIN apps a ON a.id = d.app
+                WHERE d.day BETWEEN ? AND ? ORDER BY d.day, a.name
+                """, [.real(start.timeIntervalSince1970), .real(end.timeIntervalSince1970)]).compactMap { row in
+                guard case .real(let day) = row[0], case .text(let app) = row[1], case .real(let cpu) = row[2],
+                      case .real(let disk) = row[3], case .integer(let lowerBound) = row[4] else { return nil }
+                return AppDayTotal(
+                    day: Date(timeIntervalSince1970: day), app: app, cpuSeconds: cpu, diskBytes: disk, isLowerBound: lowerBound != 0
                 )
             }
         }
@@ -321,7 +394,7 @@ public actor HistoryStore {
     public func deleteAll() throws {
         try storage {
             try connection.transaction {
-                for table in ["samples", "ledger_entries", "ledger_intervals", "apps", "day_samples"] {
+                for table in ["samples", "ledger_entries", "ledger_intervals", "app_days", "apps", "day_samples", "month_samples"] {
                     try connection.execute("DELETE FROM \(table)")
                 }
             }
@@ -329,14 +402,14 @@ public actor HistoryStore {
         appIDs.removeAll()
     }
 
-    /// Fold a batch into 10 s buckets, combining with what earlier batches
-    /// put in the same bucket. Readings without values are left out.
-    private func rollUp(_ samples: [HistorySample]) throws {
+    /// Fold a batch into one tier's buckets, combining with what earlier
+    /// batches put in the same bucket. Readings without values are left out.
+    private func rollUp(_ samples: [HistorySample], into tier: RollupTier) throws {
         struct Key: Hashable { let metric: Int; let bucket: Double }
         var buckets: [Key: (minimum: Double, maximum: Double, total: Double, count: Int64)] = [:]
         for sample in samples {
             guard let value = sample.value else { continue }
-            let bucket = (sample.time.timeIntervalSince1970 / Self.dayBucket).rounded(.down) * Self.dayBucket
+            let bucket = (sample.time.timeIntervalSince1970 / tier.bucket).rounded(.down) * tier.bucket
             let key = Key(metric: sample.metric.rawValue, bucket: bucket)
             if let current = buckets[key] {
                 buckets[key] = (min(current.minimum, value), max(current.maximum, value), current.total + value, current.count + 1)
@@ -345,7 +418,7 @@ public actor HistoryStore {
             }
         }
         try connection.run("""
-            INSERT INTO day_samples(metric, t, minimum, maximum, total, count) VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO \(tier.table)(metric, t, minimum, maximum, total, count) VALUES (?, ?, ?, ?, ?, ?)
             ON CONFLICT(metric, t) DO UPDATE SET
                 minimum = min(minimum, excluded.minimum), maximum = max(maximum, excluded.maximum),
                 total = total + excluded.total, count = count + excluded.count
@@ -356,10 +429,11 @@ public actor HistoryStore {
     }
 
     /// A replaced interval drops its earlier entries, so an app idle in the
-    /// new version does not keep the old figures.
+    /// new version does not keep the old figures; its day totals lose them too.
     private func insert(_ ledger: [LedgerInterval]) throws {
         guard !ledger.isEmpty else { return }
         let ends = ledger.map { [SQLiteValue.real($0.end.timeIntervalSince1970)] }
+        try removeFromDays(ends)
         try connection.run(
             "INSERT OR REPLACE INTO ledger_intervals(t_end, t_start, cores) VALUES (?, ?, ?)",
             rows: ledger.map { [.real($0.end.timeIntervalSince1970), .real($0.start.timeIntervalSince1970), .real($0.cores)] }
@@ -379,6 +453,34 @@ public actor HistoryStore {
             "INSERT OR REPLACE INTO ledger_entries(t_end, app, cpu_seconds, disk_bytes, lower_bound) VALUES (?, ?, ?, ?, ?)",
             rows: rows
         )
+        try connection.run("""
+            INSERT INTO app_days(day, app, cpu_seconds, disk_bytes, lower_bound) VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(day, app) DO UPDATE SET
+                cpu_seconds = cpu_seconds + excluded.cpu_seconds, disk_bytes = disk_bytes + excluded.disk_bytes,
+                lower_bound = max(lower_bound, excluded.lower_bound)
+            """, rows: rows.map { row in
+                guard case .real(let end) = row[0] else { return row }
+                return [.real(day(of: end))] + row.dropFirst()
+            })
+    }
+
+    /// Subtract intervals about to be replaced from their days.
+    private func removeFromDays(_ ends: [[SQLiteValue]]) throws {
+        for end in ends {
+            guard case .real(let time)? = end.first else { continue }
+            let old = try connection.query("SELECT app, cpu_seconds, disk_bytes FROM ledger_entries WHERE t_end = ?", end)
+            try connection.run(
+                "UPDATE app_days SET cpu_seconds = cpu_seconds - ?, disk_bytes = disk_bytes - ? WHERE day = ? AND app = ?",
+                rows: old.map { [$0[1], $0[2], .real(day(of: time)), $0[0]] }
+            )
+        }
+        // An app idle in the replacement keeps no empty row.
+        try connection.execute("DELETE FROM app_days WHERE cpu_seconds <= 1e-9 AND disk_bytes <= 1e-9")
+    }
+
+    /// Local midnight of the day containing `time`.
+    private func day(of time: Double) -> Double {
+        calendar.startOfDay(for: Date(timeIntervalSince1970: time)).timeIntervalSince1970
     }
 
     /// Interned names still on disk.
@@ -405,13 +507,21 @@ public actor HistoryStore {
     /// no identifier longer than its retention plus the sweep interval.
     private func sweepNames(now: Date) throws {
         if let lastNameSweep, now.timeIntervalSince(lastNameSweep) < Self.nameSweepInterval { return }
-        try connection.execute("DELETE FROM apps WHERE id NOT IN (SELECT app FROM ledger_entries)")
+        try connection.execute(
+            "DELETE FROM apps WHERE id NOT IN (SELECT app FROM ledger_entries) AND id NOT IN (SELECT app FROM app_days)"
+        )
         lastNameSweep = now
         appIDs.removeAll()
     }
 
     private func pruneDay(before cutoff: Date) throws {
         try connection.run("DELETE FROM day_samples WHERE t < ?", rows: [[.real(cutoff.timeIntervalSince1970)]])
+    }
+
+    /// A day's totals stay until all of the day is older than the cutoff.
+    private func pruneMonth(before cutoff: Date) throws {
+        try connection.run("DELETE FROM month_samples WHERE t < ?", rows: [[.real(cutoff.timeIntervalSince1970)]])
+        try connection.run("DELETE FROM app_days WHERE day < ?", rows: [[.real(day(of: cutoff.timeIntervalSince1970))]])
     }
 
     /// The Recent tables only: the Day tier keeps its own, longer retention.
@@ -433,6 +543,7 @@ public actor HistoryStore {
             let before = try totalChanges()
             try prune(before: cutoff)
             try pruneDay(before: cutoff)
+            try pruneMonth(before: cutoff)
             // Too few rows to split into tenths: stop rather than spin.
             guard try totalChanges() > before else { return }
         }
@@ -458,10 +569,11 @@ public actor HistoryStore {
         let rows = try connection.query("""
             SELECT time FROM (
                 SELECT t AS time FROM samples UNION ALL SELECT t_end AS time FROM ledger_intervals
-                UNION ALL SELECT t AS time FROM day_samples
+                UNION ALL SELECT t AS time FROM day_samples UNION ALL SELECT t AS time FROM month_samples
             )
             ORDER BY time LIMIT 1 OFFSET (
-                (SELECT COUNT(*) FROM samples) + (SELECT COUNT(*) FROM ledger_intervals) + (SELECT COUNT(*) FROM day_samples)
+                (SELECT COUNT(*) FROM samples) + (SELECT COUNT(*) FROM ledger_intervals)
+                + (SELECT COUNT(*) FROM day_samples) + (SELECT COUNT(*) FROM month_samples)
             ) / 10
             """)
         guard case .real(let time)? = rows.first?.first else { return nil }

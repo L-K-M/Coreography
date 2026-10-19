@@ -3,7 +3,7 @@
 Track actual delivery against the [product plan](plan.md). A stage is
 complete only after its relevant checks and review pass and its PR merges.
 
-## Current slice: bottleneck hints
+## Current slice: Month tier
 
 The native foundation merged in [PR #5](https://github.com/L-K-M/Coreography/pull/5)
 at `aee9494` after two GLM rounds and passing CI. Process monitoring merged
@@ -41,9 +41,25 @@ and automation in [PR #54](https://github.com/L-K-M/Coreography/pull/54),
 the command palette in [PR #55](https://github.com/L-K-M/Coreography/pull/55).
 IOReport power and frequency (M2, first rung) follow in
 [PR #56](https://github.com/L-K-M/Coreography/pull/56). This slice adds
-bottleneck hints.
+bottleneck hints in [PR #57](https://github.com/L-K-M/Coreography/pull/57).
+This slice adds the Month tier.
 
 Implemented:
+
+- Month tier (plan: 1 min for 30 days, per-app daily totals): every
+  write also folds readings into 1-minute buckets keeping minimum,
+  maximum, sum and count, and each ledger interval into its app's total
+  for the local day it ends in (an interval spanning midnight counts
+  for the later day). A replaced interval takes its old figures out of
+  its day; an app left with nothing loses its row. Names stay while
+  either their ledger intervals or their days are kept, then leave with
+  the hourly sweep. Daily totals hold CPU-seconds and disk bytes; energy
+  and network join when per-app sources for them exist. Presets keep
+  7, 30 or 60 days; deletion, the size cap and its oldest-tenth pruning
+  cover both new tables. The window gains 7 d (Day tier) and 30 d
+  (Month tier) ranges, reloading only when a new chart bucket fills
+  (every two hours for 30 d). `coreo apps --json --days N` prints
+  per-app totals per day.
 
 - Bottleneck hints (plan: PresentMon and RTSS style) over the last
   5 s of displayed data: "Looks GPU-bound" when the busiest GPU averages
@@ -388,7 +404,7 @@ Implemented:
   so spikes survive, and range reports weigh bucket means by count, so
   means stay exact; percentiles are never taken from rollups. The app
   ledger stays in the Recent tier, so app totals over 24 h cover its
-  six hours, which the report's coverage states. The Month tier remains.
+  six hours, which the report's coverage states. The Month tier follows below.
 - Automatic markers: memory and thermal pressure transitions, power
   source changes and imported sleep, wake and dark-wake records mark
   every lane, lighter than the person's own actions and alerts, and a
@@ -474,6 +490,7 @@ helper remain outstanding. The store, MCP and model features above await stack d
 | Native network MIB, wide-counter mapping and three-lane UI | Passed at `e62fac1`, including native C fixtures, live CLI and both executable architectures; integrated candidate pending |
 | Native IOKit storage counters and four-lane renderer | Passed [native CI](https://github.com/L-K-M/Coreography/actions/runs/39110306993) at `6434722`: 75 tests, 16 drivers, 32 measured rate fields, no inventory issues; owner checks pending |
 | On-disk history store and recorder | History slice: 148 Swift tests pass on Linux against the real system SQLite (round trip with gaps, duplicates, retention, reopen, permissions, WAL, batching); native CI checks the CLI and file permissions |
+| Month tier | 245 Swift tests pass on Linux against the system SQLite (minute extremes and means, the tier outliving the Day tier and ageing out, per-day totals across midnight, replacement without double counting, names kept with their days then swept); native CI checks `coreo apps --days` |
 | Bottleneck hints | 242 Swift tests pass on Linux (each hint's thresholds and evidence, no CPU-bound hint without a top frequency, no throttling without thermal pressure, no data no hints); the lane and HUD lines compile only in native CI |
 | Apple Silicon power and frequency | 238 Swift tests pass on Linux (block sums without subtotals, units, residency weighting, idle and unfitting tables, hertz or kilohertz tables, legacy and `acc-clusters` assignment, baseline, frozen counters, virtual machines); the IOReport driver compiles only in native CI, whose virtual runner must report unsupported with its reason. Accuracy against `powermetrics` is an owner check (S1) |
 | Command palette | 229 Swift tests pass on Linux (ranking, unavailable reasons, target names, actions applied through the model, unconfirmed process actions ignored); the palette view compiles only in native CI; keyboard use is an owner check |
