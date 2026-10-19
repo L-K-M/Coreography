@@ -169,6 +169,12 @@ struct DashboardView: View {
             .padding(Layout.padding)
         }
         .frame(minWidth: 900, minHeight: 600)
+        .sheet(isPresented: Binding(
+            get: { if case .idle = model.sampleState { false } else { true } },
+            set: { if !$0 { model.dismissSample() } }
+        )) {
+            SampleReportView(model: model)
+        }
         .inspector(isPresented: $model.inspectorShown) {
             InspectorView(model: model)
                 .inspectorColumnWidth(min: 260, ideal: 320, max: 480)
@@ -1493,6 +1499,45 @@ private struct ProcessActionConfirmation: ViewModifier {
     }
 }
 
+/// A call-stack sample: progress while the tool runs, then the report to read or save.
+private struct SampleReportView: View {
+    let model: DashboardModel
+    @State private var exportFile: ExportFile?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            switch model.sampleState {
+            case .idle:
+                EmptyView()
+            case .running(let name, let seconds):
+                ProgressView("Sampling \(name) for \(seconds) seconds…")
+            case .failed(let name, let reason):
+                Text("\(name) could not be sampled").font(.headline)
+                Text(reason).foregroundStyle(.secondary)
+            case .finished(let report):
+                Text("\(report.name), \(report.seconds) s at \(report.takenAt.formatted(date: .omitted, time: .standard))")
+                    .font(.headline)
+                ScrollView {
+                    Text(report.text).font(.caption.monospaced()).textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                Button("Save…") { exportFile = ExportFile(data: Data(report.text.utf8)) }
+            }
+            HStack {
+                Spacer()
+                Button("Close") { model.dismissSample() }
+                    .keyboardShortcut(.cancelAction)
+            }
+        }
+        .padding()
+        .frame(minWidth: 640, minHeight: 420)
+        .fileExporter(
+            isPresented: Binding(get: { exportFile != nil }, set: { if !$0 { exportFile = nil } }),
+            document: exportFile, contentType: .plainText, defaultFilename: "Coreography sample"
+        ) { _ in }
+    }
+}
+
 /// Whether a process menu lists Quit and Force Quit, which the inspector shows as buttons.
 private enum QuitEntries {
     case yes, no
@@ -1519,6 +1564,8 @@ private struct ProcessActionMenu: View {
             Button("Interrupt (SIGINT)…") { ask(.interrupt) }
         }
         Button("Lower Priority…") { ask(.lowerPriority) }
+        Button("Sample for 3 Seconds") { Task { await model.sampleProcess(process) } }
+            .help("Records its call stacks with the system sample tool; the process pauses briefly while it is read")
         Divider()
         if let path = process.executablePath {
             Button("Reveal in Finder") { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)]) }
@@ -2215,7 +2262,7 @@ private extension RangePanel {
 
 /// Already-encoded export bytes handed to the save panel.
 private struct ExportFile: FileDocument {
-    static let readableContentTypes: [UTType] = [.json, .commaSeparatedText]
+    static let readableContentTypes: [UTType] = [.json, .commaSeparatedText, .plainText]
     let data: Data
 
     init(data: Data) { self.data = data }

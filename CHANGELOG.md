@@ -11,6 +11,7 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
   after the store first exceeds it.
 
 ### Added
+- Sample a process's call stacks for 3 seconds and read or save the report.
 - A HUD with CPU, GPU, temperature and power over full-screen apps
   (Option-Command-H or the menu bar extra).
 - Command-R records a session; its report shows minimum, mean, 95th

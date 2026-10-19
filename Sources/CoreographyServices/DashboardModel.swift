@@ -117,6 +117,8 @@ public final class DashboardModel {
     public var recordingStart: Date? { sessionRecording?.start }
     /// Saved sessions, newest first.
     public private(set) var sessions: [RecordedSession] = []
+    /// A call-stack sample the person asked for (plan: Sample), one at a time.
+    public private(set) var sampleState: SampleState = .idle
     /// Filters kept as chips under the field.
     public private(set) var savedFilters: [String] = []
     /// The pane under the lanes; connections are read only while shown or filtered on.
@@ -217,6 +219,7 @@ public final class DashboardModel {
     @ObservationIgnored private var filterStore = SavedFilters(defaults: .standard)
     private var sessionRecording: SessionRecording?
     @ObservationIgnored private let sessionArchive: SessionArchive?
+    @ObservationIgnored private let sampler: ProcessSampler?
     @ObservationIgnored private var sensorStats = SensorStats()
     @ObservationIgnored private let startupProvider: StartupProvider?
     @ObservationIgnored private let inspector: ProcessInspector?
@@ -272,6 +275,7 @@ public final class DashboardModel {
         assertionReader = AssertionReader()
         openFileMonitor = OpenFileMonitor()
         sessionArchive = SessionArchive.makeDefault()
+        sampler = ProcessSampler()
         interval = .seconds(1)
         processInterval = .seconds(2)
         do {
@@ -313,7 +317,8 @@ public final class DashboardModel {
         historyRecorder: HistoryRecorder? = nil, sleepProvider: SleepHistoryProvider? = nil,
         connectionMonitor: ConnectionMonitor? = nil, startupProvider: StartupProvider? = nil,
         inspector: ProcessInspector? = nil, assertionReader: AssertionReader? = nil,
-        openFileMonitor: OpenFileMonitor? = nil, sessionArchive: SessionArchive? = nil
+        openFileMonitor: OpenFileMonitor? = nil, sessionArchive: SessionArchive? = nil,
+        sampler: ProcessSampler? = nil
     ) {
         self.controller = controller
         self.askService = askService
@@ -326,6 +331,7 @@ public final class DashboardModel {
         self.assertionReader = assertionReader
         self.openFileMonitor = openFileMonitor
         self.sessionArchive = sessionArchive
+        self.sampler = sampler
         self.monitor = monitor
         self.interval = interval
         self.processMonitor = processMonitor
@@ -772,6 +778,22 @@ public final class DashboardModel {
         case .failed(let reason):
             actionMessage = "\(request.name): \(reason)"
         }
+    }
+
+    /// Sample one process's call stacks with the system tool; the report opens in the app.
+    public func sampleProcess(_ process: ObservedProcess) async {
+        guard let sampler else { return }
+        if case .running = sampleState { return }
+        sampleState = .running(name: process.name, seconds: ProcessSampler.defaultSeconds)
+        switch await sampler.sample(process) {
+        case .success(let report): sampleState = .finished(report)
+        case .failure(let failure): sampleState = .failed(name: process.name, reason: failure.reason)
+        }
+    }
+
+    public func dismissSample() {
+        if case .running = sampleState { return }
+        sampleState = .idle
     }
 
     /// One process as text or JSON, for the Copy commands.
