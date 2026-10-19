@@ -205,7 +205,7 @@ public struct ProcessDetails: Codable, Sendable {
 /// window, CLI, MCP and the optional assistant). Every tool is bounded
 /// server-side; nothing exposes paths, arguments or process control.
 public enum DiagnosticTools {
-    public enum ActivityMetric: String, Codable, CaseIterable, Sendable { case cpu, disk, network }
+    public enum ActivityMetric: String, Codable, CaseIterable, Sendable { case cpu, disk, network, energy }
     public enum HistoryMetric: String, Codable, CaseIterable, Sendable {
         case cpu, memoryUsed, networkReceived, networkSent, gpuBusy, hottestCelsius, systemPower
     }
@@ -327,13 +327,18 @@ public enum DiagnosticTools {
         if metric == .network, !apps.contains(where: { $0.networkBytes != nil }), covered != nil {
             throw DiagnosticError.unavailable("Per-process network was not read in this range")
         }
-        let unit = metric == .cpu ? "CPU-seconds" : "bytes"
+        if metric == .energy, !apps.contains(where: { $0.energyJoules != nil }), covered != nil {
+            throw DiagnosticError.unavailable("Per-process energy was not modeled in this range")
+        }
+        let unit = metric == .cpu ? "CPU-seconds" : metric == .energy ? "joules" : "bytes"
         let activity: [AppActivity] = apps.map { app in
             switch metric {
             case .cpu: AppActivity(app: app.name, value: app.cpuSeconds, unit: unit, isLowerBound: app.isLowerBound)
             case .disk: AppActivity(app: app.name, value: app.diskBytes, unit: unit, isLowerBound: app.isLowerBound)
             // NetworkStatistics sees every user's sockets, so only unread intervals bound it.
             case .network: AppActivity(app: app.name, value: app.networkBytes ?? 0, unit: unit, isLowerBound: app.networkIsLowerBound)
+            // Only intervals where a process had an energy counter count, so uncovered ones bound it.
+            case .energy: AppActivity(app: app.name, value: app.energyJoules ?? 0, unit: unit, isLowerBound: app.energyIsLowerBound)
             }
         }
         let ranked = activity.filter { $0.value > 0 }.sorted { lhs, rhs in
@@ -341,14 +346,20 @@ public enum DiagnosticTools {
         }
         let page = Array(ranked.dropFirst(offset).prefix(limit))
         let next = offset + page.count
+        let coverageNote = switch metric {
+        case .network:
+            "TCP and UDP bytes in and out per app, every user's processes; a process's first interval with traffic is not counted, and intervals that did not read network make totals lower bounds."
+        case .energy:
+            "Modeled CPU energy in joules per app from the kernel's energy model; a process without an energy counter adds nothing, and intervals that covered none make totals lower bounds."
+        case .cpu, .disk:
+            "Own-user processes grouped by app; other users' processes are not readable without the helper."
+        }
         return TopAppsPage(
             snapshotID: snapshot.id, metric: metric, rows: page,
             remaining: max(0, ranked.count - next),
             nextCursor: next < ranked.count ? makeCursor(snapshot: snapshot, metric: metric, range: window, offset: next) : nil,
             coveredStart: covered?.lowerBound, coveredEnd: covered?.upperBound,
-            coverageNote: metric == .network
-                ? "TCP and UDP bytes in and out per app, every user's processes; a process's first interval with traffic is not counted, and intervals that did not read network make totals lower bounds."
-                : "Own-user processes grouped by app; other users' processes are not readable without the helper."
+            coverageNote: coverageNote
         )
     }
 

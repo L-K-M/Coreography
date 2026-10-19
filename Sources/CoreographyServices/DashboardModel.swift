@@ -775,9 +775,10 @@ public final class DashboardModel {
         ledger = AppLedger(stored: document.ledger.map { interval in
             LedgerInterval(
                 start: interval.start, end: interval.end, cores: interval.cores, coversNetwork: interval.coversNetwork,
+                coversEnergy: interval.coversEnergy,
                 entries: interval.entries.map {
                     LedgerEntry(app: $0.app, cpuSeconds: $0.cpuSeconds, diskBytes: $0.diskBytes,
-                                networkBytes: $0.networkBytes, isLowerBound: $0.isLowerBound)
+                                networkBytes: $0.networkBytes, energyJoules: $0.energyJoules, isLowerBound: $0.isLowerBound)
                 }
             )
         })

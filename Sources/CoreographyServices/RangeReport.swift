@@ -12,6 +12,8 @@ public struct RangeReport: Sendable {
     public let topDiskApps: [AppRangeTotal]
     /// Apps by bytes moved over the network; nil when no interval read network.
     public let topNetworkApps: [AppRangeTotal]?
+    /// Apps by modeled CPU energy; nil when no interval covered energy.
+    public let topEnergyApps: [AppRangeTotal]?
     public let activeAppCount: Int
     /// Every app the ledger saw in the range, for comparisons and re-ranking.
     public let apps: [AppRangeTotal]
@@ -61,6 +63,9 @@ public struct RangeReport: Sendable {
             topDiskApps: Array(apps.filter { $0.diskBytes > 0 }.sorted { $0.diskBytes > $1.diskBytes }.prefix(appLimit)),
             topNetworkApps: apps.contains { $0.networkBytes != nil }
                 ? Array(apps.filter { ($0.networkBytes ?? 0) > 0 }.sorted { ($0.networkBytes ?? 0) > ($1.networkBytes ?? 0) }.prefix(appLimit))
+                : nil,
+            topEnergyApps: apps.contains { $0.energyJoules != nil }
+                ? Array(apps.filter { ($0.energyJoules ?? 0) > 0 }.sorted { ($0.energyJoules ?? 0) > ($1.energyJoules ?? 0) }.prefix(appLimit))
                 : nil,
             activeAppCount: apps.count,
             apps: apps,

@@ -2725,6 +2725,13 @@ private struct RangePanel: View {
                 Text(RangeText.apps(String(localized: "Top network"), network, bound: \.networkIsLowerBound) { MetricText.bytes($0.networkBytes) })
                     .font(.callout)
             }
+            if let energy = report.topEnergyApps {
+                Text(RangeText.apps(String(localized: "Top energy, modeled"), energy, bound: \.energyIsLowerBound) {
+                    RangeText.energy($0.energyJoules)
+                })
+                .font(.callout)
+                .help("CPU energy the kernel's model gives each app; an estimate that leaves out GPU work")
+            }
             Text(RangeText.coverage(report)).font(.caption).foregroundStyle(.secondary)
             if let comparison = model.rangeComparison {
                 Divider()
@@ -2882,6 +2889,15 @@ private enum RangeText {
         guard !apps.isEmpty else { return title + ": " + String(localized: "no recorded activity") }
         let items = apps.map { $0.name + " " + value($0) + ($0[keyPath: bound] ? " " + String(localized: "est.") : "") }
         return title + ": " + items.joined(separator: " · ")
+    }
+
+    private static let joulesPerWattHour = 3600.0
+
+    /// Joules below one watt-hour, then watt-hours. Example: 5400 J is "1.5 Wh".
+    static func energy(_ joules: Double?) -> String {
+        guard let joules, joules.isFinite else { return "–" }
+        guard joules >= joulesPerWattHour else { return joules.formatted(.number.precision(.fractionLength(0))) + " J" }
+        return (joules / joulesPerWattHour).formatted(.number.precision(.fractionLength(1))) + " Wh"
     }
 
     static func cpuSeconds(_ value: Double) -> String {
