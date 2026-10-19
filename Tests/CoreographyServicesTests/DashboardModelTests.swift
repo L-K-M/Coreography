@@ -89,8 +89,11 @@ final class DashboardModelTests: XCTestCase {
             ]}
             """#.utf8))
         let disk = LaneFacts.facts(.disk, LaneFacts.Inputs(volumes: volumes))
-        XCTAssertEqual(disk.filter { $0.label.hasPrefix("Volume") }.map(\.value), ["1 GB at /Volumes/Untitled", "2 GB at /Volumes/Untitled 1"],
-                       "each says where it is mounted, so the two can be told apart")
+        // Sizes follow the locale; the mount point does not.
+        let mounts = disk.filter { $0.label.hasPrefix("Volume") }.map(\.value)
+        XCTAssertEqual(mounts.count, 2)
+        XCTAssertTrue(mounts[0].hasSuffix(" at /Volumes/Untitled") && mounts[1].hasSuffix(" at /Volumes/Untitled 1"),
+                      "each says where it is mounted, so the two can be told apart: \(mounts)")
         XCTAssertEqual(Set(disk.map(\.id)).count, disk.count, "row identities never repeat")
 
         // Asking for a lane's facts shows them even while a process is selected.

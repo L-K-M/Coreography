@@ -22,6 +22,13 @@ final class CoreHeatTests: XCTestCase {
         XCTAssertEqual(merged.first?.end, frames[2].stamp.wallTime)
         XCTAssertEqual(merged.map(\.busyPercent), [50, 75])
 
+        // Merged shares weigh each column by the time it covers: 1 s at 100 % and 3 s at 0 % is 25 %.
+        let uneven = CoreHeat.merge([
+            (start: frames[0].stamp.wallTime, end: frames[0].stamp.wallTime.addingTimeInterval(1), busy: 100),
+            (start: frames[0].stamp.wallTime.addingTimeInterval(1), end: frames[0].stamp.wallTime.addingTimeInterval(4), busy: 0)
+        ])
+        XCTAssertEqual(uneven, 25)
+
         let window = frames[2].stamp.wallTime.addingTimeInterval(0.5)...frames[2].stamp.wallTime.addingTimeInterval(9)
         XCTAssertTrue(CoreHeat.cells(frames, nominalSeconds: 2, in: window).isEmpty, "nothing measured in the window")
     }

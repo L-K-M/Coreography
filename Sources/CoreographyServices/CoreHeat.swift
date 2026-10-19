@@ -56,15 +56,30 @@ enum CoreHeat {
             }
             let coreCount = chunk.map(\.busy.count).max() ?? 0
             for core in 0..<coreCount {
-                let values = chunk.compactMap { $0.busy.indices.contains(core) ? $0.busy[core] : nil }
-                guard !values.isEmpty else { continue }
+                let spans = chunk.compactMap { column in
+                    (column.busy.indices.contains(core) ? column.busy[core] : nil).map { (start: column.start, end: column.end, busy: $0) }
+                }
+                guard let busy = merge(spans) else { continue }
                 cells.append(CoreHeatCell(
                     id: "\(chunk[0].id)-\(core)", core: core, start: chunk[0].start, end: chunk[chunk.count - 1].end,
-                    busyPercent: values.reduce(0, +) / Double(values.count)
+                    busyPercent: busy
                 ))
             }
         }
         return cells
+    }
+}
+
+extension CoreHeat {
+    /// Shares weighted by the time each covers, since columns after a break
+    /// or across a cadence change differ in length. Example: 1 s at 100 %
+    /// and 3 s at 0 % merge to 25 %. Nil for no spans.
+    static func merge(_ spans: [(start: Date, end: Date, busy: Double)]) -> Double? {
+        let seconds = spans.map { max($0.end.timeIntervalSince($0.start), 0) }
+        let total = seconds.reduce(0, +)
+        guard !spans.isEmpty else { return nil }
+        guard total > 0 else { return spans.map(\.busy).reduce(0, +) / Double(spans.count) }
+        return zip(spans, seconds).map { $0.busy * $1 }.reduce(0, +) / total
     }
 }
 
