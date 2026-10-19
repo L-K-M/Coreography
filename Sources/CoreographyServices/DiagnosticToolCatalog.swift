@@ -25,7 +25,7 @@ enum DiagnosticToolCatalog {
         return [
             Definition(
                 name: "get_system_summary",
-                description: "CPU, memory pressure, swap, network, GPU, power and thermal readings with units, evidence and fact-only signals.",
+                description: "CPU, memory pressure, swap, network, GPU, power and thermal readings with units, evidence and fact-only signals, plus Time Machine progress and whether Spotlight indexes the startup disk (not whether it is indexing now), with read time.",
                 properties: ["snapshot_id": snapshotID], required: []
             ),
             Definition(

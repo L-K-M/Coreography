@@ -1641,6 +1641,11 @@ private struct InspectorView: View {
             InspectorSection("About") {
                 Text(explanation.summary)
                 Text(explanation.quittingNote).foregroundStyle(.secondary)
+                if let maintenance = inspection.maintenance {
+                    Text(maintenance.text)
+                    Text("Status read \(maintenance.readAt.formatted(date: .omitted, time: .standard))")
+                        .foregroundStyle(.secondary)
+                }
             }
         }
 

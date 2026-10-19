@@ -160,6 +160,8 @@ public final class DashboardModel {
     public private(set) var inspectedFiles: [String]?
     /// Displayed (possibly held) power assertions; nil until first read.
     public private(set) var assertionSnapshot: CapturedAssertions?
+    /// Time Machine and Spotlight state when last read; nil until first read.
+    public private(set) var maintenanceStatus: CapturedMaintenance?
     public var processSort: ProcessSort = .cpu
     public var processGrouping: ProcessGrouping = .app
     /// The shared hover time across all lanes; nil follows the live edge.
@@ -208,6 +210,8 @@ public final class DashboardModel {
     @ObservationIgnored private let notifier: AlertDelivery?
     @ObservationIgnored private let historyRecorder: HistoryRecorder?
     @ObservationIgnored private let sleepProvider: SleepHistoryProvider?
+    @ObservationIgnored private let maintenanceProvider: MaintenanceStatusProvider?
+    @ObservationIgnored private var maintenanceRead: Task<Void, Never>?
     @ObservationIgnored private let connectionMonitor: ConnectionMonitor?
     @ObservationIgnored private var connectionSample: Task<Void, Never>?
     @ObservationIgnored private var liveConnections: CapturedConnections?
@@ -269,6 +273,7 @@ public final class DashboardModel {
         historyRecorder = history.recorder
         historyProblem = history.error
         sleepProvider = SleepHistoryProvider()
+        maintenanceProvider = MaintenanceStatusProvider()
         connectionMonitor = ConnectionMonitor()
         startupProvider = StartupProvider()
         inspector = ProcessInspector()
@@ -318,13 +323,14 @@ public final class DashboardModel {
         connectionMonitor: ConnectionMonitor? = nil, startupProvider: StartupProvider? = nil,
         inspector: ProcessInspector? = nil, assertionReader: AssertionReader? = nil,
         openFileMonitor: OpenFileMonitor? = nil, sessionArchive: SessionArchive? = nil,
-        sampler: ProcessSampler? = nil
+        sampler: ProcessSampler? = nil, maintenanceProvider: MaintenanceStatusProvider? = nil
     ) {
         self.controller = controller
         self.askService = askService
         self.notifier = notifier
         self.historyRecorder = historyRecorder
         self.sleepProvider = sleepProvider
+        self.maintenanceProvider = maintenanceProvider
         self.connectionMonitor = connectionMonitor
         self.startupProvider = startupProvider
         self.inspector = inspector
@@ -347,6 +353,7 @@ public final class DashboardModel {
         worker?.cancel()
         askTask?.cancel()
         sleepImport?.cancel()
+        maintenanceRead?.cancel()
         storedLoad?.cancel()
         connectionSample?.cancel()
         openFileSample?.cancel()
@@ -360,6 +367,10 @@ public final class DashboardModel {
     private static let cursorTolerance: TimeInterval = 1.5
     private static let contributorTolerance: TimeInterval = 2.5
     private static let wakeSettleDelay: Duration = .seconds(10)
+    /// Two short tool runs every five minutes keep diagnostics current at negligible cost.
+    private static let maintenanceRefreshAge: TimeInterval = 300
+    /// Selecting backupd or Spotlight rereads a status older than this.
+    private static let maintenanceSelectionAge: TimeInterval = 10
     /// The recorder flushes every 30 s; rereading the store more often finds nothing new.
     private static let storedReloadInterval: TimeInterval = 60
     /// One hour of two-second process samples, matching live history.
@@ -657,8 +668,21 @@ public final class DashboardModel {
         DiagnosticSnapshot(
             takenAt: displayedEndTime ?? Date(), host: frames, network: networkFrames, gpu: gpuFrames,
             power: powerFrames, sensors: sensorFrames, processes: processSnapshot, ledger: ledger,
-            sleep: sleepState, assertions: assertionSnapshot
+            sleep: sleepState, assertions: assertionSnapshot, maintenance: maintenanceStatus
         )
+    }
+
+    /// Run tmutil and mdutil off the sampling path when the last read is
+    /// older than `age`; never two reads at once.
+    private func refreshMaintenance(olderThan age: TimeInterval) {
+        guard let maintenanceProvider, maintenanceRead == nil else { return }
+        if let readAt = maintenanceStatus?.readAt, Date().timeIntervalSince(readAt) < age { return }
+        maintenanceRead = Task { [weak self] in
+            let status = await maintenanceProvider.load()
+            guard let self else { return }
+            self.maintenanceStatus = status
+            self.maintenanceRead = nil
+        }
     }
 
     /// Import sleep history once at start and again after each wake, when
@@ -1015,6 +1039,7 @@ public final class DashboardModel {
                         if self.displayMode == .live, self.detailPane == .sensors { self.publishSensorStats() }
                     }
                     self.evaluateAlerts()
+                    self.refreshMaintenance(olderThan: Self.maintenanceRefreshAge)
                     self.recordHistory()
                     if self.timeRange.reachesStoredHistory, self.recordsHistory { self.refreshStoredHistory() }
                     if self.displayMode == .live {
@@ -1103,7 +1128,8 @@ public final class DashboardModel {
     public var processInspection: ProcessInspection? {
         guard let process = selectedProcess, let processSnapshot else { return nil }
         return ProcessInspections.make(
-            process, in: processSnapshot, startup: startupInventory, detail: processDetail, sockets: inspectedSockets
+            process, in: processSnapshot, startup: startupInventory, detail: processDetail, sockets: inspectedSockets,
+            maintenance: maintenanceStatus
         )
     }
 
@@ -1210,6 +1236,7 @@ public final class DashboardModel {
         inspectedSockets = nil
         inspectedFiles = nil
         guard let process = selectedProcess, let inspector else { return }
+        if MaintenanceWork.of(process) != nil { refreshMaintenance(olderThan: Self.maintenanceSelectionAge) }
         let connectionMonitor = connectionMonitor
         let openFileMonitor = openFileMonitor
         inspection = Task { [weak self] in

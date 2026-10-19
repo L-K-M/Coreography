@@ -55,6 +55,8 @@ public struct ProcessInspection: Sendable {
     public let detail: CapturedProcessDetail?
     /// Its sockets; nil while loading or when they could not be read.
     public let sockets: [CapturedConnection]?
+    /// Time Machine or Spotlight state for their processes; nil for others or before the first read.
+    public let maintenance: MaintenanceNote?
 }
 
 enum ProcessExplanations {
@@ -105,7 +107,7 @@ enum ProcessInspections {
 
     static func make(
         _ process: ObservedProcess, in snapshot: CapturedProcesses, startup: CapturedStartupInventory?,
-        detail: CapturedProcessDetail?, sockets: [CapturedConnection]?
+        detail: CapturedProcessDetail?, sockets: [CapturedConnection]?, maintenance: CapturedMaintenance? = nil
     ) -> ProcessInspection {
         let byPID = Dictionary(snapshot.processes.map { ($0.id.pid, $0) }) { first, _ in first }
         var chain: [ParentLink] = []
@@ -121,7 +123,8 @@ enum ProcessInspections {
         return ProcessInspection(
             process: process, appName: ProcessGroups.appNames(snapshot)[process.id] ?? process.name,
             parentChain: chain, launchdLabel: label, explanation: ProcessExplanations.note(for: process),
-            detail: detail?.process == process.id ? detail : nil, sockets: sockets
+            detail: detail?.process == process.id ? detail : nil, sockets: sockets,
+            maintenance: maintenance.flatMap { status in MaintenanceWork.of(process).map { MaintenanceNotes.note($0, status) } }
         )
     }
 }
