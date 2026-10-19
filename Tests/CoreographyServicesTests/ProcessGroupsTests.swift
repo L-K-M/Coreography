@@ -241,6 +241,11 @@ final class ProcessGroupsTests: XCTestCase {
             facts: ProcessFacts(accountNames: [501: "alice"]), currentUser: 501
         )
         XCTAssertEqual(byName.map(\.name), ["You, alice"], "free text finds a group by its account name")
+        let byNumber = ProcessGroups.rows(
+            in: processes, matching: "501", sortedBy: .cpu, grouping: .user,
+            facts: ProcessFacts(accountNames: [501: "alice"]), currentUser: 501
+        )
+        XCTAssertEqual(byNumber.map(\.name), ["You, alice"], "and still by its UID")
 
         let filtered = ProcessGroups.rows(in: processes, matching: "root", sortedBy: .cpu, grouping: .user, currentUser: 501)
         XCTAssertEqual(filtered.map(\.name), ["root"])
