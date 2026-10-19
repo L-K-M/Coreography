@@ -3,7 +3,7 @@
 Track actual delivery against the [product plan](plan.md). A stage is
 complete only after its relevant checks and review pass and its PR merges.
 
-## Current slice: range comparison
+## Current slice: menu bar items
 
 The native foundation merged in [PR #5](https://github.com/L-K-M/Coreography/pull/5)
 at `aee9494` after two GLM rounds and passing CI. Process monitoring merged
@@ -50,9 +50,18 @@ Network in the ledger follows in [PR #62](https://github.com/L-K-M/Coreography/p
 MCP access through the app follows in [PR #64](https://github.com/L-K-M/Coreography/pull/64).
 Time controls follow in [PR #65](https://github.com/L-K-M/Coreography/pull/65).
 HUD levels follow in [PR #66](https://github.com/L-K-M/Coreography/pull/66).
-This slice compares two ranges.
+Range comparison follows on `feat/range-compare`.
+This slice makes the menu bar extra configurable.
 
 Implemented:
+
+- Menu bar items (plan: up to three, each a value, a sparkline or
+  both): CPU, memory, GPU, download, upload or the hottest temperature,
+  one per reading, saved; the default stays CPU as plain text. Richer
+  layouts render as one template image, so the menu bar tints them, with
+  the values as its accessibility label. Sparklines show the last minute
+  on a fixed scale for shares and memory and their own range for rates
+  and temperatures, with gaps kept. Held displays hold the values too.
 
 - Range comparison (plan P7): with a range selected, Command-drag
   across any lane selects a second range, shaded orange on every lane.
@@ -606,6 +615,7 @@ helper remain outstanding. The store, MCP and model features above await stack d
 | Native network MIB, wide-counter mapping and three-lane UI | Passed at `e62fac1`, including native C fixtures, live CLI and both executable architectures; integrated candidate pending |
 | Native IOKit storage counters and four-lane renderer | Passed [native CI](https://github.com/L-K-M/Coreography/actions/runs/39110306993) at `6434722`: 75 tests, 16 drivers, 32 measured rate fields, no inventory issues; owner checks pending |
 | On-disk history store and recorder | History slice: 148 Swift tests pass on Linux against the real system SQLite (round trip with gaps, duplicates, retention, reopen, permissions, WAL, batching); native CI checks the CLI and file permissions |
+| Menu bar items | 270 Swift tests pass on Linux (one per reading, three at most, never empty, saved); the label image compiles only in native CI and its look is an owner check |
 | Range comparison | 269 Swift tests pass on Linux (rate-based changes across ranges of different lengths, the noise floor, no coverage, no shared readings); Command-drag and the bands compile only in native CI and are an owner check |
 | HUD levels | 267 Swift tests pass on Linux (items per level, no empty frame-rate slot, the cycle wrapping, saved and clamped settings); the panel compiles only in native CI; staying above full-screen games remains an owner check (S6) |
 | Time controls | 265 Swift tests pass on Linux (no sampling while paused even when started, pause markers, resume, return to now keeping the selection, marker names); the toolbar, menu and alert compile only in native CI |

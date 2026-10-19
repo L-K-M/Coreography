@@ -61,9 +61,105 @@ struct MenuBarLabel: View {
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
-        Text(model.samplingPaused ? String(localized: "Paused") : MetricText.percent(model.reading(for: .cpu)?.numericValue)).monospacedDigit()
+        content
             // Always shown while the app runs, so links can open a closed window.
             .onAppear { automation.openDashboard = { openWindow(id: "dashboard") } }
+    }
+
+    /// The default CPU value stays plain text; anything richer becomes one
+    /// template image, the only label a menu bar extra draws reliably.
+    @ViewBuilder private var content: some View {
+        if model.samplingPaused {
+            Text(String(localized: "Paused"))
+        } else if model.menuBarItems == MenuBarLayout.defaultItems {
+            Text(MetricText.percent(model.reading(for: .cpu)?.numericValue)).monospacedDigit()
+        } else {
+            Image(nsImage: MenuBarRenderer.image(model))
+                .accessibilityLabel(model.menuBarItems.map { MenuBarRenderer.text($0.metric, model) }.joined(separator: ", "))
+        }
+    }
+}
+
+@MainActor
+enum MenuBarRenderer {
+    static func image(_ model: DashboardModel) -> NSImage {
+        let renderer = ImageRenderer(content: MenuBarStrip(model: model))
+        renderer.scale = NSScreen.main?.backingScaleFactor ?? 2
+        let image = renderer.nsImage ?? NSImage()
+        // Drawn in black, so the menu bar tints it for light, dark and accent bars.
+        image.isTemplate = true
+        return image
+    }
+
+    static func text(_ metric: MenuBarMetric, _ model: DashboardModel) -> String {
+        let value = model.menuBarValue(metric)?.numericValue
+        return switch metric {
+        case .cpu, .gpu: MetricText.percent(value)
+        case .memory: MetricText.bytes(value)
+        case .download: "↓" + MetricText.rate(value)
+        case .upload: "↑" + MetricText.rate(value)
+        case .temperature: ThermalText.celsius(value)
+        }
+    }
+
+    /// Fixed tops for shares and memory; rates and temperatures scale to their minute.
+    static func scale(_ metric: MenuBarMetric, _ model: DashboardModel) -> Double? {
+        switch metric {
+        case .cpu, .gpu: MetricText.percentScale
+        case .memory: model.latest.map { Double($0.inventory.physicalMemoryBytes) }
+        case .download, .upload, .temperature: nil
+        }
+    }
+}
+
+private struct MenuBarStrip: View {
+    let model: DashboardModel
+
+    var body: some View {
+        HStack(spacing: 8) {
+            ForEach(model.menuBarItems) { item in
+                HStack(spacing: 3) {
+                    if item.style != .value {
+                        MenuBarSparkline(
+                            points: model.menuBarPoints(item.metric), maximum: MenuBarRenderer.scale(item.metric, model)
+                        )
+                        .frame(width: 28, height: 14)
+                    }
+                    if item.style != .graph {
+                        Text(MenuBarRenderer.text(item.metric, model))
+                    }
+                }
+            }
+        }
+        .font(.system(size: 12, weight: .medium).monospacedDigit())
+        .foregroundStyle(.black)
+        .frame(height: 18)
+    }
+}
+
+/// A minute of one series, gaps kept, without axes.
+private struct MenuBarSparkline: View {
+    let points: [DashboardPoint]
+    let maximum: Double?
+
+    var body: some View {
+        GeometryReader { geometry in
+            let top = maximum ?? max(points.map(\.value).max() ?? 1, 1)
+            let bottom = maximum == nil ? (points.map(\.value).min() ?? 0) : 0
+            let span = max(top - bottom, .ulpOfOne)
+            let start = points.first?.time ?? Date()
+            let seconds = max(points.last.map { $0.time.timeIntervalSince(start) } ?? 1, 1)
+            Path { path in
+                var previous: Int?
+                for point in points {
+                    let x = point.time.timeIntervalSince(start) / seconds * geometry.size.width
+                    let y = geometry.size.height * (1 - min(max((point.value - bottom) / span, 0), 1))
+                    if previous == point.segment { path.addLine(to: CGPoint(x: x, y: y)) } else { path.move(to: CGPoint(x: x, y: y)) }
+                    previous = point.segment
+                }
+            }
+            .stroke(Color.black, lineWidth: 1.5)
+        }
     }
 }
 
