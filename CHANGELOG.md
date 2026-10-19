@@ -31,6 +31,9 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
   after the store first exceeds it.
 
 ### Added
+- The process table's columns can be shown, hidden and reordered from the
+  header, with new opt-in CPU time and start time columns and sorts;
+  wakeups move to the opt-in set, as the plan's default columns have it.
 - Each lane's menu shows its facts and sources in the inspector: chip,
   core tiers, memory, GPUs, storage devices and volumes, interfaces,
   adapter and battery, sensors and fans, and where each reading comes from.

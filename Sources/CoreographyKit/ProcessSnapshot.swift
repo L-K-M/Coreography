@@ -5,6 +5,11 @@ public struct ProcessIdentity: Hashable, Codable, Sendable {
     public let startSeconds: UInt64
     public let startMicroseconds: UInt64
 
+    /// When the process started, on the wall clock.
+    public var startTime: Date {
+        Date(timeIntervalSince1970: Double(startSeconds) + Double(startMicroseconds) / 1_000_000)
+    }
+
     public init(pid: Int32, startSeconds: UInt64, startMicroseconds: UInt64) throws {
         guard pid >= 0, startMicroseconds < 1_000_000 else {
             throw ProcessIdentityError.invalidIdentity
@@ -44,6 +49,8 @@ public struct ProcessReading: Identifiable, Codable, Sendable {
     public let gpuMillisecondsPerSecond: MetricReading
     /// CPU power the kernel's energy model attributes to the process; an estimate.
     public let cpuPowerWatts: MetricReading
+    /// User plus system CPU time over the process's life, in seconds.
+    public let cpuTimeSeconds: MetricReading
     public let executablePath: String?
     /// PID the OS holds responsible (e.g. Safari for a WebContent helper).
     /// A bare PID; consumers must check it against a live identity.
@@ -57,6 +64,7 @@ public struct ProcessReading: Identifiable, Codable, Sendable {
         wakeupsPerSecond: MetricReading = .unsupported(reason: "Wakeups were not collected"),
         gpuMillisecondsPerSecond: MetricReading = .unsupported(reason: "GPU time was not collected"),
         cpuPowerWatts: MetricReading = .unsupported(reason: "Energy was not collected"),
+        cpuTimeSeconds: MetricReading = .unsupported(reason: "CPU time was not collected"),
         executablePath: String?, responsiblePID: Int32?
     ) {
         self.id = id
@@ -71,6 +79,7 @@ public struct ProcessReading: Identifiable, Codable, Sendable {
         self.wakeupsPerSecond = wakeupsPerSecond
         self.gpuMillisecondsPerSecond = gpuMillisecondsPerSecond
         self.cpuPowerWatts = cpuPowerWatts
+        self.cpuTimeSeconds = cpuTimeSeconds
         self.executablePath = executablePath
         self.responsiblePID = responsiblePID
     }

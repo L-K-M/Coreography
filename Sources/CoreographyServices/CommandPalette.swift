@@ -118,6 +118,8 @@ public enum CommandPalette {
         case .gpu: "Sort by GPU Time"
         case .power: "Sort by CPU Power"
         case .name: "Sort by Name"
+        case .cpuTime: "Sort by CPU Time"
+        case .started: "Sort by Start, Newest First"
         }
     }
 

@@ -160,6 +160,19 @@ final class ProcessGroupsTests: XCTestCase {
         XCTAssertEqual(contributors.disk.count, Contributors.limit)
     }
 
+    /// Plan: opt-in CPU time and start time columns, sortable.
+    func testGroupsTotalCPUTimeAndStartWithTheirFirstMember() throws {
+        let processes = try snapshot([safari, webContent(responsible: 100), standaloneDaemon])
+        let rows = ProcessGroups.rows(in: processes, matching: "", sortedBy: .cpuTime, grouping: .app)
+        let group = try XCTUnwrap(rows.first { $0.name == "Safari" })
+        XCTAssertEqual(group.cpuTimeSeconds.numericValue, 30, "10 s and 20 s of CPU")
+        XCTAssertEqual(group.started, Date(timeIntervalSince1970: 10), "the app's first process")
+        XCTAssertEqual(rows.map(\.name), ["Safari", "mds"], "most CPU time first")
+
+        let newest = ProcessGroups.rows(in: processes, matching: "", sortedBy: .started, grouping: .flat)
+        XCTAssertEqual(newest.map(\.name), ["com.apple.WebKit.WebContent", "Safari", "mds"], "newest first, ties by PID")
+    }
+
     /// Plan: grouping as a parent-child tree, each row with its own readings.
     func testTreeNestsChildrenUnderTheirObservedParent() throws {
         let launchd = try process(pid: 1, name: "launchd", cpu: 1, start: 1, parent: 0, uid: 0)
@@ -269,6 +282,7 @@ final class ProcessGroupsTests: XCTestCase {
             gpuMillisecondsPerSecond: try .measured(gpu, source: source),
             cpuPowerWatts: try power.map { try .estimated($0, method: "Energy model", source: source) }
                 ?? .unsupported(reason: "No energy counter for this process", source: source),
+            cpuTimeSeconds: try cpu.map { try .measured($0, source: source) } ?? .restricted(reason: "EPERM", source: source),
             executablePath: path, responsiblePID: responsible
         )
     }

@@ -41,8 +41,9 @@ private struct Coreo {
     fact-only signals, top apps by CPU and disk, and data-source availability.
     top ranks apps and lone processes, grouped as the app groups them, after a
     two-second baseline: by cpu, or --sort memory, diskRead, diskWrite, network,
-    gpu, power or name; --count N shows up to N (1-50, default 10). Without
-    --json it redraws every two seconds until interrupted.
+    gpu, power, cpuTime, started (newest first) or name; --count N shows up to
+    N (1-50, default 10). Without --json it redraws every two seconds until
+    interrupted.
     holders lists your processes with a TCP or UDP socket on a port, or with an
     open file whose path contains TEXT (~ is your home folder), and what the
     answer could not cover; other users' processes need the helper.

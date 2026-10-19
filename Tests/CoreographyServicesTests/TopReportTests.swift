@@ -23,6 +23,11 @@ final class TopReportTests: XCTestCase {
         XCTAssertEqual(report.restrictedProcesses, 1)
         XCTAssertEqual(report.sort, .cpu)
 
+        let byStart = TopReport.make(processes: processes, traffic: nil, sortedBy: .started, count: 1)
+        XCTAssertEqual(byStart.rows.first?.name, "kernel_task", "newest first")
+        XCTAssertEqual(byStart.rows.first?.started, Date(timeIntervalSince1970: 300), "the sorted value is in the row")
+        XCTAssertEqual(report.rows.first?.started, Date(timeIntervalSince1970: 100), "an app starts with its first process")
+
         let byMemory = TopReport.make(processes: processes, traffic: nil, sortedBy: .memory, count: 1)
         XCTAssertEqual(byMemory.rows.map(\.name), ["mds"])
 
