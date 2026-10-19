@@ -36,6 +36,18 @@ public struct HistoryReport: Codable, Sendable {
     public let samples: [Sample]
 }
 
+/// App totals from the stored ledger for `coreo apps`, by CPU-seconds.
+public struct StoredAppsReport: Codable, Sendable {
+    public let windowStart: Date
+    public let windowEnd: Date
+    /// The span of stored intervals counted (midpoint inside the window); absent when none were.
+    public let coveredFrom: Date?
+    public let coveredTo: Date?
+    /// Stored intervals ending inside the window, counted or not.
+    public let intervals: Int
+    public let apps: [AppRangeTotal]
+}
+
 public struct DiagnosticReport: Codable, Sendable {
     public let schemaVersion: Int
     public let buildVersion: String
@@ -151,11 +163,9 @@ public actor DiagnosticService {
         guard let metric = HistoryMetric.allCases.first(where: { "\($0)" == name }) else {
             throw DiagnosticError.invalidArgument("Unknown metric; use one of " + HistoryMetric.allCases.map { "\($0)" }.joined(separator: ", "))
         }
-        let (recorder, problem) = HistoryRecorder.makeDefault()
-        guard let recorder else { throw DiagnosticError.unavailable(problem ?? "History store unavailable") }
-        let end = Date()
-        let window = TimeInterval(min(max(minutes, 1), Int(HistoryStore.retention / 60)) * 60)
-        let samples = try await recorder.samples(metric, from: end.addingTimeInterval(-window), to: end)
+        let recorder = try Self.storedHistory()
+        let window = Self.storedWindow(minutes: minutes)
+        let samples = try await recorder.samples(metric, from: window.lowerBound, to: window.upperBound)
         return HistoryReport(
             metric: name, storedSamples: samples.count,
             samples: samples.map { HistoryReport.Sample(time: $0.time, value: $0.value, availability: $0.availability) }
@@ -177,6 +187,33 @@ public actor DiagnosticService {
         return try DiagnosticTools.sleepHistory(snapshot, hours: hours)
     }
 
+    /// What apps did in the recorded ledger; the CLI never writes history.
+    public func storedApps(minutes: Int) async throws -> StoredAppsReport {
+        let recorder = try Self.storedHistory()
+        let window = Self.storedWindow(minutes: minutes)
+        let intervals = try await recorder.ledger(from: window.lowerBound, to: window.upperBound)
+        let (apps, covered) = AppLedger(stored: intervals).totals(in: window)
+        return StoredAppsReport(
+            windowStart: window.lowerBound, windowEnd: window.upperBound,
+            coveredFrom: covered?.lowerBound, coveredTo: covered?.upperBound, intervals: intervals.count,
+            apps: Array(apps.sorted { $0.cpuSeconds > $1.cpuSeconds }.prefix(Self.maximumStoredApps))
+        )
+    }
+
+    private static func storedHistory() throws -> HistoryRecorder {
+        let (recorder, problem) = HistoryRecorder.makeDefault()
+        guard let recorder else { throw DiagnosticError.unavailable(problem ?? "History store unavailable") }
+        return recorder
+    }
+
+    /// The last N minutes, clamped to 1 minute through the retention.
+    private static func storedWindow(minutes: Int) -> ClosedRange<Date> {
+        let end = Date()
+        let window = TimeInterval(min(max(minutes, 1), Int(HistoryStore.retention / 60)) * 60)
+        return end.addingTimeInterval(-window)...end
+    }
+
+    private static let maximumStoredApps = 50
     private static let minimumDiagnosisSeconds = 3
     private static let maximumDiagnosisSeconds = 60
     private static let processEverySeconds = 2

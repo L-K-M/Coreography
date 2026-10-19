@@ -44,12 +44,27 @@ struct AppLedger: Sendable {
 
     init(capacity: Int) { self.capacity = capacity }
 
+    /// Rebuild from stored intervals, oldest first.
+    init(stored: [LedgerInterval]) {
+        self.init(capacity: max(stored.count, 1))
+        for interval in stored {
+            let entries = interval.entries.map {
+                Entry(app: index(of: $0.app), cpuSeconds: $0.cpuSeconds, diskBytes: $0.diskBytes, isLowerBound: $0.isLowerBound)
+            }
+            intervals.append(Interval(start: interval.start, end: interval.end, cores: interval.cores, entries: entries))
+        }
+        previousTime = stored.last?.end
+    }
+
     /// Integrate each app's rates over the sample's real interval: a rate is
     /// a delta over that interval, so rate × interval restores the delta.
-    mutating func record(_ processes: CapturedProcesses, logicalCPUCount: Int?) {
+    /// Returns the new interval in its stored form, or nil when the sample
+    /// opened no interval (the first one, or one after an interruption).
+    @discardableResult
+    mutating func record(_ processes: CapturedProcesses, logicalCPUCount: Int?) -> LedgerInterval? {
         let end = processes.stamp.wallTime
         defer { previousTime = end }
-        guard let start = previousTime, processes.continuity == .continuous, end > start else { return }
+        guard let start = previousTime, processes.continuity == .continuous, end > start else { return nil }
         let seconds = end.timeIntervalSince(start)
         let cores = Double(logicalCPUCount ?? 0)
 
@@ -70,6 +85,12 @@ struct AppLedger: Sendable {
         }
         intervals.append(Interval(start: start, end: end, cores: cores, entries: entries))
         if intervals.count > capacity { intervals.removeFirst(intervals.count - capacity) }
+        return LedgerInterval(
+            start: start, end: end, cores: cores,
+            entries: entries.map {
+                LedgerEntry(app: names[$0.app], cpuSeconds: $0.cpuSeconds, diskBytes: $0.diskBytes, isLowerBound: $0.isLowerBound)
+            }
+        )
     }
 
     func totals(in range: ClosedRange<Date>) -> (apps: [AppRangeTotal], covered: ClosedRange<Date>?) {

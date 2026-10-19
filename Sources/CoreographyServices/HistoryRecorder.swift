@@ -3,7 +3,8 @@ import CoreographyKit
 
 public typealias StoredMetric = HistoryMetric
 
-/// Records the newest system readings to the on-disk Recent tier.
+/// Records the newest system readings and app-ledger intervals to the
+/// on-disk Recent tier.
 ///
 /// Samples buffer in memory and flush in one transaction every 30 s, so
 /// the store sees about two writes a minute rather than one per sample.
@@ -12,10 +13,16 @@ public typealias StoredMetric = HistoryMetric
 public actor HistoryRecorder {
     static let flushInterval: TimeInterval = 30
     private static let bufferLimit = 4096
+    /// Over two hours of two-second process intervals.
+    private static let ledgerBufferLimit = 4096
 
     private let store: HistoryStore
     private var buffer: [HistorySample] = []
+    private var ledgerBuffer: [LedgerInterval] = []
     private var lastFlush: Date?
+    /// Readings from before the last deletion are deleted history, even
+    /// when a task carrying them arrives after it.
+    private var deletedThrough: Date?
     public private(set) var lastError: String?
 
     init(store: HistoryStore) { self.store = store }
@@ -32,7 +39,7 @@ public actor HistoryRecorder {
     }
 
     func record(_ samples: [HistorySample], at now: Date) async {
-        buffer.append(contentsOf: samples)
+        buffer.append(contentsOf: samples.filter { isAfterDeletion($0.time) })
         if buffer.count > Self.bufferLimit { buffer.removeFirst(buffer.count - Self.bufferLimit) }
         guard let lastFlush else {
             self.lastFlush = now
@@ -42,27 +49,50 @@ public actor HistoryRecorder {
         await flush(now: now)
     }
 
+    /// Buffer one ledger interval; it is written with the next sample batch.
+    func recordLedger(_ interval: LedgerInterval) {
+        guard isAfterDeletion(interval.end) else { return }
+        ledgerBuffer.append(interval)
+        if ledgerBuffer.count > Self.ledgerBufferLimit { ledgerBuffer.removeFirst(ledgerBuffer.count - Self.ledgerBufferLimit) }
+    }
+
+    /// Take the batch out before writing: records arriving while the write
+    /// awaits go to the next batch instead of being cleared with this one.
+    /// A failed batch goes back in front, within the buffer limits.
     func flush(now: Date = Date()) async {
         lastFlush = now
-        guard !buffer.isEmpty else { return }
+        guard !buffer.isEmpty || !ledgerBuffer.isEmpty else { return }
+        let samples = buffer
+        let ledger = ledgerBuffer
+        buffer.removeAll()
+        ledgerBuffer.removeAll()
         do {
-            try await store.append(buffer, now: now)
-            buffer.removeAll()
+            try await store.append(samples, ledger: ledger, now: now)
             lastError = nil
-        } catch HistoryStoreError.storage(let reason) {
-            lastError = reason
         } catch {
-            lastError = "\(error)"
+            buffer = Array((samples + buffer).suffix(Self.bufferLimit))
+            ledgerBuffer = Array((ledger + ledgerBuffer).suffix(Self.ledgerBufferLimit))
+            if case HistoryStoreError.storage(let reason) = error { lastError = reason } else { lastError = "\(error)" }
         }
     }
 
-    public func deleteAll() async throws {
+    public func deleteAll(now: Date = Date()) async throws {
+        deletedThrough = now
         buffer.removeAll()
+        ledgerBuffer.removeAll()
         try await store.deleteAll()
+    }
+
+    private func isAfterDeletion(_ time: Date) -> Bool {
+        deletedThrough.map { time > $0 } ?? true
     }
 
     func samples(_ metric: HistoryMetric, from start: Date, to end: Date) async throws -> [HistorySample] {
         try await store.samples(metric, from: start, to: end)
+    }
+
+    func ledger(from start: Date, to end: Date) async throws -> [LedgerInterval] {
+        try await store.ledger(from: start, to: end)
     }
 }
 

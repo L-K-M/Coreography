@@ -379,6 +379,16 @@ jobs:
           assert stat.S_IMODE(os.stat(database).st_mode) == 0o600, "history file must be private"
           print(json.dumps({"storedSamples": report["storedSamples"]}))
           PY
+          dist/Coreography.app/Contents/Helpers/coreo apps --json --minutes 5 > "$RUNNER_TEMP/apps.json"
+          python3 - "$RUNNER_TEMP/apps.json" <<'PY'
+          import json, sys
+          with open(sys.argv[1]) as source:
+              report = json.load(source)
+          assert report["windowStart"] <= report["windowEnd"] and report["intervals"] >= 0
+          assert len(report["apps"]) <= 50 and all(app["cpuSeconds"] >= 0 for app in report["apps"])
+          assert "/Users/" not in json.dumps(report), "stored app totals must not expose paths"
+          print(json.dumps({"intervals": report["intervals"], "apps": len(report["apps"])}))
+          PY
 
       - name: Smoke-test the sleep history import
         run: |
