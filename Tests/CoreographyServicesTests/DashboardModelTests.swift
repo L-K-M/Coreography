@@ -89,7 +89,8 @@ final class DashboardModelTests: XCTestCase {
             ]}
             """#.utf8))
         let disk = LaneFacts.facts(.disk, LaneFacts.Inputs(volumes: volumes))
-        XCTAssertEqual(disk.filter { $0.label.hasPrefix("Volume") }.count, 2)
+        XCTAssertEqual(disk.filter { $0.label.hasPrefix("Volume") }.map(\.value), ["1 GB at /Volumes/Untitled", "2 GB at /Volumes/Untitled 1"],
+                       "each says where it is mounted, so the two can be told apart")
         XCTAssertEqual(Set(disk.map(\.id)).count, disk.count, "row identities never repeat")
 
         // Asking for a lane's facts shows them even while a process is selected.
@@ -97,6 +98,8 @@ final class DashboardModelTests: XCTestCase {
         model.showLaneFacts(.memory)
         XCTAssertNil(model.selectedProcessRow)
         XCTAssertEqual(model.inspectedLane, .memory)
+        model.selectedProcessRow = "process-1-1-0"
+        XCTAssertNil(model.inspectedLane, "a process takes the inspector, and deselecting it returns to the summary")
     }
 
     /// The busiest GPU names the value, so its graph must be that GPU's too.

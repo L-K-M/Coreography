@@ -1804,7 +1804,9 @@ private struct InspectorView: View {
             ForEach(known) { LabeledContent($0.label, value: $0.value) }
         }
         InspectorSection("Sources") {
-            ForEach(facts.filter { $0.kind == .source }) { source in
+            let sources = facts.filter { $0.kind == .source }
+            if sources.isEmpty { Text("Nothing read yet").foregroundStyle(.secondary) }
+            ForEach(sources) { source in
                 VStack(alignment: .leading, spacing: 2) {
                     Text(source.label)
                     Text(source.value).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)

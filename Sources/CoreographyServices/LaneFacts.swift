@@ -75,7 +75,8 @@ enum LaneFacts {
             return devices.enumerated().map {
                 LaneFact(kind: .fact, label: devices.count == 1 ? "Storage device" : "Storage device \($0.offset + 1)", value: $0.element.name)
             }
-                + volumes.map { LaneFact(kind: .fact, label: "Volume \($0.name)", value: bytes(Double($0.totalBytes))) }
+                // Names repeat ("Untitled"); the mount point tells two volumes apart. Sizes count as Finder does.
+                + volumes.map { LaneFact(kind: .fact, label: "Volume \($0.name)", value: "\(bytes(Double($0.totalBytes), style: .file)) at \($0.path)") }
                 + sources([("Storage devices", inputs.disks?.enumeration), ("Disk read", devices.first?.readBytesPerSecond)])
         case .network:
             let interfaces = inputs.network?.interfaces ?? []
@@ -117,8 +118,8 @@ enum LaneFacts {
         }
     }
 
-    private static func bytes(_ value: Double) -> String {
-        Int64(value).formatted(.byteCount(style: .memory))
+    private static func bytes(_ value: Double, style: ByteCountFormatStyle.Style = .memory) -> String {
+        Int64(value).formatted(.byteCount(style: style))
     }
 }
 

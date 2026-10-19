@@ -136,7 +136,11 @@ public final class DashboardModel {
     public var selectedProcessRow: ProcessRow.ID? {
         didSet {
             guard selectedProcessRow != oldValue else { return }
-            if selectedProcessRow != nil { inspectorShown = true }
+            // A process takes the inspector from a lane's page; deselecting it returns to the summary.
+            if selectedProcessRow != nil {
+                inspectorShown = true
+                inspectedLane = nil
+            }
             selectedProcessHistory = []
             selectedHistorySegment = 0
             inspectSelection()
