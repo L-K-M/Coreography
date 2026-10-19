@@ -1064,7 +1064,7 @@ public final class DashboardModel {
             isNew: { lifecycle.isNew($0, at: time) },
             facts: ProcessFacts(
                 sockets: connectionSnapshot.map(SocketFacts.init), sleepPreventers: assertionSnapshot?.sleepPreventers,
-                openFiles: openFileSnapshot?.files, traffic: trafficSnapshot
+                openFiles: openFileSnapshot?.files, traffic: trafficSnapshot, cpuFactor: processCPUFactor
             )
         )
         let ranked = rangeRanked(rows)
@@ -1176,6 +1176,14 @@ public final class DashboardModel {
     /// When the newest live sample arrived, held display or not; surfaces
     /// that always show live data (the Dock graph) redraw on it.
     public private(set) var liveSampleTime: Date?
+
+    /// Per-process CPU in whole-machine shares or one core = 100 %; saved.
+    public var processCPUScale = ProcessCPUScale.saved() {
+        didSet { if processCPUScale != oldValue { processCPUScale.save() } }
+    }
+
+    /// The multiplier from a process's whole-machine share to the chosen scale.
+    public var processCPUFactor: Double { processCPUScale.factor(logicalCPUs: latest?.inventory.logicalCPUCount ?? 1) }
 
     /// Lane order, hidden lanes and sizes; saved as they change.
     public var laneLayout = LaneLayout.saved() {
