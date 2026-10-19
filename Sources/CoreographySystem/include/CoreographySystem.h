@@ -89,6 +89,23 @@ int32_t coreo_process_arguments_capacity(void);
 int32_t coreo_process_arguments(int32_t pid, uint64_t start_seconds, uint64_t start_microseconds,
                                 uint8_t *buffer, int32_t capacity, int32_t *length);
 
+/* PATH_MAX: the longest vnode path proc_pidfdinfo returns. */
+#define COREO_FILE_PATH_CAPACITY 1024
+
+typedef struct {
+    int32_t fd;
+    char path[COREO_FILE_PATH_CAPACITY];
+} coreo_file_sample;
+
+/* One process's open regular files and directories (vnode descriptors with
+   a path), read only while pid still has the given start time; the same
+   errors and truncation rules as coreo_process_sockets. A descriptor
+   closed between listing and reading is skipped; paths are always
+   NUL-terminated. */
+int32_t coreo_process_files(int32_t pid, uint64_t start_seconds, uint64_t start_microseconds,
+                            coreo_file_sample *files, int32_t capacity,
+                            int32_t *count, int32_t *truncated);
+
 /* Internet socket kinds the connection bridge reports. */
 enum {
     COREO_SOCKET_TCP = 1,

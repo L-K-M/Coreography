@@ -86,6 +86,15 @@ test_invalid_args(void)
         assert(coreo_process_arguments(1, 1, 0, block, 16, NULL) == EINVAL);
         assert(length == -1);
     }
+
+    {
+        coreo_file_sample files[2];
+
+        assert(coreo_process_files(0, 1, 0, files, 2, &count, &truncated) == EINVAL);
+        assert(coreo_process_files(1, 1, 0, NULL, 2, &count, &truncated) == EINVAL);
+        assert(coreo_process_files(1, 1, 0, files, 0, &count, &truncated) == EINVAL);
+        assert(count == -1 && truncated == -1);
+    }
 }
 
 #if defined(__APPLE__)
@@ -279,6 +288,39 @@ test_sockets(void)
     close(listener6);
 }
 
+/* A file this process holds open is listed by path; a wrong start time
+   must not read. */
+static void
+test_files(void)
+{
+    char template[] = "/tmp/coreo-files-XXXXXX";
+    int fd = mkstemp(template);
+    const char *name = strrchr(template, '/') + 1;
+    coreo_process_sample self;
+    coreo_file_sample *files = calloc(256, sizeof(coreo_file_sample));
+    int32_t count = 0;
+    int32_t truncated = 0;
+    int found = 0;
+
+    assert(fd >= 0 && files != NULL);
+    assert(coreo_process_read(getpid(), &self) == 0);
+    assert(coreo_process_files(getpid(), self.start_seconds, self.start_microseconds,
+                               files, 256, &count, &truncated) == 0);
+    for (int32_t i = 0; i < count; i++) {
+        /* /tmp resolves to /private/tmp; compare the file name. */
+        const char *slash = strrchr(files[i].path, '/');
+        if (files[i].fd == fd && slash != NULL && strcmp(slash + 1, name) == 0) {
+            found = 1;
+        }
+    }
+    assert(found);
+    assert(coreo_process_files(getpid(), self.start_seconds + 1, self.start_microseconds,
+                               files, 256, &count, &truncated) == EAGAIN);
+    close(fd);
+    unlink(template);
+    free(files);
+}
+
 /* This process's own argument block starts with argc and the executable
    path; a wrong start time must not read. */
 static void
@@ -363,6 +405,13 @@ test_platform(void)
         assert(coreo_process_arguments(42, 1, 0, block, 16, &length) == ENOTSUP);
         assert(length == 0);
     }
+
+    {
+        coreo_file_sample files[2];
+
+        assert(coreo_process_files(42, 1, 0, files, 2, &count, &truncated) == ENOTSUP);
+        assert(count == 0 && truncated == 0);
+    }
 }
 
 #endif
@@ -375,6 +424,7 @@ main(void)
 #if defined(__APPLE__)
     test_sockets();
     test_arguments();
+    test_files();
 #endif
     puts("test_process_bridge: all assertions passed");
     return 0;

@@ -1327,7 +1327,7 @@ private struct ProcessPane: View {
         DisclosureGroup("Processes") {
             VStack(alignment: .leading, spacing: 10) {
                 HStack {
-                    TextField("Filter: name, cpu:>10, mem:>1GB, user:me, port:443, #apps, #new, #listening, #preventing-sleep", text: $model.processFilter)
+                    TextField("Filter: name, cpu:>10, mem:>1GB, user:me, port:443, file:~/Downloads, #apps, #new, #listening, #preventing-sleep", text: $model.processFilter)
                         .textFieldStyle(.roundedBorder)
                         .focused(filterFocused)
                     Picker("Group", selection: $model.processGrouping) {
@@ -1607,6 +1607,21 @@ private struct InspectorView: View {
             }
         }
 
+        InspectorSection("Open files") {
+            if let files = model.inspectedFiles {
+                if files.isEmpty { Text("None open").foregroundStyle(.secondary) }
+                // Long lists stay readable; the filter's file: term searches them all.
+                ForEach(Array(files.prefix(InspectorText.fileLimit).enumerated()), id: \.offset) { _, path in
+                    Text(path).font(.caption.monospaced()).lineLimit(1).truncationMode(.middle).textSelection(.enabled)
+                }
+                if files.count > InspectorText.fileLimit {
+                    Text("and \(files.count - InspectorText.fileLimit) more").font(.caption).foregroundStyle(.secondary)
+                }
+            } else {
+                Text(inspection.detail == nil ? "Reading…" : "Could not be read").foregroundStyle(.secondary)
+            }
+        }
+
         if !model.selectedAssertions.isEmpty {
             InspectorSection("Sleep assertions") {
                 ForEach(model.selectedAssertions) { assertion in
@@ -1674,6 +1689,8 @@ private struct InspectorSection<Content: View>: View {
 }
 
 private enum InspectorText {
+    static let fileLimit = 40
+
     static func quitting(_ effect: QuitEffect) -> String {
         switch effect {
         case .restarts: return String(localized: "Quitting is safe: macOS starts it again.")

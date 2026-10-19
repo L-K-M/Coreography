@@ -422,15 +422,70 @@ coreo_read_socket(int32_t pid, int32_t fd, coreo_socket_sample *entry)
     return ENOENT;
 }
 
+/* The descriptor table of pid while it has the given start time; the
+   caller frees *fds. Headroom covers descriptors opened meanwhile. */
+static int32_t
+coreo_list_descriptors(int32_t pid, uint64_t start_seconds, uint64_t start_microseconds,
+                       struct proc_fdinfo **fds, int *fd_count)
+{
+    struct proc_bsdinfo identity;
+    int32_t err;
+    int size;
+
+    *fds = NULL;
+    *fd_count = 0;
+    err = coreo_read_identity(pid, &identity);
+    if (err != 0) {
+        return err;
+    }
+    if (identity.pbi_start_tvsec != start_seconds || identity.pbi_start_tvusec != start_microseconds) {
+        return EAGAIN;
+    }
+    errno = 0;
+    size = proc_pidinfo(pid, PROC_PIDLISTFDS, 0, NULL, 0);
+    if (size <= 0) {
+        return errno ? errno : EIO;
+    }
+    size += 32 * (int)PROC_PIDLISTFD_SIZE;
+    *fds = malloc((size_t)size);
+    if (*fds == NULL) {
+        return ENOMEM;
+    }
+    errno = 0;
+    size = proc_pidinfo(pid, PROC_PIDLISTFDS, 0, *fds, size);
+    if (size <= 0) {
+        err = errno ? errno : EIO;
+        free(*fds);
+        *fds = NULL;
+        return err;
+    }
+    *fd_count = size / (int)PROC_PIDLISTFD_SIZE;
+    return 0;
+}
+
+/* The pid may have been reused while its table was read. */
+static int32_t
+coreo_still_same(int32_t pid, uint64_t start_seconds, uint64_t start_microseconds)
+{
+    struct proc_bsdinfo identity;
+    int32_t err = coreo_read_identity(pid, &identity);
+
+    if (err != 0) {
+        return err;
+    }
+    if (identity.pbi_start_tvsec != start_seconds || identity.pbi_start_tvusec != start_microseconds) {
+        return EAGAIN;
+    }
+    return 0;
+}
+
 int32_t
 coreo_process_sockets(int32_t pid, uint64_t start_seconds, uint64_t start_microseconds,
                       coreo_socket_sample *sockets, int32_t capacity,
                       int32_t *count, int32_t *truncated)
 {
-    struct proc_bsdinfo identity;
     struct proc_fdinfo *fds;
     int32_t err;
-    int size;
     int fd_count;
 
     if (pid <= 0 || sockets == NULL || count == NULL || truncated == NULL || capacity <= 0) {
@@ -439,34 +494,10 @@ coreo_process_sockets(int32_t pid, uint64_t start_seconds, uint64_t start_micros
     *count = 0;
     *truncated = 0;
 
-    err = coreo_read_identity(pid, &identity);
+    err = coreo_list_descriptors(pid, start_seconds, start_microseconds, &fds, &fd_count);
     if (err != 0) {
         return err;
     }
-    if (identity.pbi_start_tvsec != start_seconds || identity.pbi_start_tvusec != start_microseconds) {
-        return EAGAIN;
-    }
-
-    /* Ask for the table size, then read with headroom for fds opened meanwhile. */
-    errno = 0;
-    size = proc_pidinfo(pid, PROC_PIDLISTFDS, 0, NULL, 0);
-    if (size <= 0) {
-        return errno ? errno : EIO;
-    }
-    size += 32 * (int)PROC_PIDLISTFD_SIZE;
-    fds = malloc((size_t)size);
-    if (fds == NULL) {
-        return ENOMEM;
-    }
-    errno = 0;
-    size = proc_pidinfo(pid, PROC_PIDLISTFDS, 0, fds, size);
-    if (size <= 0) {
-        err = errno ? errno : EIO;
-        free(fds);
-        return err;
-    }
-
-    fd_count = size / (int)PROC_PIDLISTFD_SIZE;
     for (int i = 0; i < fd_count; i++) {
         coreo_socket_sample entry;
 
@@ -490,14 +521,62 @@ coreo_process_sockets(int32_t pid, uint64_t start_seconds, uint64_t start_micros
     }
     free(fds);
 
-    /* The pid may have been reused while the table was read. */
-    err = coreo_read_identity(pid, &identity);
-    if (err != 0 || identity.pbi_start_tvsec != start_seconds || identity.pbi_start_tvusec != start_microseconds) {
+    err = coreo_still_same(pid, start_seconds, start_microseconds);
+    if (err != 0) {
         *count = 0;
         *truncated = 0;
-        return err != 0 ? err : EAGAIN;
     }
-    return 0;
+    return err;
+}
+
+int32_t
+coreo_process_files(int32_t pid, uint64_t start_seconds, uint64_t start_microseconds,
+                    coreo_file_sample *files, int32_t capacity,
+                    int32_t *count, int32_t *truncated)
+{
+    struct proc_fdinfo *fds;
+    int32_t err;
+    int fd_count;
+
+    if (pid <= 0 || files == NULL || count == NULL || truncated == NULL || capacity <= 0) {
+        return EINVAL;
+    }
+    *count = 0;
+    *truncated = 0;
+
+    err = coreo_list_descriptors(pid, start_seconds, start_microseconds, &fds, &fd_count);
+    if (err != 0) {
+        return err;
+    }
+    for (int i = 0; i < fd_count; i++) {
+        struct vnode_fdinfowithpath info;
+        int rc;
+
+        if (fds[i].proc_fdtype != PROX_FDTYPE_VNODE) {
+            continue;
+        }
+        errno = 0;
+        rc = proc_pidfdinfo(pid, fds[i].proc_fd, PROC_PIDFDVNODEPATHINFO, &info, (int)sizeof(info));
+        if (rc != (int)sizeof(info) || info.pvip.vip_path[0] == '\0') {
+            /* Closed since listing, or a vnode without a path. */
+            continue;
+        }
+        if (*count == capacity) {
+            *truncated = 1;
+            break;
+        }
+        files[*count].fd = fds[i].proc_fd;
+        coreo_copy_name(files[*count].path, sizeof(files[*count].path), info.pvip.vip_path, sizeof(info.pvip.vip_path));
+        (*count)++;
+    }
+    free(fds);
+
+    err = coreo_still_same(pid, start_seconds, start_microseconds);
+    if (err != 0) {
+        *count = 0;
+        *truncated = 0;
+    }
+    return err;
 }
 
 #else /* !__APPLE__ */
@@ -568,6 +647,21 @@ coreo_process_arguments(int32_t pid, uint64_t start_seconds, uint64_t start_micr
         return EINVAL;
     }
     *length = 0;
+    return ENOTSUP;
+}
+
+int32_t
+coreo_process_files(int32_t pid, uint64_t start_seconds, uint64_t start_microseconds,
+                    coreo_file_sample *files, int32_t capacity,
+                    int32_t *count, int32_t *truncated)
+{
+    (void)start_seconds;
+    (void)start_microseconds;
+    if (pid <= 0 || files == NULL || count == NULL || truncated == NULL || capacity <= 0) {
+        return EINVAL;
+    }
+    *count = 0;
+    *truncated = 0;
     return ENOTSUP;
 }
 
