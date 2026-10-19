@@ -11,9 +11,10 @@ final class RangeExportTests: XCTestCase {
         let range = frames[1].stamp.wallTime...frames[3].stamp.wallTime
         let document = RangeExport.document(
             range: range, model: DashboardFrames(host: frames, network: [], disks: [], gpu: [], power: [], sensors: []),
-            apps: [AppRangeTotal(name: "App", cpuSeconds: 2, diskBytes: 0, isLowerBound: true)]
+            apps: [AppRangeTotal(name: "Mail", cpuSeconds: 2, diskBytes: 0, isLowerBound: true)], naming: .named
         )
         XCTAssertEqual(document.host.map(\.id), frames[1...3].map(\.id))
+        XCTAssertEqual(document.apps.map(\.name), ["Mail"])
 
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
@@ -27,7 +28,8 @@ final class RangeExportTests: XCTestCase {
         let frames = try await hostFrames(count: 3)
         let document = RangeExport.document(
             range: frames[0].stamp.wallTime...frames[2].stamp.wallTime,
-            model: DashboardFrames(host: frames, network: [], disks: [], gpu: [], power: [], sensors: []), apps: []
+            model: DashboardFrames(host: frames, network: [], disks: [], gpu: [], power: [], sensors: []), apps: [],
+            naming: .redacted
         )
         let lines = RangeExport.csv(document).split(separator: "\n").map(String.init)
         XCTAssertEqual(lines.count, 4)
@@ -40,6 +42,25 @@ final class RangeExportTests: XCTestCase {
         XCTAssertEqual(first[6], "")
         XCTAssertEqual(first[7], "", "no sensor name without a reading")
         XCTAssertEqual(first[9], "")
+    }
+
+    func testRedactedExportsKeepFiguresButNotAppNames() async throws {
+        let frames = try await hostFrames(count: 2)
+        let apps = [
+            AppRangeTotal(name: "Secret Project", cpuSeconds: 9, diskBytes: 10, isLowerBound: false),
+            AppRangeTotal(name: "Mail", cpuSeconds: 1, diskBytes: 0, isLowerBound: true)
+        ]
+        let document = RangeExport.document(
+            range: frames[0].stamp.wallTime...frames[1].stamp.wallTime,
+            model: DashboardFrames(host: frames, network: [], disks: [], gpu: [], power: [], sensors: []),
+            apps: apps, naming: .redacted
+        )
+        XCTAssertEqual(document.appNames, .redacted)
+        XCTAssertEqual(document.apps.map(\.name), ["App 1", "App 2"])
+        XCTAssertEqual(document.apps.map(\.cpuSeconds), [9, 1])
+        XCTAssertEqual(document.apps.last?.isLowerBound, true)
+        let json = String(decoding: try RangeExport.json(document), as: UTF8.self)
+        XCTAssertFalse(json.contains("Secret Project") || json.contains("Mail"))
     }
 
     private func hostFrames(count: Int) async throws -> [CapturedSnapshot] {

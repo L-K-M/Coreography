@@ -1841,7 +1841,7 @@ private struct ProcessMetricCell: View {
 
 /// Totals for the dragged range: lane extremes and the apps that used it.
 private struct RangePanel: View {
-    let model: DashboardModel
+    @Bindable var model: DashboardModel
     let report: RangeReport
     @State private var exportFile: ExportFile?
     @State private var exportType: UTType = .json
@@ -1852,6 +1852,12 @@ private struct RangePanel: View {
             HStack {
                 Text(RangeText.span(report.requested)).font(.headline)
                 Spacer()
+                Picker("App names", selection: $model.exportNaming) {
+                    Text("Redacted").tag(ExportNaming.redacted)
+                    Text("Included").tag(ExportNaming.named)
+                }
+                .frame(width: 200)
+                .help("Redacted exports number apps instead of naming them, for sharing")
                 let document = model.rangeExport
                 Group {
                     Button("Export JSON…") { export(as: .json) }

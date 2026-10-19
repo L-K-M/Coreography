@@ -133,6 +133,8 @@ public final class DashboardModel {
     /// Startup items as last read; definitions change rarely, so they load on request.
     public private(set) var startupInventory: CapturedStartupInventory?
     public var startupVisibility: StartupVisibility = .thirdParty
+    /// Exports redact app names unless asked otherwise (plan: for sharing).
+    public var exportNaming: ExportNaming = .redacted
     /// The Sensors tab: each reading's current, minimum, maximum and mean since reset.
     public private(set) var sensorRows: [SensorStatRow] = []
     public private(set) var sensorStatsSince: Date?
@@ -449,7 +451,7 @@ public final class DashboardModel {
             gpu: gpuFrames, power: powerFrames, sensors: sensorFrames
         )
         let apps = ledger.totals(in: live).apps.sorted { $0.cpuSeconds > $1.cpuSeconds }
-        return RangeExport.document(range: live, model: frames, apps: apps)
+        return RangeExport.document(range: live, model: frames, apps: apps, naming: exportNaming)
     }
 
     /// Hand the newest live readings to the recorder, which batches writes.

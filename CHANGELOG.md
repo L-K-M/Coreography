@@ -11,6 +11,7 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
   after the store first exceeds it.
 
 ### Added
+- Range exports redact app names by default; names can be included.
 - `port:443` in the process filter finds which process holds a port.
 - An inspector for the selected process: identity, parent chain,
   signature, launchd job, arguments, sockets, a plain-language note for
