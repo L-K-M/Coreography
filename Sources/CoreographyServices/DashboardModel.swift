@@ -1055,7 +1055,7 @@ public final class DashboardModel {
 
     /// Coreography's own process cost, from the latest process sample.
     public var selfCost: SelfCost? {
-        SelfCost.measure(in: processSnapshot, logicalCPUCount: latest?.inventory.logicalCPUCount)
+        SelfCost.measure(in: processSnapshot, logicalCPUCount: latest?.inventory.logicalCPUCount, samplingSeconds: samplingSeconds)
     }
 
     /// Append the selected process's live readings; a gap starts a new segment.

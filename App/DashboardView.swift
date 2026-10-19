@@ -1539,7 +1539,7 @@ private struct ProcessPane: View {
                         ProcessMetricCell(reading: $0.diskWriteBytesPerSecond, format: .rate,
                                           heat: heat.write($0), hue: .orange)
                     }
-                    TableColumn("Wakeups/s") { Text(WakeupText.rate($0.wakeupsPerSecond.numericValue)) }
+                    TableColumn("Wakeups/s") { ProcessMetricCell(reading: $0.wakeupsPerSecond, format: .wakeups) }
                     TableColumn("Network in/out") { row in
                         Text(NetworkText.processRates(row))
                             .monospacedDigit()
@@ -1550,16 +1550,16 @@ private struct ProcessPane: View {
                     // because a group cannot infer its row.
                     Group {
                         TableColumn("GPU ms/s") { (row: ProcessRow) in
-                            Text(ProcessText.gpuTime(row.gpuMillisecondsPerSecond.numericValue))
-                                .monospacedDigit()
-                                .help(row.gpuMillisecondsPerSecond.reason
-                                      ?? String(localized: "GPU time per second, not the GPU lane's busy percentage; overlapping work can exceed 1000"))
+                            ProcessMetricCell(
+                                reading: row.gpuMillisecondsPerSecond, format: .gpuTime,
+                                note: String(localized: "GPU time per second, not the GPU lane's busy percentage; overlapping work can exceed 1000")
+                            )
                         }
                         TableColumn("CPU power") { (row: ProcessRow) in
-                            Text(ProcessText.power(row.cpuPowerWatts.numericValue))
-                                .monospacedDigit()
-                                .help(row.cpuPowerWatts.reason
-                                      ?? String(localized: "Estimated by the kernel's CPU energy model; GPU work is not included"))
+                            ProcessMetricCell(
+                                reading: row.cpuPowerWatts, format: .processWatts,
+                                note: String(localized: "Estimated by the kernel's CPU energy model; GPU work is not included")
+                            )
                         }
                     }
                 }
@@ -2337,7 +2337,7 @@ private enum ConnectionText {
 }
 
 private struct ProcessMetricCell: View {
-    enum Format { case percent, bytes, rate, watts }
+    enum Format { case percent, bytes, rate, watts, wakeups, gpuTime, processWatts }
     let reading: DashboardReading
     let format: Format
     /// 0-1 share of the column's largest value; shades the cell in its subsystem hue.
@@ -2345,13 +2345,15 @@ private struct ProcessMetricCell: View {
     var hue: Color = .clear
     /// Display multiplier, such as whole-machine CPU to one core = 100 %.
     var scale = 1.0
+    /// What the column means, shown on hover when the reading has no reason or method.
+    var note: String?
 
     var body: some View {
         Text(label)
             .monospacedDigit()
             .padding(.horizontal, 4)
             .background(hue.opacity(min(max(heat, 0), 1) * 0.35), in: RoundedRectangle(cornerRadius: 3))
-            .help(reading.reason ?? reading.method ?? [reading.source?.provider, reading.source?.driver, reading.source?.channel]
+            .help(reading.reason ?? reading.method ?? note ?? [reading.source?.provider, reading.source?.driver, reading.source?.channel]
                 .compactMap { $0 }.joined(separator: " · "))
     }
 
@@ -2371,6 +2373,9 @@ private struct ProcessMetricCell: View {
         case .bytes: return MetricText.bytes(value) + suffix
         case .rate: return MetricText.bytes(value) + "/s" + suffix
         case .watts: return MetricText.watts(value) + suffix
+        case .wakeups: return WakeupText.rate(value) + suffix
+        case .gpuTime: return ProcessText.gpuTime(value) + suffix
+        case .processWatts: return ProcessText.power(value) + suffix
         }
     }
 }
@@ -2823,7 +2828,7 @@ private struct SelfCostLine: View {
         } ?? String(localized: "CPU unavailable")
         let memory = MetricText.bytes(cost.footprintBytes.numericValue)
         let wakeups = WakeupText.rate(cost.wakeupsPerSecond.numericValue)
-        let budget = String(localized: "budget \(SelfCost.cpuBudgetPercentOfOneCore.formatted())% · \(MetricText.bytes(SelfCost.footprintBudgetBytes))")
+        let budget = String(localized: "budget \(SelfCost.cpuBudgetPercentOfOneCore.formatted())% · \(MetricText.bytes(SelfCost.footprintBudgetBytes)) · \(SelfCost.wakeupBudgetBeyondSampling.formatted()) wakeups/s beyond sampling")
         let note = over(cost) ? " · " + String(localized: "over budget") : ""
         return String(localized: "Coreography: \(cpu) · \(memory) · \(wakeups) (\(budget))") + note
     }

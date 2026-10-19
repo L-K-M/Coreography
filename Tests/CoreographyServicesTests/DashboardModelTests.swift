@@ -332,6 +332,16 @@ final class DashboardModelTests: XCTestCase {
         let over = SelfCost(cpuPercentOfOneCore: try .measured(0.5), footprintBytes: try .measured(1), wakeupsPerSecond: try .measured(6.5))
         XCTAssertFalse(within.wakeupsOverBudget)
         XCTAssertTrue(over.wakeupsOverBudget)
+
+        // In Low Power Mode the window samples every 2 s, so only half a wakeup is the sampling.
+        let slow = SelfCost(
+            cpuPercentOfOneCore: try .measured(0.5), footprintBytes: try .measured(1), wakeupsPerSecond: try .measured(5.8),
+            samplingSeconds: 2
+        )
+        XCTAssertTrue(slow.wakeupsOverBudget)
+        XCTAssertFalse(SelfCost(
+            cpuPercentOfOneCore: try .measured(0.5), footprintBytes: try .measured(1), wakeupsPerSecond: try .measured(5.8)
+        ).wakeupsOverBudget)
     }
 
     func testClearingASelectionAlsoClearsAnUnfinishedDrag() async throws {
