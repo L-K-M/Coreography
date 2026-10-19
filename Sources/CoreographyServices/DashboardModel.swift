@@ -273,6 +273,7 @@ public final class DashboardModel {
     @ObservationIgnored private let sensorMonitor: SensorMonitor?
     @ObservationIgnored private let siliconMonitor: SiliconMonitor?
     @ObservationIgnored private let interval: Duration
+    @ObservationIgnored private let energyMode: EnergyModeMonitor?
     @ObservationIgnored private let processInterval: Duration
     @ObservationIgnored private var worker: Task<Void, Never>?
     @ObservationIgnored private var generation = UUID()
@@ -308,6 +309,7 @@ public final class DashboardModel {
         openFileMonitor = OpenFileMonitor()
         shortcutRunner = ShortcutLauncher()
         volumeReader = VolumeMonitor()
+        energyMode = EnergyModeMonitor()
         sessionArchive = SessionArchive.makeDefault()
         sampler = ProcessSampler()
         interval = .seconds(1)
@@ -361,8 +363,10 @@ public final class DashboardModel {
         inspector: ProcessInspector? = nil, assertionReader: AssertionReader? = nil,
         openFileMonitor: OpenFileMonitor? = nil, sessionArchive: SessionArchive? = nil,
         sampler: ProcessSampler? = nil, maintenanceProvider: MaintenanceStatusProvider? = nil,
-        shortcutRunner: ShortcutLauncher? = nil, volumeReader: VolumeMonitor? = nil
+        shortcutRunner: ShortcutLauncher? = nil, volumeReader: VolumeMonitor? = nil,
+        energyMode: EnergyModeMonitor? = nil
     ) {
+        self.energyMode = energyMode
         self.shortcutRunner = shortcutRunner
         self.volumeReader = volumeReader
         self.controller = controller
@@ -1443,6 +1447,7 @@ public final class DashboardModel {
         let siliconMonitor = siliconMonitor
         let trafficMonitor = trafficMonitor
         let assertionReader = assertionReader
+        let energyMode = energyMode
 
         importSleepHistory(after: .zero)
         worker = Task { [weak self] in
@@ -1460,6 +1465,8 @@ public final class DashboardModel {
             await trafficMonitor?.reset()
             var nextProcessSample = ContinuousClock.now
             while !Task.isCancelled {
+                // Low Power Mode halves every cadence (plan: sampling); the window says so.
+                let cadence: SamplingCadence = energyMode?.current() == .lowPower ? .lowPower : .normal
                 do {
                     _ = try await monitor.sample()
                     let history = await monitor.history()
@@ -1504,9 +1511,10 @@ public final class DashboardModel {
                         traffic = try await trafficMonitor?.sample()
                         // One call to powerd; read beside processes so PIDs match the same moment.
                         assertions = await assertionReader?.read()
-                        nextProcessSample = ContinuousClock.now.advanced(by: processInterval)
+                        nextProcessSample = ContinuousClock.now.advanced(by: processInterval * cadence.multiplier)
                     }
                     guard let self, self.generation == run, !Task.isCancelled else { return }
+                    if self.samplingCadence != cadence { self.samplingCadence = cadence }
                     self.liveFrames = history
                     self.liveSampleTime = history.last?.stamp.wallTime
                     // An interrupted sample usually follows a wake; powerd may still be writing its record.
@@ -1561,7 +1569,7 @@ public final class DashboardModel {
                         if let silicon { self.siliconFrames = silicon }
                         self.refreshSystemMarkers()
                     }
-                    try await Task.sleep(for: self.interval)
+                    try await Task.sleep(for: self.interval * cadence.multiplier)
                 } catch is CancellationError {
                     return
                 } catch {
@@ -1572,6 +1580,16 @@ public final class DashboardModel {
             }
         }
     }
+
+    /// How fast sampling runs now; Low Power Mode halves it.
+    public private(set) var samplingCadence: SamplingCadence = .normal
+
+    /// Seconds between whole-machine samples at the current cadence.
+    public var samplingSeconds: Double {
+        let (seconds, attoseconds) = (interval * samplingCadence.multiplier).components
+        return Double(seconds) + Double(attoseconds) / Self.attosecondsPerSecond
+    }
+    private static let attosecondsPerSecond = 1e18
 
     /// Sampling stopped by the person (plan: Pause Recording stops sampling and
     /// leaves a labelled gap in every series; Hold only freezes the display).
@@ -2149,5 +2167,17 @@ public final class DashboardModel {
             ))
         }
         return result
+    }
+}
+
+public enum SamplingCadence: Sendable {
+    case normal, lowPower
+
+    /// Every interval is this many times its normal length.
+    var multiplier: Int {
+        switch self {
+        case .normal: 1
+        case .lowPower: 2
+        }
     }
 }

@@ -518,6 +518,10 @@ Implemented:
   shown in the process table and the inspector, and checked against the
   self-cost budget of 5 a second beyond the sampling tick. Gaps and
   restricted processes stay unknown, never zero.
+- Low Power Mode: every sampling cadence halves while it is on (2 s
+  for the lanes, 4 s for processes), within each monitor's gap limit, and
+  the window says so. The 10-second record-only cadence for when nothing
+  is visible remains.
 - Volume capacity: the Disk lane lists every visible mounted volume,
   startup first, with its used share and space available for important
   use (purgeable files count as available, as in Finder), read once a
@@ -669,6 +673,7 @@ outstanding. The store, MCP and model features above await stack delivery.
 | Native network MIB, wide-counter mapping and three-lane UI | Passed at `e62fac1`, including native C fixtures, live CLI and both executable architectures; integrated candidate pending |
 | Native IOKit storage counters and four-lane renderer | Passed [native CI](https://github.com/L-K-M/Coreography/actions/runs/39110306993) at `6434722`: 75 tests, 16 drivers, 32 measured rate fields, no inventory issues; owner checks pending |
 | On-disk history store and recorder | History slice: 148 Swift tests pass on Linux against the real system SQLite (round trip with gaps, duplicates, retention, reopen, permissions, WAL, batching); native CI checks the CLI and file permissions |
+| Low Power Mode cadence | 306 Swift tests pass on Linux (the cadence following the mode both ways, the interval doubling); reading the flag and the note compile only in native CI; behaviour with Low Power Mode on is an owner check |
 | Volume capacity | 305 Swift tests pass on Linux (important-use space with a plain-space fallback, names, kinds, clamping, unknown sizes left out, ordering, the model's minute read); the native smoke requires one startup volume at `/` whose size agrees with `statvfs`; the bars compile only in native CI |
 | Per-process CPU scale | 303 Swift tests pass on Linux (filter bounds in the chosen scale, the factor never zero, the saved choice); the column titles, cells and Settings picker compile only in native CI |
 | History review fixes | 295 Swift tests pass on Linux against the system SQLite (retention deletes planned as key searches, a held write lock waited for, a newer store refused and left labelled, battery draw recorded without a sensors frame, buffered history written before quitting returns; each failed before its fix); the quit hand-off and the confirmation compile only in native CI |
