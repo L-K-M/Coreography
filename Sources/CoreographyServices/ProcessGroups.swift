@@ -87,7 +87,7 @@ enum ProcessGroups {
             return ProcessList.rows(in: snapshot, matching: filter, sortedBy: sort, isNew: isNew, facts: facts, appNames: apps)
                 .map { leaf($0, method: nil, appName: apps[$0.id] ?? $0.name, traffic: facts.traffic) }
         case .tree:
-            return treeRows(in: snapshot, matching: filter, sortedBy: sort, isNew: isNew, facts: facts)
+            return treeRows(in: snapshot, matching: filter, sortedBy: sort, isNew: isNew, facts: facts, currentUser: currentUser)
         case .user:
             return userRows(in: snapshot, matching: filter, sortedBy: sort, isNew: isNew, facts: facts, currentUser: currentUser)
         }
@@ -163,10 +163,10 @@ enum ProcessGroups {
     /// ```
     private static func treeRows(
         in snapshot: CapturedProcesses?, matching filter: String, sortedBy sort: ProcessSort,
-        isNew: (ProcessIdentity) -> Bool, facts: ProcessFacts
+        isNew: (ProcessIdentity) -> Bool, facts: ProcessFacts, currentUser: UInt32
     ) -> [ProcessRow] {
         guard let snapshot else { return [] }
-        let parsed = ProcessFilter.parse(filter)
+        let parsed = ProcessFilter.parse(filter, currentUser: currentUser)
         let apps = appNames(snapshot)
         let processes = snapshot.processes
         let byPID = Dictionary(processes.map { ($0.id.pid, $0) }) { first, _ in first }
@@ -206,7 +206,8 @@ enum ProcessGroups {
         for process in order.reversed() {
             let kids = (tree[process.id] ?? []).compactMap { built[$0.id] }
             let appName = apps[process.id] ?? process.name
-            let matches = parsed.isEmpty || parsed.matches(process, isNew: isNew(process.id), appName: appName, facts: facts)
+            let matches = parsed.isEmpty
+                || parsed.matches(process, isNew: isNew(process.id), appName: appName, facts: facts, currentUser: currentUser)
             guard matches || !kids.isEmpty else { continue }
             built[process.id] = leaf(process, method: nil, appName: appName, traffic: facts.traffic)
                 .replacingChildren(kids.isEmpty ? nil : sorted(kids, by: sort))
@@ -229,7 +230,9 @@ enum ProcessGroups {
             let name = userName(uid, currentUser: currentUser)
             let nameMatches = parsed.isEmpty || (parsed.isTextOnly && parsed.matchesName(name))
             let visible = members.filter {
-                nameMatches || parsed.matches($0, isNew: isNew($0.id), appName: apps[$0.id] ?? $0.name, facts: facts)
+                nameMatches || parsed.matches(
+                    $0, isNew: isNew($0.id), appName: apps[$0.id] ?? $0.name, facts: facts, currentUser: currentUser
+                )
             }
             guard !visible.isEmpty else { continue }
             let children = sorted(visible.map { leaf($0, method: nil, appName: apps[$0.id] ?? $0.name, traffic: facts.traffic) }, by: sort)
@@ -241,10 +244,10 @@ enum ProcessGroups {
         return sorted(rows, by: sort)
     }
 
-    /// Example: 0 -> "root", the current user 501 -> "UID 501 (you)", 502 -> "UID 502".
+    /// Example: 0 -> "root", the current user 501 -> "You, UID 501", 502 -> "UID 502".
     private static func userName(_ uid: UInt32, currentUser: UInt32) -> String {
         if uid == 0 { return "root" }
-        return uid == currentUser ? "UID \(uid) (you)" : "UID \(uid)"
+        return uid == currentUser ? "You, UID \(uid)" : "UID \(uid)"
     }
 
     /// A group row totals every member, even those a filter hides.

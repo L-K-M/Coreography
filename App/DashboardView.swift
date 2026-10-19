@@ -1473,7 +1473,7 @@ private struct ProcessPane: View {
                         Text("By user").tag(ProcessGrouping.user)
                     }
                     .frame(width: 150)
-                    .help("By app folds helpers under their responsible app or app bundle; Tree nests each process under its parent")
+                    .help("By app folds helpers under their responsible app or app bundle; Tree nests each process under its parent; Flat lists every process; By user totals each account's processes")
                     Picker("Sort", selection: $model.processSort) {
                         Text("CPU").tag(ProcessSort.cpu)
                         Text("Memory").tag(ProcessSort.memory)

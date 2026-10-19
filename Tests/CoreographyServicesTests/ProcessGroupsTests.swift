@@ -198,7 +198,7 @@ final class ProcessGroupsTests: XCTestCase {
         let processes = try snapshot([safari, webContent(responsible: 100), daemon, guest])
 
         let rows = ProcessGroups.rows(in: processes, matching: "", sortedBy: .cpu, grouping: .user, currentUser: 501)
-        XCTAssertEqual(rows.map(\.name), ["UID 501 (you)", "root", "UID 502"])
+        XCTAssertEqual(rows.map(\.name), ["You, UID 501", "root", "UID 502"])
         XCTAssertEqual(rows.map(\.kind), [.user(501), .user(0), .user(502)])
         let mine = try XCTUnwrap(rows.first)
         XCTAssertNil(mine.process)
@@ -213,7 +213,7 @@ final class ProcessGroupsTests: XCTestCase {
         XCTAssertEqual(filtered.first?.children?.map(\.name), ["configd"])
 
         let scoped = ProcessGroups.scoped(rows, to: "Safari")
-        XCTAssertEqual(scoped.map(\.name), ["UID 501 (you)"])
+        XCTAssertEqual(scoped.map(\.name), ["You, UID 501"])
         XCTAssertEqual(scoped.first?.children?.count, 2)
         XCTAssertEqual(ProcessGroups.rows(in: processes, matching: "", sortedBy: .cpu, grouping: .app).first?.kind, .app)
     }
