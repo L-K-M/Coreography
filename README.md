@@ -139,6 +139,7 @@ swift run coreo holders --json --port 8080 # macOS only; who holds a port or fil
 swift run coreo mcp --stdio             # macOS only; read-only MCP server
 swift run coreo history --json cpu      # recorded history for one metric
 swift run coreo stats --json            # recorded min, median, p95, max per metric
+swift run coreo export --csv            # every recorded sample, one row each
 swift run coreo sleep --json            # macOS only; sleep and wake records
 swift run coreo apps --json             # recorded per-app CPU and disk totals
 python3 tools/tests/test_buildscripts.py

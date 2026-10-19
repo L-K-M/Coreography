@@ -22,6 +22,7 @@ private struct Coreo {
            coreo mcp --stdio [--standalone]
            coreo history --json METRIC [--minutes N]
            coreo stats --json [--minutes N]
+           coreo export (--json | --csv) [--minutes N]
            coreo sleep --json [--hours N]
            coreo apps --json [--minutes N | --days N]
            coreo --version
@@ -53,6 +54,8 @@ private struct Coreo {
     stats gives each recorded metric's minimum, median, 95th percentile, maximum
     and mean (not for pressure levels) over the last N minutes (default 60), and
     how many stored samples had no value.
+    export prints every recorded sample over the last N minutes (default 60):
+    JSON per metric, or CSV with one row per sample and an empty value for a gap.
     apps totals CPU-seconds and disk bytes per app from what the app recorded
     over the last N minutes (default 60), up to 50 apps; --days N gives
     per-app totals for each of the last N local days (up to 60).
@@ -173,6 +176,21 @@ private struct Coreo {
                 }
                 let service = try DiagnosticService()
                 try emit(await service.stats(minutes: minutes))
+            case let arguments where arguments.first == "export":
+                let options = Array(arguments.dropFirst())
+                guard let format = options.first.flatMap(ExportFormat.init), options.count == 1 || options.count == 3 else {
+                    throw CommandError.invalidArguments
+                }
+                var minutes = 60
+                if options.count == 3 {
+                    guard options[1] == "--minutes", let value = Int(options[2]) else { throw CommandError.invalidArguments }
+                    minutes = value
+                }
+                let document = try await DiagnosticService().export(minutes: minutes)
+                switch format {
+                case .json: try emit(document)
+                case .csv: FileHandle.standardOutput.write(Data(HistoryExport.csv(document).utf8))
+                }
             case let arguments where arguments.first == "apps":
                 let options = Array(arguments.dropFirst())
                 guard options.first == "--json", options.count == 1 || options.count == 3 else {
@@ -341,6 +359,12 @@ private struct Coreo {
         FileHandle.standardOutput.write(data)
         FileHandle.standardOutput.write(Data("\n".utf8))
     }
+}
+
+/// `coreo export` output formats, by their flag.
+private enum ExportFormat: String {
+    case json = "--json"
+    case csv = "--csv"
 }
 
 private enum CommandError: Error, CustomStringConvertible {

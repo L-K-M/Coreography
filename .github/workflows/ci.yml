@@ -477,6 +477,18 @@ jobs:
                   assert metric["minimum"] <= metric["median"] <= metric["p95"] <= metric["maximum"], metric
           print(json.dumps({m["metric"]: m["valued"] for m in report["metrics"]}))
           PY
+          dist/Coreography.app/Contents/Helpers/coreo export --csv --minutes 5 > "$RUNNER_TEMP/export.csv"
+          python3 - "$RUNNER_TEMP/export.csv" <<'PY'
+          import csv, math, sys
+          with open(sys.argv[1], newline="") as source:
+              reader = csv.DictReader(source)
+              assert reader.fieldnames == ["time", "metric", "value", "availability"], reader.fieldnames
+              rows = list(reader)
+          for row in rows:
+              assert row["value"] == "" or math.isfinite(float(row["value"])), row
+              assert row["value"] != "" or row["availability"] != "measured", row
+          print(f"{len(rows)} exported rows")
+          PY
           dist/Coreography.app/Contents/Helpers/coreo apps --json --minutes 5 > "$RUNNER_TEMP/apps.json"
           python3 - "$RUNNER_TEMP/apps.json" <<'PY'
           import json, sys
