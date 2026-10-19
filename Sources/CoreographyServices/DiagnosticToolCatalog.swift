@@ -54,7 +54,7 @@ enum DiagnosticToolCatalog {
             ),
             Definition(
                 name: "get_sleep_history",
-                description: "Logged sleep, wake and dark-wake records with reasons and battery charge, sleep periods with battery change, and current sleep-preventing assertion types with read time, omissions and unavailable reasons. Assertion names are withheld. Reasons are evidence, not proven causes; partialCoverage names missing log coverage.",
+                description: "Logged sleep, wake and dark-wake records with reasons and battery charge, sleep periods with battery change, and current sleep-preventing assertion types with read time, omissions and unavailable reasons. Assertion names are withheld. Reasons are evidence, not proven causes. partialCoverage names gaps in the import itself; records after coveredTo (for example a sleep that just ended) are not imported yet, so compare coveredTo with windowEnd.",
                 properties: [
                     "hours": ["type": "integer", "minimum": 1, "maximum": DiagnosticTools.maximumSleepHours],
                     "snapshot_id": snapshotID

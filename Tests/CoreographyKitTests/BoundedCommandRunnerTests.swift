@@ -21,6 +21,13 @@ final class BoundedCommandRunnerTests: XCTestCase {
         XCTAssertLessThan(ContinuousClock.now - started, .seconds(5))
     }
 
+    /// The sleep import relies on a failing child coming back as output, not a thrown error.
+    func testANonZeroExitIsReportedNotThrown() async throws {
+        let output = try await runner.run(URL(fileURLWithPath: "/usr/bin/false"), arguments: [], timeout: .seconds(5), keepBytes: 16)
+        XCTAssertNotEqual(output.exitStatus, 0)
+        XCTAssertFalse(output.timedOut)
+    }
+
     func testMissingExecutableFailsToLaunch() async {
         do {
             _ = try await runner.run(URL(fileURLWithPath: "/nonexistent/tool"), arguments: [], timeout: .seconds(1), keepBytes: 16)

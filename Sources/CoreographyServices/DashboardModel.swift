@@ -251,6 +251,7 @@ public final class DashboardModel {
     @ObservationIgnored private var storedScopedCache: (app: String, loadedAt: Date, cpu: [DashboardPoint], disk: [DashboardPoint])?
     @ObservationIgnored private var sleepState: SleepHistoryState = .notImported
     @ObservationIgnored private var sleepImport: Task<Void, Never>?
+    @ObservationIgnored private var wakeImports = WakeImportSpacing()
     @ObservationIgnored private var alertEngine = AlertEngine(rules: AlertRules.shipped)
     @ObservationIgnored private var alertCooldown = AlertCooldown()
     /// Shortcut runs have their own cooldown, so a flapping rule cannot loop one.
@@ -904,6 +905,7 @@ public final class DashboardModel {
         guard let sleepProvider, sleepImport == nil else { return }
         sleepImport = Task { [weak self] in
             try? await Task.sleep(for: delay)
+            guard !Task.isCancelled else { return }
             let state: SleepHistoryState
             do {
                 state = .imported(try await sleepProvider.load())
@@ -1518,7 +1520,9 @@ public final class DashboardModel {
                     self.liveFrames = history
                     self.liveSampleTime = history.last?.stamp.wallTime
                     // An interrupted sample usually follows a wake; powerd may still be writing its record.
-                    if history.last?.continuity == .interrupted { self.importSleepHistory(after: Self.wakeSettleDelay) }
+                    if history.last?.continuity == .interrupted, self.wakeImports.admit(at: Date()) {
+                        self.importSleepHistory(after: Self.wakeSettleDelay)
+                    }
                     if let processes {
                         self.liveProcesses = processes
                         self.liveContributorHistory.append(Contributors.snapshot(from: processes))
@@ -2179,5 +2183,18 @@ public enum SamplingCadence: Sendable {
         case .normal: 1
         case .lowPower: 2
         }
+    }
+}
+
+/// Interrupted samples follow wakes, but also stalls under load; each would
+/// re-run pmset over megabytes of log. One re-import per spacing is enough.
+struct WakeImportSpacing: Sendable {
+    static let spacing: TimeInterval = 60
+    private var last: Date?
+
+    mutating func admit(at time: Date) -> Bool {
+        if let last, time.timeIntervalSince(last) < Self.spacing { return false }
+        last = time
+        return true
     }
 }
