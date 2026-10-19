@@ -1,12 +1,13 @@
 import Foundation
 
 /// Visible window lengths (plan: 1 min, 10 min and 1 h within live
-/// history; 6 h from the on-disk Recent tier).
+/// history; 6 h from the on-disk Recent tier and 24 h from the Day tier).
 public enum TimeRange: Int, CaseIterable, Identifiable, Sendable {
     case minute = 60
     case tenMinutes = 600
     case hour = 3600
     case sixHours = 21_600
+    case day = 86_400
 
     public var id: Self { self }
     public var seconds: TimeInterval { TimeInterval(rawValue) }

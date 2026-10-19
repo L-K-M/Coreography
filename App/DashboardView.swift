@@ -2193,6 +2193,7 @@ private enum TimeRangeText {
         case .tenMinutes: return String(localized: "10 min")
         case .hour: return String(localized: "1 h")
         case .sixHours: return String(localized: "6 h")
+        case .day: return String(localized: "24 h")
         }
     }
 }

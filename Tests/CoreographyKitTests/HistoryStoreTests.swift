@@ -98,6 +98,43 @@ final class HistoryStoreTests: XCTestCase {
         XCTAssertEqual(kept.last?.end, intervals.last?.end, "newest intervals stay")
     }
 
+    func testDayTierKeepsTenSecondExtremesAndMeansForSevenDays() async throws {
+        let store = try HistoryStore(directory: directory)
+        // now is a bucket boundary: 1_700_000_000 is a multiple of 10.
+        try await store.append([
+            sample(.cpu, -20, 10), sample(.cpu, -19, 30), sample(.cpu, -18, nil, .gap), sample(.cpu, -11, 20),
+            sample(.cpu, -10, 50)
+        ], now: now)
+        // A later batch landing in an existing bucket combines with it.
+        try await store.append([sample(.cpu, -15, 2)], now: now)
+
+        let rollups = try await store.rollups(.cpu, from: now.addingTimeInterval(-60), to: now)
+        XCTAssertEqual(rollups.map(\.time), [now.addingTimeInterval(-20), now.addingTimeInterval(-10)])
+        let first = try XCTUnwrap(rollups.first)
+        XCTAssertEqual(first.minimum, 2)
+        XCTAssertEqual(first.maximum, 30)
+        XCTAssertEqual(first.count, 4, "the gap is not a reading")
+        XCTAssertEqual(first.mean, (10 + 30 + 20 + 2) / 4.0, accuracy: 1e-9)
+        XCTAssertEqual(rollups.last?.mean, 50)
+
+        // Readings older than six hours leave the Recent tier but stay in the Day tier for a week.
+        let later = now.addingTimeInterval(10 * 3600)
+        try await store.append([sample(.memoryUsed, 10 * 3600, 1)], now: later)
+        let recent = try await store.samples(.cpu, from: .distantPast, to: later)
+        XCTAssertTrue(recent.isEmpty)
+        let kept = try await store.rollups(.cpu, from: .distantPast, to: later)
+        XCTAssertEqual(kept.count, 2)
+
+        let weekLater = now.addingTimeInterval(HistoryStore.dayRetention + 60)
+        try await store.append([sample(.memoryUsed, HistoryStore.dayRetention + 60, 1)], now: weekLater)
+        let expired = try await store.rollups(.cpu, from: .distantPast, to: weekLater)
+        XCTAssertTrue(expired.isEmpty)
+
+        try await store.deleteAll()
+        let deleted = try await store.rollups(.memoryUsed, from: .distantPast, to: .distantFuture)
+        XCTAssertTrue(deleted.isEmpty)
+    }
+
     func testRetentionDropsSamplesOlderThanSixHours() async throws {
         let store = try HistoryStore(directory: directory)
         try await store.append([sample(.cpu, -HistoryStore.retention - 5, 1), sample(.cpu, -60, 2)], now: now)

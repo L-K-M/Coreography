@@ -92,7 +92,7 @@ final class RangeReportTests: XCTestCase {
         XCTAssertEqual(report.hottest?.celsius, 90)
         XCTAssertNil(report.hottest?.key, "stored history keeps no sensor key")
 
-        XCTAssertEqual(history.values(.cpu, in: epoch...epoch.addingTimeInterval(10), before: epoch.addingTimeInterval(2)), [10, 20])
+        XCTAssertEqual(history.values(.cpu, in: epoch...epoch.addingTimeInterval(10), before: epoch.addingTimeInterval(2)).map(\.mean), [10, 20])
     }
 
     func testStoredValuesStopWhereEachLiveSeriesStarts() async throws {

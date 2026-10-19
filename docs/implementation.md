@@ -233,6 +233,15 @@ Implemented:
   app's overlay extends into stored history. Export still covers live
   data only and says so; cursor readouts and contributors over the
   stored part, exporting it, and the 24 h range (the Day tier) remain.
+- The Day tier and the 24 h range: each batch is also folded into 10 s
+  buckets keeping minimum, maximum, total and count, kept for 7 days
+  under the same size cap and deletion. Buckets fill across batches by
+  upsert, and readings without values are left out, so an empty bucket
+  stays a gap. The 24 h range draws each bucket's minimum and maximum,
+  so spikes survive, and range reports weigh bucket means by count, so
+  means stay exact; percentiles are never taken from rollups. The app
+  ledger stays in the Recent tier, so app totals over 24 h cover its
+  six hours, which the report's coverage states. The Month tier remains.
 - Automatic markers: memory and thermal pressure transitions, power
   source changes and imported sleep, wake and dark-wake records mark
   every lane, lighter than the person's own actions and alerts, and a
@@ -318,6 +327,7 @@ time, helper, MCP or model integration in this slice.
 | Native network MIB, wide-counter mapping and three-lane UI | Passed at `e62fac1`, including native C fixtures, live CLI and both executable architectures; integrated candidate pending |
 | Native IOKit storage counters and four-lane renderer | Passed [native CI](https://github.com/L-K-M/Coreography/actions/runs/39110306993) at `6434722`: 75 tests, 16 drivers, 32 measured rate fields, no inventory issues; owner checks pending |
 | On-disk history store and recorder | History slice: 148 Swift tests pass on Linux against the real system SQLite (round trip with gaps, duplicates, retention, reopen, permissions, WAL, batching); native CI checks the CLI and file permissions |
+| Day tier and 24 h range | Day-tier slice: 192 Swift tests pass on Linux against the system SQLite (bucket extremes and means, merging across batches, gaps left out, 7-day retention past the 6-hour one, deletion; spikes and exact means through the 24 h load) |
 | Automatic markers | Marker slice: 190 Swift tests pass on Linux (transitions skipping unknown samples, sleep events since the displayed start, stable identity across rebuilds); UI compile pending |
 | Redacted exports | Export slice: 187 Swift tests pass on Linux (figures kept, names absent from the JSON, naming recorded) |
 | Port reverse lookup | Port slice: 186 Swift tests pass on Linux (local and remote ports, unreadable and zero ports named, no match without connection data) |

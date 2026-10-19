@@ -11,6 +11,8 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
   after the store first exceeds it.
 
 ### Added
+- A 24 h range drawn from a week of 10-second minimum, maximum and mean
+  history.
 - Lanes mark sleep and wake, power source changes and pressure
   transitions; range reports list the markers inside them.
 - Range exports redact app names by default; names can be included.
