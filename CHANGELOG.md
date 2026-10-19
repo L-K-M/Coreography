@@ -58,7 +58,7 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
 - Command-drag a second range to compare it with the selection: CPU
   and memory, and the apps that changed most. With a selection, sorting
   by CPU ranks apps by their use inside it.
-- The HUD has four levels of detail (Option-Command-J cycles them),
+- The HUD has four levels of detail (Control-Command-J cycles them),
   corner presets, dragging with a remembered position per display,
   opacity, text size, an optional dark backing and click-through.
 - Pause Recording (toolbar, menu bar extra, palette) stops sampling and
@@ -100,7 +100,7 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
   names stay out of diagnostic results.
 - Sample a process's call stacks for 3 seconds and read or save the report.
 - A HUD with CPU, GPU, temperature and power over full-screen apps
-  (Option-Command-H or the menu bar extra).
+  (Control-Command-H or the menu bar extra).
 - Command-R records a session; its report shows minimum, mean, 95th
   percentile and maximum per metric and the top apps. Two sessions
   compare overlaid; sessions export as JSON or CSV and can be renamed.

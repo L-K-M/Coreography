@@ -168,7 +168,7 @@ struct SettingsView: View {
                 Slider(value: $hud.settings.textScale, in: HUDSettings.textScaleRange) { Text("Text size") }
                 Toggle("Dark backing behind text", isOn: $hud.settings.scrim)
                 Toggle("Let clicks pass through", isOn: $hud.settings.clickThrough)
-                Text("Turn click-through off to drag the HUD; it remembers where you put it on each display. Option-Command-H shows it, Option-Command-J changes what it shows. Frame rate needs macOS 27.")
+                Text("Turn click-through off to drag the HUD; it remembers where you put it on each display. Control-Command-H shows it, Control-Command-J changes what it shows. Frame rate needs macOS 27.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section("Dock") {

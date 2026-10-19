@@ -106,7 +106,8 @@ Implemented:
   sets the level, corner, opacity, text size, a dark backing for bright
   scenes and click-through; with click-through off the panel can be
   dragged and remembers its place per display, and choosing a corner
-  forgets dragged places. Option-Command-J cycles the level.
+  forgets dragged places. Control-Command-J cycles the level (Option-Command-H
+  is macOS's Hide Others, so the HUD uses Control).
 
 - Time controls: Pause Recording (toolbar, menu bar extra and palette)
   stops sampling, so every series and the store keep a gap, marked
@@ -492,7 +493,7 @@ Implemented:
   runtime and output caps) after an identity check, and opens the report
   in the app to read or save. Spindump needs root and waits for the
   helper.
-- HUD, first part: Option-Command-H or the menu bar extra shows a small
+- HUD, first part: Control-Command-H or the menu bar extra shows a small
   readout of CPU, GPU, the hottest sensor and system power in the top
   right corner, above full-screen apps and on every Space. It never takes
   focus or clicks and reads the window's own model. Frame rate waits for

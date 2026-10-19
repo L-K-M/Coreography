@@ -46,9 +46,9 @@ private struct CoreographyApp: App {
         .commands {
             CommandGroup(after: .toolbar) {
                 Button(hud.isShown ? "Hide HUD" : "Show HUD") { hud.toggle() }
-                    .keyboardShortcut("h", modifiers: [.command, .option])
+                    .keyboardShortcut("h", modifiers: [.command, .control])
                 Button("Change HUD Detail") { hud.cycleDensity() }
-                    .keyboardShortcut("j", modifiers: [.command, .option])
+                    .keyboardShortcut("j", modifiers: [.command, .control])
                 Button("Open Recording…") { openingRecording = true }
                     .keyboardShortcut("o", modifiers: .command)
                 Button("Return to Now") {
