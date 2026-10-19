@@ -170,10 +170,10 @@ public actor DiagnosticService {
         return try await siliconMonitor.sample()
     }
 
-    /// Per-process network rates: a baseline, two seconds, then the interval.
     /// Every visible volume's capacity; one read, no baseline needed.
     public func volumes() async -> CapturedVolumes { await VolumeMonitor().volumes() }
 
+    /// Per-process network rates: a baseline, two seconds, then the interval.
     public func captureTrafficOnce() async throws -> CapturedTraffic {
         await trafficMonitor.reset()
         _ = try await trafficMonitor.sample()

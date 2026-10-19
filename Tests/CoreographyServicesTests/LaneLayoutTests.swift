@@ -32,7 +32,9 @@ final class LaneLayoutTests: XCTestCase {
     }
 
     func testSavedLayoutsSurviveUnknownAndNewLanes() throws {
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: "lanes-\(UUID().uuidString)"))
+        let suite = "lanes-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
         var layout = LaneLayout.standard
         layout.move(.network, .up)
         layout.set(.gpu, .hidden)

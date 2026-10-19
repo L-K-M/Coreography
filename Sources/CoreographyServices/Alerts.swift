@@ -6,7 +6,7 @@ public typealias AlertNotifications = AlertDelivery
 
 /// Lanes an alert can tint.
 public enum AlertLane: String, Sendable {
-    case memory, thermal, power, disk
+    case cpu, memory, gpu, thermal, power, network, disk
 }
 
 /// A rule is a condition, a duration and an action, with hysteresis
@@ -19,18 +19,21 @@ public struct AlertRule: Identifiable, Sendable {
     public let clearAfter: TimeInterval
     /// Most rules tint silently; only actionable ones notify.
     public let notifies: Bool
-    /// true raises, false clears, nil is unknown and changes nothing.
-    let condition: @Sendable (AlertInputs) -> Bool?
+    /// Given whether the rule is raised: true raises or keeps it raised,
+    /// false clears, nil is unknown and changes nothing.
+    let condition: @Sendable (AlertInputs, _ active: Bool) -> Bool?
 }
 
 /// The readings rules look at, taken from the newest frames.
 struct AlertInputs: Sendable {
-    let memoryPressure: MemoryPressureLevel?
-    let thermalPressure: ThermalPressureLevel?
-    let batteryPercent: Double?
-    let onBattery: Bool?
+    var memoryPressure: MemoryPressureLevel? = nil
+    var thermalPressure: ThermalPressureLevel? = nil
+    var batteryPercent: Double? = nil
+    var onBattery: Bool? = nil
     /// Available share of the startup volume, 0...1.
     var startupFreeFraction: Double? = nil
+    /// Recent readings for the person's own rules.
+    var readings: [AlertMetric: Double] = [:]
 }
 
 /// One transition, for markers and notifications.
@@ -48,23 +51,33 @@ enum AlertRules {
     /// The plan's shipped rules.
     static let shipped: [AlertRule] = [
         AlertRule(id: "memory-critical", title: "Critical memory pressure", lane: .memory,
-                  raiseAfter: 30, clearAfter: 30, notifies: true) { inputs in
+                  raiseAfter: 30, clearAfter: 30, notifies: true) { inputs, _ in
             inputs.memoryPressure.map { $0 == .critical }
         },
         AlertRule(id: "thermal-serious", title: "Heavy thermal pressure", lane: .thermal,
-                  raiseAfter: 30, clearAfter: 30, notifies: false) { inputs in
+                  raiseAfter: 30, clearAfter: 30, notifies: false) { inputs, _ in
             inputs.thermalPressure.map { $0.rawValue >= ThermalPressureLevel.heavy.rawValue }
         },
         AlertRule(id: "battery-low", title: "Battery under 15% while discharging", lane: .power,
-                  raiseAfter: 0, clearAfter: 30, notifies: true) { inputs in
+                  raiseAfter: 0, clearAfter: 30, notifies: true) { inputs, _ in
             guard let percent = inputs.batteryPercent, let onBattery = inputs.onBattery else { return nil }
             return onBattery && percent < lowBatteryPercent
         },
         AlertRule(id: "startup-disk-low", title: "Startup disk under 10% free", lane: .disk,
-                  raiseAfter: 0, clearAfter: 60, notifies: true) { inputs in
+                  raiseAfter: 0, clearAfter: 60, notifies: true) { inputs, _ in
             inputs.startupFreeFraction.map { $0 < lowStartupFreeFraction }
         }
     ]
+
+    /// Each tinted lane's raised rules, in rule order.
+    /// Example: two CPU rules raised read "CPU above 90 % for 10 s · CPU above 50 % for 60 s".
+    static func activeTitles(_ rules: [AlertRule], active: Set<String>) -> [AlertLane: String] {
+        var titles: [AlertLane: String] = [:]
+        for rule in rules where active.contains(rule.id) {
+            titles[rule.lane] = titles[rule.lane].map { $0 + " · " + rule.title } ?? rule.title
+        }
+        return titles
+    }
 }
 
 /// Debounced rule state. A condition must hold for `raiseAfter` to raise and
@@ -83,12 +96,20 @@ struct AlertEngine: Sendable {
 
     var activeRuleIDs: Set<String> { Set(states.filter(\.value.active).keys) }
 
+    /// New rules, keeping the state of those named in `ids`; any other rule starts cleared.
+    func replacingRules(_ rules: [AlertRule], keeping ids: Set<String>) -> AlertEngine {
+        var engine = AlertEngine(rules: rules)
+        let present = Set(rules.map(\.id))
+        engine.states = states.filter { ids.contains($0.key) && present.contains($0.key) }
+        return engine
+    }
+
     mutating func evaluate(_ inputs: AlertInputs, at time: Date) -> [AlertEvent] {
         var events: [AlertEvent] = []
         for rule in rules {
             var state = states[rule.id] ?? RuleState()
             defer { states[rule.id] = state }
-            guard let holds = rule.condition(inputs) else {
+            guard let holds = rule.condition(inputs, state.active) else {
                 state.pendingSince = nil
                 continue
             }
