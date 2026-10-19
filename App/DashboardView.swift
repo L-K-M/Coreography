@@ -3181,7 +3181,8 @@ private struct LaneMenu: View {
         } label: {
             Image(systemName: "ellipsis.circle")
         }
-        .menuStyle(.borderlessButton)
+        .menuStyle(.button)
+        .buttonStyle(.borderless)
         .menuIndicator(.hidden)
         .fixedSize()
         .padding(6)
