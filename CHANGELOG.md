@@ -53,6 +53,8 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
 - The process pane shows how much CPU and network no readable process
   accounts for.
 - Process rows show their app's icon.
+- Ask Coreography answers link to their evidence: the range read, the
+  apps ranked and the processes looked up.
 - With an app shown in the lanes, the network lane names its traffic, in
   plus out, as the CPU and disk lanes do.
 - With an app shown in the lanes, the memory and GPU lanes name its

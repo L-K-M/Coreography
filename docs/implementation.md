@@ -501,7 +501,11 @@ Implemented:
   server trusts the local client that launched it, like any CLI.
 - Ask Coreography: a collapsed panel takes a plain-language question and
   answers with Claude Opus 5.5 through the same six read-only tools as MCP,
-  against one frozen snapshot, listing the tool calls it read. The
+  against one frozen snapshot, listing the tool calls it read. Links
+  under the answer show its evidence: the range a top-apps or history
+  call covered becomes the selection, a ranked app scopes the lanes, and
+  a PID selects its process only if it started by the snapshot, so a
+  reused PID is never shown as the evidence. The
   Anthropic key is stored only in the login Keychain (this device, when
   unlocked) from Settings and sent only to the Messages API. Thinking is
   adaptive; refusals opt into Anthropic's server-side fallback
