@@ -20,6 +20,7 @@ struct AskPanel: View {
                 if model.hasProviderKey {
                     HStack {
                         TextField("Why is my Mac slow?", text: $question)
+                            .modifier(ReportsTyping(model: model, field: "ask"))
                             .textFieldStyle(.roundedBorder)
                             .onSubmit { model.ask(question) }
                         if case .asking = model.askState {

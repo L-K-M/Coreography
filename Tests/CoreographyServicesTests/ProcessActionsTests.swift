@@ -103,10 +103,12 @@ final class ProcessActionsTests: XCTestCase {
 
         // Closing while it runs is allowed; the late report does not reopen the sheet.
         let slow = Task { await model.sampleProcess(try process(pid: 79, name: "Slow")) }
-        while true {
+        let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+        while ContinuousClock.now < deadline {
             if case .running = model.sampleState { break }
             try await Task.sleep(for: .milliseconds(5))
         }
+        guard case .running = model.sampleState else { return XCTFail("sampling never started") }
         model.dismissSample()
         guard case .idle = model.sampleState else { return XCTFail("closing a running sample closes it") }
         _ = await slow.result

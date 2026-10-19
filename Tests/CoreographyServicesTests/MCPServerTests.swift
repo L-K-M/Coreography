@@ -77,6 +77,12 @@ final class MCPServerTests: XCTestCase {
         let recorded = await checks.all
         XCTAssertEqual(recorded, [.call, .delivery])
 
+        // A session over its own limit is refused before it touches the shared budget.
+        let busy = try makeServer(authorize: { await checks.record($0) })
+        for id in 0..<11 { _ = try await toolCall(busy, id: 10 + id, name: "get_data_sources", arguments: "{}") }
+        let shared = await checks.all.filter { $0 == .call }.count
+        XCTAssertEqual(shared, 1 + 10, "the eleventh call never reached the shared budget")
+
         await checks.throttle()
         let throttled = try await toolCall(server, id: 2, name: "get_data_sources", arguments: "{}")
         XCTAssertEqual(throttled["isError"] as? Bool, true)

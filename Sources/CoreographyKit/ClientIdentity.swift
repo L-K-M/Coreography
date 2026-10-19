@@ -48,7 +48,9 @@ public struct ClientIdentityResolver: Sendable {
     /// that connects itself is its own client; Coreography's CLI never is.
     public func identity(ofPeer pid: Int32) -> ClientIdentity? {
         guard let peer = reader.process(pid) else { return nil }
-        if let path = peer.path, let bundle = Self.outermostBundle(path), bundle != ownBundle {
+        // Paths compare without case: APFS ignores it, so the kernel's spelling may differ from the bundle's.
+        if let path = peer.path, let bundle = Self.outermostBundle(path),
+           ownBundle.map({ bundle.caseInsensitiveCompare($0) != .orderedSame }) ?? true {
             return appIdentity(bundle: bundle)
         }
         var current = peer.parentPID

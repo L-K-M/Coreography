@@ -34,6 +34,10 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
 - Your own alert rules in Settings: a reading above or below a threshold
   for a while raises it, a second threshold clears it, and it can notify
   and run a Shortcut like the shipped rules.
+- The Startup tab opens Login Items & Extensions in System Settings, and each item
+  reveals its property list in Finder or copies its label.
+- The process pane groups as a parent-child tree or by user, besides by
+  app and flat; filters and app scope keep the parents of each match.
 - The CPU lane shows each core tier's activity as a strip under the
   graph.
 - Sampling slows to half rate while Low Power Mode is on, and the window

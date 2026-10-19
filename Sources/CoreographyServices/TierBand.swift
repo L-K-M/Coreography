@@ -37,5 +37,6 @@ enum TierBand {
 
 extension DashboardModel {
     /// The displayed silicon frames as sub-band cells; empty off Apple silicon.
-    public func tierBandCells() -> [TierBandCell] { TierBand.cells(siliconFrames) }
+    /// The newest cell spans one sample interval at the current cadence.
+    public func tierBandCells() -> [TierBandCell] { TierBand.cells(siliconFrames, nominalSeconds: samplingSeconds) }
 }
