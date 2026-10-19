@@ -465,6 +465,18 @@ jobs:
           assert stat.S_IMODE(os.stat(database).st_mode) == 0o600, "history file must be private"
           print(json.dumps({"storedSamples": report["storedSamples"]}))
           PY
+          dist/Coreography.app/Contents/Helpers/coreo stats --json --minutes 5 > "$RUNNER_TEMP/stats.json"
+          python3 - "$RUNNER_TEMP/stats.json" <<'PY'
+          import json, sys
+          with open(sys.argv[1]) as source:
+              report = json.load(source)
+          assert report["windowStart"] <= report["windowEnd"] and len(report["metrics"]) == 17
+          for metric in report["metrics"]:
+              assert 0 <= metric["valued"] <= metric["storedSamples"], metric
+              if metric["valued"]:
+                  assert metric["minimum"] <= metric["median"] <= metric["p95"] <= metric["maximum"], metric
+          print(json.dumps({m["metric"]: m["valued"] for m in report["metrics"]}))
+          PY
           dist/Coreography.app/Contents/Helpers/coreo apps --json --minutes 5 > "$RUNNER_TEMP/apps.json"
           python3 - "$RUNNER_TEMP/apps.json" <<'PY'
           import json, sys
