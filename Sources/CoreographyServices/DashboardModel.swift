@@ -134,6 +134,9 @@ public final class DashboardModel {
     @ObservationIgnored private let askService: AskService
     @ObservationIgnored private let notifier: AlertDelivery?
     @ObservationIgnored private let historyRecorder: HistoryRecorder?
+    @ObservationIgnored private let sleepProvider: SleepHistoryProvider?
+    @ObservationIgnored private var sleepState: SleepHistoryState = .notImported
+    @ObservationIgnored private var sleepImport: Task<Void, Never>?
     @ObservationIgnored private var alertEngine = AlertEngine(rules: AlertRules.shipped)
     @ObservationIgnored private var alertCooldown = AlertCooldown()
     @ObservationIgnored private var askTask: Task<Void, Never>?
@@ -169,6 +172,7 @@ public final class DashboardModel {
         self.notifier = notifier
         historyRecorder = history.recorder
         historyProblem = history.error
+        sleepProvider = SleepHistoryProvider()
         interval = .seconds(1)
         processInterval = .seconds(2)
         do {
@@ -205,12 +209,13 @@ public final class DashboardModel {
         gpuMonitor: GPUMonitor? = nil, powerMonitor: PowerMonitor? = nil,
         sensorMonitor: SensorMonitor? = nil, controller: ProcessController = ProcessController(),
         askService: AskService = AskService(), notifier: AlertDelivery? = nil,
-        historyRecorder: HistoryRecorder? = nil
+        historyRecorder: HistoryRecorder? = nil, sleepProvider: SleepHistoryProvider? = nil
     ) {
         self.controller = controller
         self.askService = askService
         self.notifier = notifier
         self.historyRecorder = historyRecorder
+        self.sleepProvider = sleepProvider
         self.monitor = monitor
         self.interval = interval
         self.processMonitor = processMonitor
@@ -225,6 +230,7 @@ public final class DashboardModel {
     deinit {
         worker?.cancel()
         askTask?.cancel()
+        sleepImport?.cancel()
     }
 
     public var latest: CapturedSnapshot? { frames.last }
@@ -232,6 +238,7 @@ public final class DashboardModel {
     // A cursor reads the nearest sample within these windows, or nothing.
     private static let cursorTolerance: TimeInterval = 1.5
     private static let contributorTolerance: TimeInterval = 2.5
+    private static let wakeSettleDelay: Duration = .seconds(10)
     /// One hour of two-second process samples, matching live history.
     private static let contributorCapacity = 1800
 
@@ -427,8 +434,29 @@ public final class DashboardModel {
     public func diagnosticSnapshot() -> DiagnosticSnapshot {
         DiagnosticSnapshot(
             takenAt: displayedEndTime ?? Date(), host: frames, network: networkFrames, gpu: gpuFrames,
-            power: powerFrames, sensors: sensorFrames, processes: processSnapshot, ledger: ledger
+            power: powerFrames, sensors: sensorFrames, processes: processSnapshot, ledger: ledger,
+            sleep: sleepState
         )
+    }
+
+    /// Import sleep history once at start and again after each wake, when
+    /// new records exist; never on the sampling path, never twice at once.
+    private func importSleepHistory(after delay: Duration) {
+        guard let sleepProvider, sleepImport == nil else { return }
+        sleepImport = Task { [weak self] in
+            try? await Task.sleep(for: delay)
+            let state: SleepHistoryState
+            do {
+                state = .imported(try await sleepProvider.load())
+            } catch SleepHistoryError.unavailable(let reason) {
+                state = .failed(reason)
+            } catch {
+                state = .failed("\(error)")
+            }
+            guard let self else { return }
+            self.sleepState = state
+            self.sleepImport = nil
+        }
     }
 
     public func refreshProviderKey() async {
@@ -564,6 +592,7 @@ public final class DashboardModel {
         let powerMonitor = powerMonitor
         let sensorMonitor = sensorMonitor
 
+        importSleepHistory(after: .zero)
         worker = Task { [weak self] in
             defer {
                 if let self, self.generation == run { self.worker = nil }
@@ -612,6 +641,8 @@ public final class DashboardModel {
                     }
                     guard let self, self.generation == run, !Task.isCancelled else { return }
                     self.liveFrames = history
+                    // An interrupted sample usually follows a wake; powerd may still be writing its record.
+                    if history.last?.continuity == .interrupted { self.importSleepHistory(after: Self.wakeSettleDelay) }
                     if let processes {
                         self.liveProcesses = processes
                         self.liveContributorHistory.append(Contributors.snapshot(from: processes))

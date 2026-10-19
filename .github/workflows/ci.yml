@@ -380,6 +380,35 @@ jobs:
           print(json.dumps({"storedSamples": report["storedSamples"]}))
           PY
 
+      - name: Smoke-test the sleep history import
+        run: |
+          set -euo pipefail
+          dist/Coreography.app/Contents/Helpers/coreo sleep --json --hours 168 > "$RUNNER_TEMP/sleep.json"
+          pmset -g log > "$RUNNER_TEMP/pmset.log"
+          python3 - "$RUNNER_TEMP/sleep.json" "$RUNNER_TEMP/pmset.log" <<'PY'
+          import json, re, sys
+          from datetime import datetime
+          with open(sys.argv[1]) as source:
+              report = json.load(source)
+          assert report["source"] == "pmset -g log" and report.get("coveredFrom"), "the import read dated records"
+          # Count real Sleep, Wake and DarkWake records independently of the parser.
+          record = re.compile(r"^(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d [+-]\d{4}) (Sleep|Wake|DarkWake)(\t| {2,})")
+          parse = lambda text: datetime.fromisoformat(text.replace("Z", "+00:00"))
+          start = max(parse(report["windowStart"]), parse(report["coveredFrom"]))
+          # Records written after the import's own read are not its to count.
+          end = min(parse(report["windowEnd"]), parse(report["coveredTo"]))
+          expected = 0
+          with open(sys.argv[2], errors="replace") as log:
+              for line in log:
+                  match = record.match(line)
+                  if match and start <= datetime.strptime(match.group(1), "%Y-%m-%d %H:%M:%S %z") <= end:
+                      expected += 1
+          parsed = len(report["events"]) + report["omittedEvents"]
+          assert parsed == expected, f"parsed {parsed} records, the log holds {expected}"
+          print(json.dumps({"events": parsed, "periods": len(report["periods"]),
+                            "partial": report.get("partialCoverage"), "coveredFrom": report["coveredFrom"]}))
+          PY
+
       - name: Smoke-test native network counters
         run: |
           set -euo pipefail

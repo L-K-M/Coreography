@@ -162,6 +162,21 @@ public actor DiagnosticService {
         )
     }
 
+    /// Import the power-management log now; the CLI has no live samples.
+    public func sleepHistory(hours: Int) async throws -> SleepHistoryReport {
+        let state: SleepHistoryState
+        do {
+            state = .imported(try await SleepHistoryProvider().load())
+        } catch SleepHistoryError.unavailable(let reason) {
+            state = .failed(reason)
+        }
+        let snapshot = DiagnosticSnapshot(
+            takenAt: Date(), host: [], network: [], gpu: [], power: [], sensors: [], processes: nil,
+            ledger: AppLedger(capacity: 1), sleep: state
+        )
+        return try DiagnosticTools.sleepHistory(snapshot, hours: hours)
+    }
+
     private static let minimumDiagnosisSeconds = 3
     private static let maximumDiagnosisSeconds = 60
     private static let processEverySeconds = 2
