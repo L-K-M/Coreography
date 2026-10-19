@@ -82,9 +82,10 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
 - Bottleneck hints in the CPU lane and HUD: "Looks GPU-bound", "Looks
   CPU-bound" and "Possibly throttling", each with the readings that
   tripped it.
-- Apple Silicon CPU, GPU, ANE and DRAM power from IOReport's energy
-  model, and each CPU tier's activity and frequency, in the CPU and
-  Power lanes, the HUD, diagnostics and `coreo silicon`. All are
+- Apple Silicon CPU, GPU and ANE power from IOReport's energy model,
+  and each CPU tier's activity and frequency, in the CPU and Power
+  lanes, the HUD, diagnostics and `coreo silicon` (which also reports
+  DRAM power). All are
   estimates; a virtual machine or a stalled counter says so.
 - Command-Shift-P opens a command palette listing every window action
   by name, with the reason any of them cannot run now.

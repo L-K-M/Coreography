@@ -854,7 +854,7 @@ private enum PowerText {
     /// "Kept awake by Music (Playing audio, 12 min) and 1 other" (plan P2).
     static func keptAwake(_ holders: [AssertionHolder]) -> String? {
         guard let first = holders.first else { return nil }
-        let others = holders.count > 1 ? String(localized: " and \(holders.count - 1) other") : ""
+        let others = holders.count > 1 ? " " + String(localized: "and \(holders.count - 1) other") : ""
         return String(localized: "Kept awake by \(first.processName ?? "PID \(first.assertion.pid)") (\(detail(first.assertion)))") + others
     }
 
@@ -2559,7 +2559,7 @@ private enum RangeText {
         guard !comparison.changes.isEmpty else { return String(localized: "No app changed by a hundredth of a core or more.") }
         let cores = FloatingPointFormatStyle<Double>.number.precision(.fractionLength(2))
         let items = comparison.changes.map { change in
-            let estimate = change.isLowerBound ? String(localized: " est.") : ""
+            let estimate = change.isLowerBound ? " " + String(localized: "est.") : ""
             return String(localized: "\(change.app) \(change.firstCores.formatted(cores)) → \(change.secondCores.formatted(cores)) cores\(estimate)")
         }
         return String(localized: "Biggest changes: ") + items.joined(separator: " · ")
@@ -2985,7 +2985,7 @@ enum NetworkText {
 
     static func rates(_ received: DashboardReading, _ sent: DashboardReading) -> String {
         guard received.numericValue != nil || sent.numericValue != nil else { return "–" }
-        let estimate = received.availability == .estimated || sent.availability == .estimated ? String(localized: " est.") : ""
+        let estimate = received.availability == .estimated || sent.availability == .estimated ? " " + String(localized: "est.") : ""
         return "↓\(MetricText.rate(received.numericValue)) ↑\(MetricText.rate(sent.numericValue))\(estimate)"
     }
 }
@@ -3017,7 +3017,7 @@ enum SiliconText {
         let parts = [("CPU", frame.cpuPowerWatts), ("GPU", frame.gpuPowerWatts), ("ANE", frame.anePowerWatts)]
             .filter { $0.1.numericValue != nil }
             .map { "\($0.0) \(MetricText.watts($0.1.numericValue))" }
-        return parts.joined(separator: " · ") + String(localized: " est.")
+        return parts.joined(separator: " · ") + " " + String(localized: "est.")
     }
 }
 

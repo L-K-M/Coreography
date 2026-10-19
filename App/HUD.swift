@@ -213,7 +213,7 @@ private enum HUDText {
             return MetricText.frequency(model.displayedSiliconFrame?.gpuFrequencyMHz.numericValue)
         case .power:
             let power = model.displayedSystemPower
-            return MetricText.watts(power?.numericValue) + (power?.availability == .estimated ? String(localized: " est") : "")
+            return MetricText.watts(power?.numericValue) + (power?.availability == .estimated ? " " + String(localized: "est.") : "")
         case .temperature:
             return ThermalText.celsius(model.displayedSensorFrame?.hottest?.celsius.numericValue)
         case .thermalPressure:
