@@ -17,6 +17,10 @@ public struct RangeReport: Sendable {
     public let apps: [AppRangeTotal]
     public let cpuMeanPercent: Double?
     public let cpuPeakPercent: Double?
+    /// Nearest-rank, from raw readings only; nil when the range reaches
+    /// rolled-up history, whose buckets keep no spread.
+    public let cpuMedianPercent: Double?
+    public let cpuP95Percent: Double?
     public let memoryPeakBytes: Double?
     public let gpuPeakPercent: Double?
     /// The key is nil when the peak came from stored history, which keeps no sensor key.
@@ -55,6 +59,7 @@ public struct RangeReport: Sendable {
         let storedHottest = older(.hottestCelsius, before: sensorFrames.first?.stamp.wallTime)
             .map { (key: String?.none, celsius: $0.maximum) }
         let hottest = (storedHottest + liveHottest).max { $0.celsius < $1.celsius }
+        let percentiles = cpuPercentiles(stored: storedCPU, live: liveCPU)
         return RangeReport(
             requested: range, covered: covered,
             topCPUApps: Array(apps.filter { $0.cpuSeconds > 0 }.sorted { $0.cpuSeconds > $1.cpuSeconds }.prefix(appLimit)),
@@ -66,9 +71,20 @@ public struct RangeReport: Sendable {
             apps: apps,
             cpuMeanPercent: cpuCount == 0 ? nil : cpuTotal / Double(cpuCount),
             cpuPeakPercent: (storedCPU.map(\.maximum) + liveCPU).max(),
+            cpuMedianPercent: percentiles?.median, cpuP95Percent: percentiles?.p95,
             memoryPeakBytes: memory.max(),
             gpuPeakPercent: gpu.max(),
             hottest: hottest
         )
+    }
+
+    /// A stored value counting more than one reading is a rolled-up bucket
+    /// (plan: percentiles require raw samples).
+    static func cpuPercentiles(stored: [StoredValue], live: [Double]) -> (median: Double, p95: Double)? {
+        guard stored.allSatisfy({ $0.count == 1 }) else { return nil }
+        let sorted = (stored.map(\.mean) + live).sorted()
+        guard let median = NearestRank.value(sorted, NearestRank.median),
+              let p95 = NearestRank.value(sorted, NearestRank.p95) else { return nil }
+        return (median, p95)
     }
 }

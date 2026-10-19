@@ -89,6 +89,8 @@ final class RangeReportTests: XCTestCase {
         XCTAssertEqual(report.covered, epoch...epoch.addingTimeInterval(6))
         XCTAssertEqual(report.cpuMeanPercent ?? 0, 25, accuracy: 1e-9, "the true mean of stored readings")
         XCTAssertEqual(report.cpuPeakPercent, 40)
+        XCTAssertEqual(report.cpuMedianPercent, 20, "nearest rank: the 2nd of 4 raw readings")
+        XCTAssertEqual(report.cpuP95Percent, 40)
         XCTAssertEqual(report.hottest?.celsius, 90)
         XCTAssertNil(report.hottest?.key, "stored history keeps no sensor key")
 
@@ -119,6 +121,19 @@ final class RangeReportTests: XCTestCase {
         XCTAssertEqual(report.cpuMeanPercent ?? 0, expectedMean, accuracy: 1e-9)
     }
 
+    /// Plan: range percentiles need raw samples; rolled-up buckets keep
+    /// only minimum, maximum and mean.
+    func testPercentilesComeOnlyFromRawReadings() {
+        let raw = [10.0, 20, 30].map { StoredValue(time: epoch, mean: $0, maximum: $0, count: 1) }
+        let percentiles = RangeReport.cpuPercentiles(stored: raw, live: [40, 50])
+        XCTAssertEqual(percentiles?.median, 30)
+        XCTAssertEqual(percentiles?.p95, 50)
+
+        let bucket = StoredValue(time: epoch, mean: 15, maximum: 90, count: 10)
+        XCTAssertNil(RangeReport.cpuPercentiles(stored: raw + [bucket], live: [40]), "a rolled-up bucket hides its spread")
+        XCTAssertNil(RangeReport.cpuPercentiles(stored: [], live: []))
+    }
+
     func testReportRanksAppsAndSummarisesLanes() throws {
         var ledger = AppLedger(capacity: 10)
         ledger.record(try snapshot(at: 0, rows: [("A", 10, 5), ("B", 30, 1)]), logicalCPUCount: 2)
@@ -130,6 +145,7 @@ final class RangeReportTests: XCTestCase {
         XCTAssertEqual(report.topDiskApps.map(\.name), ["A", "B"])
         XCTAssertEqual(report.activeAppCount, 2)
         XCTAssertNil(report.cpuMeanPercent, "no host frames, no invented mean")
+        XCTAssertNil(report.cpuP95Percent)
     }
 
     /// Rows: (app name, CPU % of machine, disk read bytes/s or nil when unreadable).

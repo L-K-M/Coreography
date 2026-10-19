@@ -689,7 +689,10 @@ Implemented:
   upsert, and readings without values are left out, so an empty bucket
   stays a gap. The 24 h range draws each bucket's minimum and maximum,
   so spikes survive, and range reports weigh bucket means by count, so
-  means stay exact; percentiles are never taken from rollups. The app
+  means stay exact; percentiles are never taken from rollups. A range
+  report gives CPU's nearest-rank median and 95th percentile from raw
+  readings, live and Recent tier, and none once the range reaches a
+  rolled-up bucket. The app
   ledger stays in the Recent tier, so app totals over 24 h cover its
   six hours, which the report's coverage states. The Month tier follows below.
 - Automatic markers: memory and thermal pressure transitions, power
