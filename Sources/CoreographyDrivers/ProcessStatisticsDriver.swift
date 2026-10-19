@@ -247,18 +247,23 @@ public actor ProcessStatisticsDriver: ProcessSampleReading {
     private func cpuType(_ key: CPUTypeKey) -> Result<ProcessCPUType, ProcessDriverError> {
         if let known = cpuTypes[key] { return .success(known) }
 
+        let host = hostIsARM64 ?? Self.readHostIsARM64()
+        if case .success = host { hostIsARM64 = host }
+        switch host {
+        case .failure(let error):
+            return .failure(error)
+        case .success(false):
+            // An Intel Mac runs no translated code, so no process needs asking.
+            cpuTypes[key] = .x86_64
+            return .success(.x86_64)
+        case .success(true):
+            break
+        }
+
         var translated: Int32 = 0
         let status = coreo_process_translated(key.pid, key.startSeconds, key.startMicroseconds, &translated)
         guard status == 0 else { return .failure(Self.failure(status, operation: "KERN_PROC_PID")) }
-
-        let host = hostIsARM64 ?? Self.readHostIsARM64()
-        if case .success = host { hostIsARM64 = host }
-        let type: ProcessCPUType
-        switch host {
-        case .failure(let error): return .failure(error)
-        case .success(true): type = translated != 0 ? .x86_64Translated : .arm64
-        case .success(false): type = .x86_64
-        }
+        let type: ProcessCPUType = translated != 0 ? .x86_64Translated : .arm64
         cpuTypes[key] = type
         return .success(type)
     }

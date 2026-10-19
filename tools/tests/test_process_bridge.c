@@ -384,6 +384,7 @@ test_translation(void)
     assert(translated == 0);
     assert(coreo_process_translated(getpid(), self.start_seconds + 1, self.start_microseconds, &translated) == EAGAIN);
     assert(coreo_process_translated(-1, 1, 0, &translated) == EINVAL);
+    assert(coreo_process_translated(getpid(), self.start_seconds, self.start_microseconds, NULL) == EINVAL);
     assert(coreo_host_is_arm64(&is_arm64) == 0);
     assert(is_arm64 == 0 || is_arm64 == 1);
     assert(coreo_host_is_arm64(NULL) == EINVAL);
