@@ -380,7 +380,11 @@ class TestReleaseSmoke(unittest.TestCase):
             "cpuPercentOfMachine": {"availability": "measured", "numericValue": 25},
             "cpuSystemPercentOfMachine": {"availability": "measured", "numericValue": 5},
             "memoryUsedBytes": {"availability": "estimated", "numericValue": 4096},
-            "inventory": {"physicalMemoryBytes": 8192},
+            "inventory": {"physicalMemoryBytes": 8192, "logicalCPUCount": 2},
+            "coreBusyPercent": [
+                {"availability": "measured", "numericValue": 40},
+                {"availability": "measured", "numericValue": 10},
+            ],
             "thermalPressure": {"availability": "measured", "numericValue": 0},
             "memory": {
                 "appBytes": {"availability": "estimated", "numericValue": 2048},
@@ -412,6 +416,18 @@ class TestReleaseSmoke(unittest.TestCase):
             with self.subTest(key=key, value=value):
                 snapshot = self.snapshot()
                 snapshot[key]["numericValue"] = value
+                self.assertNotEqual(self.run_smoke(snapshot).returncode, 0)
+
+    def test_release_gate_requires_one_measured_share_per_core(self):
+        for cores in (None, [{"availability": "measured", "numericValue": 40}],
+                      [{"availability": "measured", "numericValue": 40}, {"availability": "measured", "numericValue": 101}],
+                      [{"availability": "measured", "numericValue": 40}, {"availability": "collecting"}]):
+            with self.subTest(cores=cores):
+                snapshot = self.snapshot()
+                if cores is None:
+                    del snapshot["coreBusyPercent"]
+                else:
+                    snapshot["coreBusyPercent"] = cores
                 self.assertNotEqual(self.run_smoke(snapshot).returncode, 0)
 
     def test_release_gate_rejects_invalid_memory_detail(self):

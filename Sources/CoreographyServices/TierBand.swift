@@ -13,16 +13,16 @@ public struct TierBandCell: Identifiable, Sendable {
 }
 
 enum TierBand {
-    /// Each cell reaches the next sample; after a break, or at the newest
-    /// sample, it covers one nominal interval instead of bridging the gap.
+    /// A reading measures the interval ending at its sample, so each cell
+    /// reaches back to the previous sample; the first sample, and one after
+    /// a break, cover one nominal interval instead of bridging the gap.
     /// A tier without a reading leaves a hole, never an idle cell.
     static func cells(_ frames: [CapturedSilicon], nominalSeconds: TimeInterval = 1) -> [TierBandCell] {
         var cells: [TierBandCell] = []
         for (index, frame) in frames.enumerated() {
-            let start = frame.stamp.wallTime
-            let next = frames.indices.contains(index + 1) ? frames[index + 1] : nil
-            let end = next.flatMap { $0.continuity == .continuous ? $0.stamp.wallTime : nil }
-                ?? start.addingTimeInterval(nominalSeconds)
+            let end = frame.stamp.wallTime
+            let previous = index > 0 && frame.continuity == .continuous ? frames[index - 1] : nil
+            let start = previous?.stamp.wallTime ?? end.addingTimeInterval(-nominalSeconds)
             for tier in frame.cpuTiers {
                 guard let active = tier.activePercent.numericValue else { continue }
                 cells.append(TierBandCell(

@@ -115,6 +115,13 @@ Implemented:
   forgets dragged places. Control-Command-J cycles the level (Option-Command-H
   is macOS's Hide Others, so the HUD uses Control).
 
+- Pan and zoom: two-finger sideways scrolling over any lane pans the
+  window back (detaching from live, as scrubbing does) and forward, never
+  past the oldest data held or the newest; pinching steps through the
+  range pills, apart for closer and together for wider. Short ranges pan
+  through the live hour; longer ranges pan only within the stored part
+  already loaded, so loading stored history for a window further back
+  remains. Return to Now and Return to live end the pan.
 - Time controls: Pause Recording (toolbar, menu bar extra and palette)
   stops sampling, so every series and the store keep a gap, marked
   "Recording paused" and "Recording resumed"; reopening the window does
@@ -667,6 +674,14 @@ Implemented:
   never parsed. With nothing selected it shows the chip, model, macOS
   build, uptime, load averages and Coreography's own cost. Per-process
   history lanes, open files, assertions, threads and wakeups remain.
+- CPU lane detail: Show Cores in the lane's menu, or a double-click on
+  its title, adds a heat strip with one row per logical CPU, each core's
+  busy ticks over its own ticks between samples (`host_processor_info`,
+  `PROCESSOR_CPU_LOAD_INFO`), so it holds across cadences; a change in
+  the core count or an interruption starts over, and a core without a
+  reading leaves a hole. Rows follow CPU numbers: grouping them by
+  cluster needs the CPU-to-cluster map, which remains, as do the other
+  lanes' detail views. Native CI checks one measured 0-100 share per core.
 - Lane inspector: a lane's menu shows its static facts (chip, model,
   logical CPUs and core tiers; physical memory; each GPU; storage devices
   and volume sizes; primary and observed interfaces; adapter rating,

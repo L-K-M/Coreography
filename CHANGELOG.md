@@ -33,6 +33,10 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
 ### Added
 - The by-user process view names accounts ("You, alice", "_spotlight")
   instead of bare UIDs, and free text finds a group by its name.
+- The CPU lane's detail, from its menu or a double-click on its title,
+  shows every core's activity as a heat strip under the graph.
+- Scrolling sideways over a lane pans back through the history held, and
+  pinching steps through the ranges; Return to Now goes back to live.
 - Annotate in the range panel names a selected range; the name marks
   where it starts and ends on every lane.
 - The process table's columns can be shown, hidden and reordered from the

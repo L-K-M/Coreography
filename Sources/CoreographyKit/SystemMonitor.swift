@@ -3,6 +3,7 @@ import CoreographyDrivers
 
 public actor SystemMonitor {
     private static let percentScale = 100.0
+    private static let coreSource = MetricSource(provider: "cpu", driver: "Mach", channel: "PROCESSOR_CPU_LOAD_INFO")
     private static let cpuSource = MetricSource(
         provider: "cpu", driver: "Mach", channel: "HOST_CPU_LOAD_INFO"
     )
@@ -28,6 +29,7 @@ public actor SystemMonitor {
     private var swapIns: CounterRateTracker
     private var swapOuts: CounterRateTracker
     private var buffer: SampleBuffer<SystemSnapshot>
+    private var previousCores: [ProcessorTicks]?
     private var continuity: ContinuityTracker
 
     public init() throws {
@@ -105,7 +107,8 @@ public actor SystemMonitor {
         let snapshot = SystemSnapshot(
             stamp: stamp, inventory: raw.inventory,
             cpuPercentOfMachine: cpu, cpuSystemPercentOfMachine: kernelCPU, memoryUsedBytes: memory, memory: detail,
-            thermalPressure: thermal, continuity: interrupted ? .interrupted : .continuous
+            thermalPressure: thermal, continuity: interrupted ? .interrupted : .continuous,
+            coreBusyPercent: try coreReadings(raw.cores, interrupted: interrupted)
         )
         buffer.append(snapshot)
         return snapshot
@@ -142,6 +145,29 @@ public actor SystemMonitor {
             try .measured(busy / total * Self.percentScale, source: Self.cpuSource),
             try .measured(values[1] / total * Self.percentScale, source: Self.cpuSource)
         )
+    }
+
+    /// Each core's busy ticks over its own ticks since the last sample. A
+    /// share needs no rate, so it holds across cadences; a change in the core
+    /// count, an interruption or a counter that went backwards starts over.
+    private func coreReadings(_ cores: Result<[ProcessorTicks], HostDriverError>, interrupted: Bool) throws -> [MetricReading]? {
+        guard case .success(let ticks) = cores, !ticks.isEmpty else {
+            previousCores = nil
+            return nil
+        }
+        defer { previousCores = ticks }
+        guard !interrupted, let previous = previousCores, previous.count == ticks.count else {
+            return ticks.map { _ in .collecting(source: Self.coreSource) }
+        }
+        return try zip(previous, ticks).map { before, now in
+            guard now.user >= before.user, now.system >= before.system, now.idle >= before.idle, now.nice >= before.nice else {
+                return .gap(reason: "Core counters went backwards", source: Self.coreSource)
+            }
+            let busy = Double((now.user - before.user) + (now.system - before.system) + (now.nice - before.nice))
+            let total = busy + Double(now.idle - before.idle)
+            guard total > 0 else { return .gap(reason: "No elapsed core ticks", source: Self.coreSource) }
+            return try .measured(busy / total * Self.percentScale, source: Self.coreSource)
+        }
     }
 
     private func memoryDetail(

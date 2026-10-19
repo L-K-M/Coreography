@@ -130,3 +130,85 @@ private actor Counting: HostSampleReading {
         )
     }
 }
+
+@MainActor
+final class PanZoomTests: XCTestCase {
+    /// Plan: scroll pans and pinch zooms through the ranges, as far as history goes.
+    func testPanningDetachesFromLiveStaysInsideHistoryAndReturnsToNow() async throws {
+        let model = DashboardModel(monitor: try SystemMonitor(driver: Steps(), historyCapacity: 600), interval: .milliseconds(5))
+        model.start()
+        defer { model.stop() }
+        let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+        while model.frames.count < 120, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(5)) }
+        XCTAssertFalse(model.frames.isEmpty, "the sampler produced nothing")
+        try XCTSkipIf(model.frames.count < 120, "sampling was slow; the pan needs two minutes of history")
+        XCTAssertEqual(model.displayMode, .live)
+        let end = try XCTUnwrap(model.displayedEndTime)
+        let first = try XCTUnwrap(model.frames.first?.stamp.wallTime)
+        XCTAssertEqual(model.visibleWindow?.upperBound, end, "live shows the newest data")
+
+        model.pan(bySeconds: 30)
+        XCTAssertEqual(model.displayMode, .held, "panning back detaches from live")
+        XCTAssertEqual(model.visibleWindow?.upperBound, end.addingTimeInterval(-30))
+        XCTAssertEqual(model.visibleWindow?.lowerBound, end.addingTimeInterval(-30 - TimeRange.minute.seconds))
+
+        model.pan(bySeconds: 10_000)
+        XCTAssertEqual(model.visibleWindow?.lowerBound, first, "it stops where history starts")
+        model.pan(bySeconds: -10_000)
+        XCTAssertEqual(model.visibleWindow?.upperBound, end, "and forward at the newest data")
+
+        model.pan(bySeconds: 30)
+        model.returnToNow()
+        XCTAssertEqual(model.displayMode, .live)
+        XCTAssertEqual(model.visibleWindow?.upperBound, model.displayedEndTime)
+    }
+
+    /// With no more history than the range shows, scrolling has nowhere to go and must not leave live.
+    func testPanningWithoutRoomStaysLive() async throws {
+        let model = DashboardModel(monitor: try SystemMonitor(driver: Steps()), interval: .milliseconds(5))
+        model.start()
+        defer { model.stop() }
+        let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+        while model.frames.count < 10, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(5)) }
+        model.pan(bySeconds: 30)
+        XCTAssertEqual(model.displayMode, .live)
+        XCTAssertEqual(model.panOffset, 0)
+    }
+
+    func testZoomStepsThroughTheRangesAndStopsAtTheEnds() async throws {
+        let model = DashboardModel(monitor: try SystemMonitor(driver: Steps()), interval: .milliseconds(5))
+        model.timeRange = .tenMinutes
+        model.zoom(.wider)
+        XCTAssertEqual(model.timeRange, .hour)
+        model.zoom(.closer)
+        model.zoom(.closer)
+        XCTAssertEqual(model.timeRange, .minute)
+        model.zoom(.closer)
+        XCTAssertEqual(model.timeRange, .minute, "there is nothing closer than a minute")
+        model.timeRange = .month
+        model.zoom(.wider)
+        XCTAssertEqual(model.timeRange, .month)
+    }
+}
+
+/// One second per read on both clocks.
+private actor Steps: HostSampleReading {
+    private let clock = UUID()
+    private var reads: UInt64 = 0
+
+    func read() async -> RawHostSnapshot {
+        reads += 1
+        return RawHostSnapshot(
+            clockID: clock, monotonicNanoseconds: reads * 1_000_000_000,
+            wallTime: Date(timeIntervalSince1970: 1_700_000_000 + Double(reads)),
+            inventory: HostInventory(operatingSystem: "Fixture", architecture: "fixture", logicalCPUCount: 4, physicalMemoryBytes: 1 << 30),
+            cpu: .success(ProcessorTicks(user: reads, system: 0, idle: reads * 3, nice: 0)),
+            memory: .success(MemoryPages(
+                active: 10, inactive: 0, speculative: 0, wired: 2, compressed: 3, compressorContents: 6, purgeable: 0,
+                fileBacked: 1, pageIns: 0, swapIns: 0, swapOuts: 0, pageSizeBytes: 4096
+            )),
+            swap: .success(SwapUsage(totalBytes: 8192, usedBytes: 0)),
+            memoryPressure: .success(.normal), thermalPressure: .success(.nominal)
+        )
+    }
+}
