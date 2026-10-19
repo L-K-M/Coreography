@@ -31,6 +31,9 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
   after the store first exceeds it.
 
 ### Added
+- The process table's columns can be shown, hidden and reordered from the
+  header, with new opt-in CPU time and start time columns and sorts;
+  wakeups move to the opt-in set, as the plan's default columns have it.
 - The process pane groups as a parent-child tree or by user, besides by
   app and flat; filters and app scope keep the parents of each match.
 - The CPU lane shows each core tier's activity as a strip under the

@@ -1456,6 +1456,8 @@ private struct ProcessPane: View {
     @Bindable var model: DashboardModel
     var filterFocused: FocusState<Bool>.Binding
     @State private var pendingAction: ProcessActionRequest?
+    /// Which columns show, in which order; the header's menu changes it (plan: opt-in columns).
+    @State private var columns = ProcessColumns.saved()
 
     var body: some View {
         let rows = model.visibleProcessRows
@@ -1482,6 +1484,8 @@ private struct ProcessPane: View {
                         Text("Network").tag(ProcessSort.network)
                         Text("GPU time").tag(ProcessSort.gpu)
                         Text("CPU power").tag(ProcessSort.power)
+                        Text("CPU time").tag(ProcessSort.cpuTime)
+                        Text("Newest").tag(ProcessSort.started)
                         Text("Name").tag(ProcessSort.name)
                     }
                     .frame(width: 180)
@@ -1512,7 +1516,7 @@ private struct ProcessPane: View {
                     }
                 }
 
-                Table(rows, children: \.children, selection: $model.selectedProcessRow) {
+                Table(rows, children: \.children, selection: $model.selectedProcessRow, columnCustomization: $columns) {
                     TableColumn("Process") { row in
                         // New processes tint briefly (plan: change highlighting).
                         let isNew = row.process.map { model.isNewProcess($0.id) } ?? false
@@ -1529,33 +1533,44 @@ private struct ProcessPane: View {
                                 }
                             }
                     }
+                    .customizationID("process")
+                    .disabledCustomizationBehavior(.visibility)
                     TableColumn("PID") { Text($0.process?.id.pid.formatted(.number.grouping(.never)) ?? "") }
                         .width(60)
+                        .customizationID("pid")
                     TableColumn("UID") { Text($0.process?.uid.formatted(.number.grouping(.never)) ?? "") }
                         .width(65)
+                        .customizationID("uid")
                     TableColumn(ProcessText.cpuColumn(model.processCPUScale)) { (row: ProcessRow) in
                         ProcessMetricCell(reading: row.cpuPercentOfMachine, format: .percent,
                                           heat: heat.cpu(row), hue: .blue, scale: model.processCPUFactor)
                     }
+                    .customizationID("cpu")
                     TableColumn("Footprint") {
                         ProcessMetricCell(reading: $0.memoryFootprintBytes, format: .bytes,
                                           heat: heat.memory($0), hue: .teal)
                     }
+                    .customizationID("footprint")
                     TableColumn("Disk read/s") {
                         ProcessMetricCell(reading: $0.diskReadBytesPerSecond, format: .rate,
                                           heat: heat.read($0), hue: .blue)
                     }
+                    .customizationID("diskRead")
                     TableColumn("Disk write/s") {
                         ProcessMetricCell(reading: $0.diskWriteBytesPerSecond, format: .rate,
                                           heat: heat.write($0), hue: .orange)
                     }
+                    .customizationID("diskWrite")
                     TableColumn("Wakeups/s") { ProcessMetricCell(reading: $0.wakeupsPerSecond, format: .wakeups) }
+                        .customizationID("wakeups")
+                        .defaultVisibility(.hidden)
                     TableColumn("Network in/out") { row in
                         Text(NetworkText.processRates(row))
                             .monospacedDigit()
                             .help(row.networkReceivedBytesPerSecond.method ?? row.networkReceivedBytesPerSecond.reason
                                   ?? String(localized: "TCP and UDP bytes per second; no open socket reads as zero"))
                     }
+                    .customizationID("network")
                     // A table takes ten columns per block; the group adds the rest, typed
                     // because a group cannot infer its row.
                     Group {
@@ -1565,15 +1580,31 @@ private struct ProcessPane: View {
                                 note: String(localized: "GPU time per second, not the GPU lane's busy percentage; overlapping work can exceed 1000")
                             )
                         }
+                        .customizationID("gpu")
                         TableColumn("CPU power") { (row: ProcessRow) in
                             ProcessMetricCell(
                                 reading: row.cpuPowerWatts, format: .processWatts,
                                 note: String(localized: "Estimated by the kernel's CPU energy model; GPU work is not included")
                             )
                         }
+                        .customizationID("power")
+                        TableColumn("CPU time") { (row: ProcessRow) in
+                            ProcessMetricCell(
+                                reading: row.cpuTimeSeconds, format: .cpuTime,
+                                note: String(localized: "User and system CPU time since the process started; an app sums its processes")
+                            )
+                        }
+                        .customizationID("cpuTime")
+                        .defaultVisibility(.hidden)
+                        TableColumn("Started") { (row: ProcessRow) in
+                            Text(row.started.map(ProcessText.started) ?? "–").monospacedDigit()
+                        }
+                        .customizationID("started")
+                        .defaultVisibility(.hidden)
                     }
                 }
                 .frame(height: 260)
+                .onChange(of: columns) { _, chosen in ProcessColumns.save(chosen) }
                 .textSelection(.enabled)
 
                 if let message = model.actionMessage {
@@ -1590,7 +1621,7 @@ private struct ProcessPane: View {
                         .help("Exit status is not available without the helper")
                 }
 
-                Text("\(ProcessText.cpuScaleNote(model.processCPUScale)) App totals sum their members; footprint sums can count shared memory twice. Process sampling: 2 s; short-lived processes can be missed.")
+                Text("\(ProcessText.cpuScaleNote(model.processCPUScale)) App totals sum their members; footprint sums can count shared memory twice. Process sampling: 2 s; short-lived processes can be missed. Right-click a column header for wakeups, CPU time and start time.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -1981,7 +2012,38 @@ private struct HeatScale {
     }
 }
 
+/// The process table's column choices, kept across launches.
+private enum ProcessColumns {
+    private static let defaultsKey = "processColumns"
+
+    static func saved() -> TableColumnCustomization<ProcessRow> {
+        guard let data = UserDefaults.standard.data(forKey: defaultsKey),
+              let saved = try? JSONDecoder().decode(TableColumnCustomization<ProcessRow>.self, from: data) else {
+            return TableColumnCustomization()
+        }
+        return saved
+    }
+
+    static func save(_ columns: TableColumnCustomization<ProcessRow>) {
+        guard let data = try? JSONEncoder().encode(columns) else { return }
+        UserDefaults.standard.set(data, forKey: defaultsKey)
+    }
+}
+
 private enum ProcessText {
+    private static let secondsPerMinute = 60.0
+
+    /// Under a minute in seconds, else hours, minutes and seconds. Example: 3723 -> "1:02:03".
+    static func cpuTime(_ seconds: Double) -> String {
+        guard seconds >= secondsPerMinute else { return seconds.formatted(.number.precision(.fractionLength(1))) + " s" }
+        return Duration.seconds(seconds).formatted(.time(pattern: .hourMinuteSecond))
+    }
+
+    /// Example: "Oct 19, 09:14:03".
+    static func started(_ date: Date) -> String {
+        date.formatted(.dateTime.month(.abbreviated).day().hour().minute().second())
+    }
+
     static func cpuColumn(_ scale: ProcessCPUScale) -> String {
         switch scale {
         case .machine: String(localized: "CPU, machine")
@@ -2366,7 +2428,7 @@ private enum ConnectionText {
 }
 
 private struct ProcessMetricCell: View {
-    enum Format { case percent, bytes, rate, watts, wakeups, gpuTime, processWatts }
+    enum Format { case percent, bytes, rate, watts, wakeups, gpuTime, processWatts, cpuTime }
     let reading: DashboardReading
     let format: Format
     /// 0-1 share of the column's largest value; shades the cell in its subsystem hue.
@@ -2405,6 +2467,7 @@ private struct ProcessMetricCell: View {
         case .wakeups: return WakeupText.rate(value) + suffix
         case .gpuTime: return ProcessText.gpuTime(value) + suffix
         case .processWatts: return ProcessText.power(value) + suffix
+        case .cpuTime: return ProcessText.cpuTime(value) + suffix
         }
     }
 }

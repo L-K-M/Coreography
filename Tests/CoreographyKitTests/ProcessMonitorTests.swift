@@ -42,6 +42,7 @@ final class ProcessMonitorTests: XCTestCase {
         let first = try await monitor.sample()
         XCTAssertEqual(first.processes.first?.cpuPercentOfMachine.availability, .collecting)
         XCTAssertEqual(first.processes.first?.wakeupsPerSecond.availability, .collecting)
+        XCTAssertEqual(first.processes.first?.cpuTimeSeconds.numericValue, 1, "lifetime CPU time needs no baseline")
         let second = try await monitor.sample()
         let process = try XCTUnwrap(second.processes.first)
         XCTAssertEqual(process.cpuPercentOfMachine.numericValue, 25)
@@ -49,6 +50,8 @@ final class ProcessMonitorTests: XCTestCase {
         XCTAssertEqual(process.diskWriteBytesPerSecond.numericValue, 0)
         XCTAssertEqual(process.memoryFootprintBytes.numericValue, 4096)
         XCTAssertEqual(process.wakeupsPerSecond.numericValue, 10, "20 wakeups over 2 s")
+        XCTAssertEqual(process.cpuTimeSeconds.numericValue, 3)
+        XCTAssertEqual(process.cpuTimeSeconds.availability, .measured)
     }
 
     func testPowerIsAnEstimateFromTheEnergyCounter() async throws {

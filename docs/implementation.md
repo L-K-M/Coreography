@@ -354,7 +354,12 @@ Implemented:
   child is a reused PID, so the child becomes a root; a parent loop
   lists each process once) with its own readings, and a by-user view
   totals each UID like an app. A filter or app scope in the tree keeps
-  the parents leading to each match.
+  the parents leading to each match. The table's columns can be shown,
+  hidden and reordered from the header and the choice is kept; CPU time
+  (user plus system over each process's life, summed for an app) and
+  start time are opt-in columns and sorts, and wakeups join them as the
+  plan's default set has it. Threads, QoS, instructions, ports,
+  architecture and signing columns remain.
 - The memory lane stacks the composition under the physical-memory line,
   draws a pressure band above it, and has a ten-column numeric table and
   per-layer chart accessibility. `coreo snapshot` exports the same detail.

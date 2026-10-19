@@ -55,6 +55,10 @@ public struct ProcessRow: Identifiable, Sendable {
     public let gpuMillisecondsPerSecond: MetricReading
     /// CPU power from the kernel's energy model; an estimate.
     public let cpuPowerWatts: MetricReading
+    /// User plus system CPU time over each member's life, in seconds.
+    public let cpuTimeSeconds: MetricReading
+    /// When the process started; for a group, its first member.
+    public let started: Date?
     /// Member rows for a group, or child processes in the tree; nil for a
     /// leaf so tables show no disclosure.
     public let children: [ProcessRow]?
@@ -268,6 +272,8 @@ enum ProcessGroups {
             networkSentBytesPerSecond: total(network.map(\.sent), overlap: nil),
             gpuMillisecondsPerSecond: total(members.map(\.gpuMillisecondsPerSecond), overlap: nil),
             cpuPowerWatts: total(members.map(\.cpuPowerWatts), overlap: nil),
+            cpuTimeSeconds: total(members.map(\.cpuTimeSeconds), overlap: nil),
+            started: members.map(\.id.startTime).min(),
             children: children
         )
     }
@@ -348,6 +354,8 @@ enum ProcessGroups {
             networkSentBytesPerSecond: network.sent,
             gpuMillisecondsPerSecond: process.gpuMillisecondsPerSecond,
             cpuPowerWatts: process.cpuPowerWatts,
+            cpuTimeSeconds: process.cpuTimeSeconds,
+            started: process.id.startTime,
             children: nil
         )
     }
@@ -408,6 +416,8 @@ enum ProcessGroups {
         case .diskWrite: row.diskWriteBytesPerSecond.numericValue
         case .gpu: row.gpuMillisecondsPerSecond.numericValue
         case .power: row.cpuPowerWatts.numericValue
+        case .cpuTime: row.cpuTimeSeconds.numericValue
+        case .started: row.started?.timeIntervalSince1970
         case .name: nil
         }
     }
@@ -422,7 +432,7 @@ extension ProcessRow {
             diskReadBytesPerSecond: diskReadBytesPerSecond, diskWriteBytesPerSecond: diskWriteBytesPerSecond,
             wakeupsPerSecond: wakeupsPerSecond, networkReceivedBytesPerSecond: networkReceivedBytesPerSecond,
             networkSentBytesPerSecond: networkSentBytesPerSecond, gpuMillisecondsPerSecond: gpuMillisecondsPerSecond,
-            cpuPowerWatts: cpuPowerWatts, children: children
+            cpuPowerWatts: cpuPowerWatts, cpuTimeSeconds: cpuTimeSeconds, started: started, children: children
         )
     }
 }
