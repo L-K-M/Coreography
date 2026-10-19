@@ -68,6 +68,10 @@ final class StoredHistoryTests: XCTestCase {
         XCTAssertEqual(history.tier, .day)
         XCTAssertEqual(history.lines[.cpu]?.map(\.value).max(), 90, "the spike survives the 10 s rollup")
         let values = history.values(.cpu, in: start...end, before: end)
+        XCTAssertFalse(values.isEmpty, "the 24 h range reads Day-tier buckets")
+        // Live data starting mid-bucket: that bucket's readings would be counted twice.
+        let seam = history.values(.cpu, in: start...end, before: start.addingTimeInterval(15))
+        XCTAssertEqual(seam.map(\.count), [10], "only buckets that end before live data starts")
         let mean = values.reduce(0) { $0 + $1.mean * Double($1.count) } / Double(values.reduce(0) { $0 + $1.count })
         XCTAssertEqual(mean, (59 * 10 + 90) / 60.0, accuracy: 1e-9, "count-weighted bucket means stay exact")
         XCTAssertEqual(history.memoryPressure.map(\.level).last, .critical)

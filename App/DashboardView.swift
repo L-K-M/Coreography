@@ -2577,8 +2577,11 @@ private enum RangeText {
         guard let covered = report.covered else {
             return String(localized: "No process samples fall in this range.")
         }
-        let from = covered.lowerBound.formatted(date: .omitted, time: .standard)
-        let to = covered.upperBound.formatted(date: .omitted, time: .standard)
+        // Over a day or more, app totals can cover only part of it; the dates say which part.
+        let date: Date.FormatStyle.DateStyle = report.requested.upperBound.timeIntervalSince(report.requested.lowerBound) >= TimeRange.day.seconds
+            ? .abbreviated : .omitted
+        let from = covered.lowerBound.formatted(date: date, time: .standard)
+        let to = covered.upperBound.formatted(date: date, time: .standard)
         return String(localized: "\(report.activeAppCount) active apps; process samples cover \(from)–\(to). Own-user processes only; \"est.\" marks lower bounds.")
     }
 }
