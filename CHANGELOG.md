@@ -37,6 +37,8 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
   footprint and GPU time, and its rank among apps.
 - `coreo stats --json [--minutes N]` summarizes every recorded metric:
   minimum, median, 95th percentile, maximum and mean.
+- `coreo export (--json | --csv) [--minutes N]` prints every recorded
+  sample; a gap is an empty CSV cell, never zero.
 - The by-user process view names accounts ("You, alice", "_spotlight")
   instead of bare UIDs, and free text finds a group by its name.
 - The CPU lane's detail, from its menu or a double-click on its title,
