@@ -10,7 +10,7 @@ public typealias CapturedEndpoint = ConnectionEndpoint
 /// Which detail pane sits under the lanes (plan: Processes, Connections,
 /// Startup, Sensors and Recordings tabs; the rest follow).
 public enum DetailPane: String, CaseIterable, Identifiable, Sendable {
-    case processes, connections, sensors
+    case processes, connections, startup, sensors
 
     public var id: Self { self }
 }
@@ -31,7 +31,7 @@ enum ConnectionGroups {
     static func apps(
         in snapshot: CapturedConnections, processes: CapturedProcesses?, matching filter: String
     ) -> [AppConnections] {
-        let names = processes.map(appNames) ?? [:]
+        let names = processes.map(ProcessGroups.appNames) ?? [:]
         let words = filter.split(whereSeparator: \.isWhitespace).map(String.init)
         var byApp: [String: [CapturedConnection]] = [:]
         for connection in snapshot.connections {
@@ -51,18 +51,6 @@ enum ConnectionGroups {
             )
         }
         .sorted { ($0.listening.count + $0.connected.count, $1.app) > ($1.listening.count + $1.connected.count, $0.app) }
-    }
-
-    /// Each process's app, as the grouped process table names it.
-    static func appNames(_ processes: CapturedProcesses) -> [ProcessIdentity: String] {
-        var names: [ProcessIdentity: String] = [:]
-        for row in ProcessGroups.rows(in: processes, matching: "", sortedBy: .name, grouping: .app) {
-            if let process = row.process { names[process.id] = row.appName }
-            for child in row.children ?? [] {
-                if let process = child.process { names[process.id] = row.appName }
-            }
-        }
-        return names
     }
 
     private static func matches(_ connection: CapturedConnection, app: String, word: String) -> Bool {

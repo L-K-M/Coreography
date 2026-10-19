@@ -11,6 +11,8 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
   after the store first exceeds it.
 
 ### Added
+- A Startup tab listing launch agents and daemons with their enabled
+  state, signer and current cost; Apple items hidden by default.
 - A Sensors tab with current, minimum, maximum and average for every
   temperature, fan and the system power rail, with a reset.
 - A Connections tab listing each app's TCP and UDP sockets, the

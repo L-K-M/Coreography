@@ -42,15 +42,17 @@ struct DashboardView: View {
                 Picker("Detail", selection: $model.detailPane) {
                     Text("Processes").tag(DetailPane.processes)
                     Text("Connections").tag(DetailPane.connections)
+                    Text("Startup").tag(DetailPane.startup)
                     Text("Sensors").tag(DetailPane.sensors)
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
-                .frame(width: 360)
+                .frame(width: 440)
 
                 switch model.detailPane {
                 case .processes: ProcessPane(model: model, filterFocused: $processFilterFocused)
                 case .connections: ConnectionsPane(model: model)
+                case .startup: StartupPane(model: model)
                 case .sensors: SensorsPane(model: model)
                 }
 
@@ -1464,6 +1466,75 @@ private struct ConnectionsPane: View {
                 .frame(height: 260)
             }
         }
+    }
+}
+
+/// Launch agents and daemons joined to what they cost now (plan: the
+/// Startup tab). Read-only; Apple's items hidden by default.
+private struct StartupPane: View {
+    @Bindable var model: DashboardModel
+
+    var body: some View {
+        DisclosureGroup("Startup") {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    Picker("Show", selection: $model.startupVisibility) {
+                        Text("Third-party").tag(StartupVisibility.thirdParty)
+                        Text("All, including Apple").tag(StartupVisibility.all)
+                    }
+                    .frame(width: 260)
+                    Spacer()
+                    Button("Refresh") { model.refreshStartupItems() }
+                }
+                ForEach(StartupText.coverage(model.startupInventory), id: \.self) { note in
+                    Text(note).font(.caption).foregroundStyle(.secondary)
+                }
+
+                Table(model.startupRows) {
+                    TableColumn("Item") { Text($0.item.label).help($0.item.program ?? $0.item.plistPath) }
+                    TableColumn("Kind") { Text(StartupText.kind($0.item.kind)) }
+                    TableColumn("State") { Text(StartupText.state($0.item)) }
+                    TableColumn("Running") { Text($0.processCount == 0 ? "–" : "\($0.processCount)") }
+                    TableColumn("CPU, machine") { Text(MetricText.percent($0.cpuPercentOfMachine)) }
+                    TableColumn("Footprint") { Text(MetricText.bytes($0.memoryFootprintBytes)) }
+                    TableColumn("App CPU, last hour") { Text($0.appCPUSecondsLastHour.map(RangeText.cpuSeconds) ?? "–") }
+                }
+                .frame(height: 260)
+            }
+        }
+        .monospacedDigit()
+    }
+}
+
+private enum StartupText {
+    static func kind(_ kind: CapturedStartupKind) -> String {
+        switch kind {
+        case .userAgent: return String(localized: "Your agent")
+        case .agent: return String(localized: "Agent, all users")
+        case .daemon: return String(localized: "Daemon")
+        case .systemAgent: return String(localized: "Apple agent")
+        case .systemDaemon: return String(localized: "Apple daemon")
+        }
+    }
+
+    static func state(_ item: CapturedStartupItem) -> String {
+        let trigger = item.keepsAlive ? String(localized: "kept running")
+            : item.runsAtLoad ? String(localized: "at load") : String(localized: "on demand")
+        switch item.state {
+        case .enabled: return String(localized: "Enabled, \(trigger)")
+        case .disabled: return String(localized: "Disabled")
+        case .unconfirmed: return String(localized: "Unconfirmed, \(trigger)")
+        }
+    }
+
+    static func coverage(_ inventory: CapturedStartupInventory?) -> [String] {
+        guard let inventory else { return [String(localized: "Reading startup items…")] }
+        var notes = [CapturedStartupInventory.loginItemsUnavailable]
+        if let problem = inventory.stateProblem { notes.append(String(localized: "Enabled state unconfirmed: \(problem)")) }
+        if inventory.unreadableDefinitions > 0 {
+            notes.append(String(localized: "\(inventory.unreadableDefinitions) definitions could not be read"))
+        }
+        return notes
     }
 }
 
