@@ -3,7 +3,7 @@
 Track actual delivery against the [product plan](plan.md). A stage is
 complete only after its relevant checks and review pass and its PR merges.
 
-## Current slice: per-process network
+## Current slice: Dock icon
 
 The native foundation merged in [PR #5](https://github.com/L-K-M/Coreography/pull/5)
 at `aee9494` after two GLM rounds and passing CI. Process monitoring merged
@@ -43,9 +43,17 @@ IOReport power and frequency (M2, first rung) follow in
 [PR #56](https://github.com/L-K-M/Coreography/pull/56). This slice adds
 bottleneck hints in [PR #57](https://github.com/L-K-M/Coreography/pull/57).
 The Month tier follows in [PR #58](https://github.com/L-K-M/Coreography/pull/58).
-This slice adds per-process network (S3).
+Per-process network (S3) follows in [PR #59](https://github.com/L-K-M/Coreography/pull/59).
+This slice adds the Dock icon.
 
 Implemented:
+
+- Dock icon (plan: optional live CPU or memory graph, as Activity
+  Monitor offers): Settings > Dock picks the app icon (default), a CPU
+  graph or a memory graph, saved. The graph draws the last minute of
+  live samples on a fixed scale (the whole machine, or physical memory)
+  with gaps kept, even while the window is held, and redraws once per
+  sample only while a graph is chosen.
 
 - Per-process network: the private NetworkStatistics framework
   (owner-approved; what nettop uses), loaded at run time, with one
@@ -511,6 +519,7 @@ helper remain outstanding. The store, MCP and model features above await stack d
 | Native network MIB, wide-counter mapping and three-lane UI | Passed at `e62fac1`, including native C fixtures, live CLI and both executable architectures; integrated candidate pending |
 | Native IOKit storage counters and four-lane renderer | Passed [native CI](https://github.com/L-K-M/Coreography/actions/runs/39110306993) at `6434722`: 75 tests, 16 drivers, 32 measured rate fields, no inventory issues; owner checks pending |
 | On-disk history store and recorder | History slice: 148 Swift tests pass on Linux against the real system SQLite (round trip with gaps, duplicates, retention, reopen, permissions, WAL, batching); native CI checks the CLI and file permissions |
+| Dock icon | 254 Swift tests pass on Linux (saved choice, live points while the window is held, fixed scale); the tile view compiles only in native CI and its look is an owner check |
 | Per-process network | 252 Swift tests pass on Linux (totals that survive closed connections, retired processes leaving once reported, unattributed bytes, rates per unique process, reused PIDs, PID and name joins, idle zero, unavailable reasons, group sums and sort); the NetworkStatistics session compiles and runs only in native CI |
 | Month tier | 245 Swift tests pass on Linux against the system SQLite (minute extremes and means, the tier outliving the Day tier and ageing out, per-day totals across midnight, replacement without double counting, names kept with their days then swept); native CI checks `coreo apps --days` |
 | Bottleneck hints | 242 Swift tests pass on Linux (each hint's thresholds and evidence, no CPU-bound hint without a top frequency, no throttling without thermal pressure, no data no hints); the lane and HUD lines compile only in native CI |
