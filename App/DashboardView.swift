@@ -474,6 +474,7 @@ private struct MemoryLane: View {
                 Text("Page-ins \(MetricText.rate(detail?.pageInBytesPerSecond.numericValue)) · compression \(MemoryText.ratio(detail?.compressionRatio.numericValue))")
                     .font(.caption).foregroundStyle(.secondary)
                 ContributorLine(model: model, subsystem: .memory)
+                ScopedReadingLine(model: model, metric: .memory)
             }
             .monospacedDigit()
             .frame(width: Layout.headerWidth, alignment: .leading)
@@ -662,6 +663,7 @@ private struct GPULane: View {
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 Text(GPUText.status(latest, cursor: model.cursorTime)).font(.caption).foregroundStyle(.secondary)
+                ScopedReadingLine(model: model, metric: .gpu)
             }
             .monospacedDigit()
             .frame(width: Layout.headerWidth, alignment: .leading)
@@ -2997,6 +2999,48 @@ private struct ContributorLine: View {
             return contributor.name + " " + value + (contributor.isEstimate ? " " + String(localized: "est.") : "")
         }
         return prefix + ": " + items.joined(separator: " · ")
+    }
+}
+
+/// The scoped app's memory or GPU reading and rank, from the latest
+/// process sample (plan P8): "Safari: 1.2 GB footprint est. · rank 2 of 41 apps".
+private struct ScopedReadingLine: View {
+    let model: DashboardModel
+    let metric: ScopedMetric
+
+    var body: some View {
+        if let app = model.scopedApp {
+            Text(label(app))
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.blue)
+                .lineLimit(2)
+                .help(help)
+        }
+    }
+
+    private func label(_ app: String) -> String {
+        guard let reading = model.scopedAppReading(metric) else {
+            return String(localized: "\(app): not in the latest process sample")
+        }
+        guard let value = reading.value.numericValue else {
+            return "\(app): " + (reading.value.reason ?? String(localized: "not readable"))
+        }
+
+        let amount = switch metric {
+        case .memory: String(localized: "\(MetricText.bytes(value)) footprint")
+        case .gpu: String(localized: "\(ProcessText.gpuTime(value)) ms/s GPU time")
+        }
+        let estimate = reading.value.availability == .estimated ? " " + String(localized: "est.") : ""
+        let rank = reading.rank.map { " · " + String(localized: "rank \($0) of \(reading.rankedApps) apps") } ?? ""
+        return "\(app): " + amount + estimate + rank
+    }
+
+    // Neither quantity adds up the way CPU does, so the line says what it sums.
+    private var help: String {
+        switch metric {
+        case .memory: String(localized: "The app's process footprints summed; pages they share can count more than once.")
+        case .gpu: String(localized: "GPU time of the app's processes, in milliseconds per second; not the GPU's busy share.")
+        }
     }
 }
 
