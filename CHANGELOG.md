@@ -11,6 +11,8 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
   after the store first exceeds it.
 
 ### Added
+- Command-R records a session; its report shows minimum, mean, 95th
+  percentile and maximum per metric and the top apps.
 - `file:` in the process filter finds which process holds a file or
   folder; the inspector lists open files.
 - Wakeups per second for every process and app, and in Coreography's

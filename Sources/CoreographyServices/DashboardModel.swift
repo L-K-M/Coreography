@@ -112,6 +112,11 @@ public final class DashboardModel {
             if wantsOpenFiles { sampleOpenFiles() }
         }
     }
+    /// The session being recorded (plan P19), when one is.
+    public var recordingName: String? { sessionRecording?.name }
+    public var recordingStart: Date? { sessionRecording?.start }
+    /// Saved sessions, newest first.
+    public private(set) var sessions: [RecordedSession] = []
     /// Filters kept as chips under the field.
     public private(set) var savedFilters: [String] = []
     /// The pane under the lanes; connections are read only while shown or filtered on.
@@ -210,6 +215,8 @@ public final class DashboardModel {
     @ObservationIgnored private var liveOpenFiles: CapturedOpenFiles?
     @ObservationIgnored private var liveAssertions: CapturedAssertions?
     @ObservationIgnored private var filterStore = SavedFilters(defaults: .standard)
+    private var sessionRecording: SessionRecording?
+    @ObservationIgnored private let sessionArchive: SessionArchive?
     @ObservationIgnored private var sensorStats = SensorStats()
     @ObservationIgnored private let startupProvider: StartupProvider?
     @ObservationIgnored private let inspector: ProcessInspector?
@@ -264,6 +271,7 @@ public final class DashboardModel {
         inspector = ProcessInspector()
         assertionReader = AssertionReader()
         openFileMonitor = OpenFileMonitor()
+        sessionArchive = SessionArchive.makeDefault()
         interval = .seconds(1)
         processInterval = .seconds(2)
         do {
@@ -305,7 +313,7 @@ public final class DashboardModel {
         historyRecorder: HistoryRecorder? = nil, sleepProvider: SleepHistoryProvider? = nil,
         connectionMonitor: ConnectionMonitor? = nil, startupProvider: StartupProvider? = nil,
         inspector: ProcessInspector? = nil, assertionReader: AssertionReader? = nil,
-        openFileMonitor: OpenFileMonitor? = nil
+        openFileMonitor: OpenFileMonitor? = nil, sessionArchive: SessionArchive? = nil
     ) {
         self.controller = controller
         self.askService = askService
@@ -317,6 +325,7 @@ public final class DashboardModel {
         self.inspector = inspector
         self.assertionReader = assertionReader
         self.openFileMonitor = openFileMonitor
+        self.sessionArchive = sessionArchive
         self.monitor = monitor
         self.interval = interval
         self.processMonitor = processMonitor
@@ -496,13 +505,16 @@ public final class DashboardModel {
     }
 
     /// Hand the newest live readings to the recorder, which batches writes.
+    /// The same readings feed an active session, which keeps them past the live hour.
     private func recordHistory() {
-        guard let historyRecorder else { return }
+        guard historyRecorder != nil || sessionRecording != nil else { return }
         let samples = HistorySamples.latest(
             host: liveFrames.last, network: liveNetworkFrames.last, disks: liveDiskFrames.last,
             gpu: liveGPUFrames.last, power: livePowerFrames.last, sensors: liveSensorFrames.last,
             sources: &recordedSources
         )
+        sessionRecording?.record(samples)
+        guard let historyRecorder else { return }
         let now = Date()
         Task { [weak self] in
             await historyRecorder.record(samples, at: now)
@@ -963,6 +975,7 @@ public final class DashboardModel {
                         self.liveContributorHistory = Array(self.liveContributorHistory.suffix(Self.contributorCapacity))
                         let interval = self.liveLedger.record(processes, logicalCPUCount: history.last?.inventory.logicalCPUCount)
                         if let interval, let recorder = self.historyRecorder { Task { await recorder.recordLedger(interval) } }
+                        if let interval { self.sessionRecording?.record(interval) }
                         self.liveLifecycle.record(processes)
                         if self.wantsConnections { self.sampleConnections() }
                         if self.wantsOpenFiles { self.sampleOpenFiles() }
@@ -1070,6 +1083,45 @@ public final class DashboardModel {
         return ProcessInspections.make(
             process, in: processSnapshot, startup: startupInventory, detail: processDetail, sockets: inspectedSockets
         )
+    }
+
+    /// Start a named session; a blank name becomes the start time.
+    public func startRecording(name: String = "") {
+        guard sessionRecording == nil else { return }
+        let start = Date()
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let label = trimmed.isEmpty ? "Session \(start.formatted(date: .abbreviated, time: .shortened))" : trimmed
+        sessionRecording = SessionRecording(name: label, start: start)
+    }
+
+    /// Stop, report and save the session; returns why saving failed, if it did.
+    @discardableResult
+    public func stopRecording() async -> String? {
+        guard let recording = sessionRecording else { return nil }
+        sessionRecording = nil
+        let session = recording.finish(at: Date())
+        guard let sessionArchive else {
+            sessions.insert(session, at: 0)
+            return "Sessions cannot be saved on this Mac; this one lasts until Coreography quits."
+        }
+        do {
+            try await sessionArchive.save(session)
+        } catch {
+            sessions.insert(session, at: 0)
+            return "The session could not be saved: \(error)"
+        }
+        await refreshSessions()
+        return nil
+    }
+
+    public func refreshSessions() async {
+        guard let sessionArchive else { return }
+        sessions = await sessionArchive.all()
+    }
+
+    public func deleteSession(_ id: UUID) async {
+        try? await sessionArchive?.delete(id)
+        sessions.removeAll { $0.id == id }
     }
 
     public func saveProcessFilter() { savedFilters = filterStore.save(processFilter) }
