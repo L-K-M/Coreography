@@ -140,7 +140,8 @@ final class PanZoomTests: XCTestCase {
         defer { model.stop() }
         let deadline = ContinuousClock.now.advanced(by: .seconds(5))
         while model.frames.count < 120, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(5)) }
-        try XCTSkipIf(model.frames.count < 120, "sampling stalled; the pan needs two minutes of history")
+        XCTAssertFalse(model.frames.isEmpty, "the sampler produced nothing")
+        try XCTSkipIf(model.frames.count < 120, "sampling was slow; the pan needs two minutes of history")
         XCTAssertEqual(model.displayMode, .live)
         let end = try XCTUnwrap(model.displayedEndTime)
         let first = try XCTUnwrap(model.frames.first?.stamp.wallTime)
@@ -160,6 +161,18 @@ final class PanZoomTests: XCTestCase {
         model.returnToNow()
         XCTAssertEqual(model.displayMode, .live)
         XCTAssertEqual(model.visibleWindow?.upperBound, model.displayedEndTime)
+    }
+
+    /// With no more history than the range shows, scrolling has nowhere to go and must not leave live.
+    func testPanningWithoutRoomStaysLive() async throws {
+        let model = DashboardModel(monitor: try SystemMonitor(driver: Steps()), interval: .milliseconds(5))
+        model.start()
+        defer { model.stop() }
+        let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+        while model.frames.count < 10, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(5)) }
+        model.pan(bySeconds: 30)
+        XCTAssertEqual(model.displayMode, .live)
+        XCTAssertEqual(model.panOffset, 0)
     }
 
     func testZoomStepsThroughTheRangesAndStopsAtTheEnds() async throws {

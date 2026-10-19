@@ -516,8 +516,10 @@ public final class DashboardModel {
     /// between the oldest data held and the newest.
     public func pan(bySeconds seconds: TimeInterval) {
         guard seconds.isFinite, let newest = displayedEndTime else { return }
-        if seconds > 0, displayMode == .live { toggleDisplayHold() }
-        panOffset = clampedPan(panOffset + seconds, newest: newest)
+        let offset = clampedPan(panOffset + seconds, newest: newest)
+        // Leaving live is a consequence of moving; with no history to move into, stay.
+        if offset > 0, displayMode == .live { toggleDisplayHold() }
+        panOffset = offset
     }
 
     /// Plan: pinching zooms through the range pills, keeping the window's end.
