@@ -136,12 +136,15 @@ final class SessionsTests: XCTestCase {
         model.toggleComparison(session.id)
         XCTAssertNil(model.sessionComparison, "a comparison needs two sessions")
 
-        // A delete the disk refuses keeps the row and says why.
+        // A delete the disk refuses keeps the row, its comparison pick, and says why.
+        try XCTSkipIf(getuid() == 0, "root writes through the permission this relies on")
+        let pickedBefore = model.comparedSessions
         try FileManager.default.setAttributes([.posixPermissions: 0o500], ofItemAtPath: directory.path)
         defer { try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path) }
         await model.deleteSession(session.id)
         XCTAssertEqual(model.sessions.map(\.id), [session.id])
         XCTAssertTrue(model.actionMessage?.hasPrefix("The session could not be deleted") == true, "\(model.actionMessage ?? "nil")")
+        XCTAssertEqual(model.comparedSessions, pickedBefore, "a session still on disk stays picked")
     }
 }
 

@@ -17,6 +17,8 @@ private struct Coreo {
            coreo traffic --once --json
            coreo volumes --json
            coreo diagnose --json [--seconds N]
+           coreo top [--json] [--count N] [--sort KEY]
+           coreo holders --json (--port N | --file TEXT)
            coreo mcp --stdio [--standalone]
            coreo history --json METRIC [--minutes N]
            coreo sleep --json [--hours N]
@@ -37,6 +39,13 @@ private struct Coreo {
     volumes reports each visible volume's size and space available for important use.
     diagnose samples for N seconds (3-60, default 5) and reports a summary with
     fact-only signals, top apps by CPU and disk, and data-source availability.
+    top ranks apps and lone processes, grouped as the app groups them, after a
+    two-second baseline: by cpu, or --sort memory, diskRead, diskWrite, network,
+    gpu, power or name; --count N shows up to N (1-50, default 10). Without
+    --json it redraws every two seconds until interrupted.
+    holders lists your processes with a TCP or UDP socket on a port, or with an
+    open file whose path contains TEXT (~ is your home folder), and what the
+    answer could not cover; other users' processes need the helper.
     history prints what the app recorded for METRIC (cpu, memoryUsed, memoryPressure,
     thermalPressure, gpuBusy, systemPower, ...) over the last N minutes (default 60).
     apps totals CPU-seconds and disk bytes per app from what the app recorded
@@ -176,6 +185,47 @@ private struct Coreo {
                 }
                 let service = try DiagnosticService()
                 try emit(await service.sleepHistory(hours: hours))
+            case let arguments where arguments.first == "top":
+                guard DiagnosticService.nativeSamplingSupport == .supported else {
+                    throw CommandError.unsupportedPlatform
+                }
+                let options = try options(Array(arguments.dropFirst()), values: ["--count", "--sort"], flags: ["--json"])
+                let count = try options["--count"].map { value -> Int in
+                    guard let count = Int(value) else { throw CommandError.invalidArguments }
+                    return count
+                } ?? defaultTopCount
+                let sort = try options["--sort"].map { value -> ProcessSort in
+                    guard let sort = ProcessSort(rawValue: value) else { throw CommandError.invalidArguments }
+                    return sort
+                } ?? .cpu
+                let service = try DiagnosticService()
+                if options["--json"] != nil {
+                    try emit(await service.top(count: count, sortedBy: sort))
+                    return
+                }
+                // A terminal redraws in place; a pipe gets one block per sample.
+                let clear = isatty(STDOUT_FILENO) != 0 ? "\u{1B}[H\u{1B}[2J" : ""
+                while true {
+                    let report = try await service.top(count: count, sortedBy: sort)
+                    FileHandle.standardOutput.write(Data((clear + TopText.table(report) + "\n").utf8))
+                    try await Task.sleep(for: .seconds(2))
+                }
+            case let arguments where arguments.first == "holders":
+                guard DiagnosticService.nativeSamplingSupport == .supported else {
+                    throw CommandError.unsupportedPlatform
+                }
+                let options = try options(Array(arguments.dropFirst()), values: ["--port", "--file"], flags: ["--json"])
+                guard options["--json"] != nil else { throw CommandError.invalidArguments }
+                let service = try DiagnosticService()
+                switch (options["--port"], options["--file"]) {
+                case (let port?, nil):
+                    guard let number = UInt16(port), number > 0 else { throw CommandError.invalidArguments }
+                    try emit(await service.holders(ofPort: number))
+                case (nil, let file?):
+                    try emit(await service.holders(ofFile: file))
+                default:
+                    throw CommandError.invalidArguments
+                }
             case let arguments where arguments.first == "diagnose":
                 guard DiagnosticService.nativeSamplingSupport == .supported else {
                     throw CommandError.unsupportedPlatform
@@ -229,6 +279,30 @@ private struct Coreo {
         model.stop()
     }
 
+    private static let defaultTopCount = 10
+
+    /// Each option at most once, in any order: `values` take the next
+    /// argument, `flags` stand alone.
+    /// Example: ["--json", "--count", "5"] -> ["--json": "", "--count": "5"].
+    private static func options(_ arguments: [String], values: Set<String>, flags: Set<String>) throws -> [String: String] {
+        var result: [String: String] = [:]
+        var index = 0
+        while index < arguments.count {
+            let key = arguments[index]
+            guard result[key] == nil else { throw CommandError.invalidArguments }
+            if flags.contains(key) {
+                result[key] = ""
+                index += 1
+            } else if values.contains(key), index + 1 < arguments.count {
+                result[key] = arguments[index + 1]
+                index += 2
+            } else {
+                throw CommandError.invalidArguments
+            }
+        }
+        return result
+    }
+
     /// Accepts "--json" with an optional "--seconds N" in either order.
     private static func diagnosisSeconds(_ arguments: [String]) throws -> Int {
         let defaultSeconds = 5
@@ -261,5 +335,58 @@ private enum CommandError: Error, CustomStringConvertible {
         case .unsupportedPlatform: return "native host sampling requires macOS"
         case .invalidArguments: return "invalid arguments; use --help"
         }
+    }
+}
+
+/// `coreo top` as text: one line per app or lone process, then what it left out.
+private enum TopText {
+    private static let nameWidth = 32
+    private static let cellWidth = 10
+    private static let decimalUnits = ["B", "KB", "MB", "GB", "TB"]
+
+    static func table(_ report: TopReport) -> String {
+        let header = left("NAME", nameWidth) + ["CPU", "MEMORY", "READ", "WRITE", "NETWORK", "GPU ms/s"].map { right($0, cellWidth) }.joined()
+        let rows = report.rows.map { row in
+            let name = row.processes > 1 ? "\(row.name) (\(row.processes))" : row.name
+            let network = row.networkReceivedBytesPerSecond.numericValue.flatMap { received in
+                row.networkSentBytesPerSecond.numericValue.map { received + $0 }
+            }
+            let cells = [
+                row.cpuPercentOfMachine.numericValue.map { String(format: "%.1f%%", $0) } ?? "–",
+                bytes(row.memoryFootprintBytes.numericValue),
+                rate(row.diskReadBytesPerSecond.numericValue), rate(row.diskWriteBytesPerSecond.numericValue),
+                rate(network), row.gpuMillisecondsPerSecond.numericValue.map { String(format: "%.0f", $0) } ?? "–"
+            ]
+            return left(name, nameWidth) + cells.map { right($0, cellWidth) }.joined()
+        }
+        let footer = "\(report.rows.count) of \(report.total) apps and processes by \(report.sort.rawValue)"
+            + (report.restrictedProcesses > 0 ? "; \(report.restrictedProcesses) need the helper, so totals are lower bounds" : "")
+        return ([header] + rows + [footer]).joined(separator: "\n")
+    }
+
+    /// Decimal units, as Finder counts. Example: 1_234_000 -> "1.2 MB".
+    private static func bytes(_ value: Double?) -> String {
+        guard let value, value.isFinite, value >= 0 else { return "–" }
+        var scaled = value
+        var unit = 0
+        while scaled >= 1000, unit < decimalUnits.count - 1 {
+            scaled /= 1000
+            unit += 1
+        }
+        return unit == 0 ? "\(Int(scaled)) B" : String(format: "%.1f", scaled) + " " + decimalUnits[unit]
+    }
+
+    private static func rate(_ value: Double?) -> String {
+        value == nil ? "–" : bytes(value) + "/s"
+    }
+
+    /// Cut to `width` with an ellipsis, then padded.
+    private static func left(_ text: String, _ width: Int) -> String {
+        let fitted = text.count > width - 1 ? String(text.prefix(width - 2)) + "…" : text
+        return fitted + String(repeating: " ", count: max(0, width - fitted.count))
+    }
+
+    private static func right(_ text: String, _ width: Int) -> String {
+        String(repeating: " ", count: max(0, width - text.count)) + text
     }
 }

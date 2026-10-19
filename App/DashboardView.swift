@@ -3,6 +3,7 @@ import AppKit
 import Charts
 import Accessibility
 import UniformTypeIdentifiers
+import ServiceManagement
 import CoreographyServices
 
 @MainActor
@@ -246,7 +247,7 @@ struct DashboardView: View {
                 Button("Marker", systemImage: "flag") { model.markerPromptShown = true }
                     // A plain letter must not fire while any text field takes typing.
                     .keyboardShortcut(
-                        processFilterFocused || model.paletteShown || model.markerPromptShown
+                        processFilterFocused || model.paletteShown || model.markerPromptShown || !model.typingFields.isEmpty
                             ? nil : KeyboardShortcut("m", modifiers: [])
                     )
                     .help("Drop a named marker on every lane (M)")
@@ -279,12 +280,12 @@ struct DashboardView: View {
 
     @ViewBuilder private func laneView(_ kind: LaneKind) -> some View {
         switch kind {
-        case .cpu: lane(.cpu)
+        case .cpu: lane(.cpu).alertTint(model.activeAlerts[.cpu])
         case .memory: MemoryLane(model: model)
-        case .gpu: GPULane(model: model)
+        case .gpu: GPULane(model: model).alertTint(model.activeAlerts[.gpu])
         case .power: PowerLane(model: model)
         case .disk: DiskLane(model: model)
-        case .network: NetworkLane(model: model)
+        case .network: NetworkLane(model: model).alertTint(model.activeAlerts[.network])
         case .thermal: ThermalLane(model: model)
         }
     }
@@ -302,7 +303,10 @@ struct DashboardView: View {
         let points = visiblePoints(model.points(for: metric), start, end)
         let scoped = metric == .cpu ? model.scopedSeries().map { visiblePoints($0.cpu, start, end) } : nil
         let split = metric == .cpu ? model.cpuSplitPoints().filter { (start...end).contains($0.time) } : []
-        let tiers = metric == .cpu ? model.tierBandCells().filter { $0.end >= start && $0.start <= end } : []
+        let allTiers = metric == .cpu ? model.tierBandCells() : []
+        let tiers = allTiers.filter { $0.end >= start && $0.start <= end }
+        // Rows come from every recorded tier, so scrubbing never adds or drops one.
+        let tierRows = Array(Set(allTiers.map(\.tier))).sorted()
 
         return HStack(alignment: .top, spacing: 24) {
             VStack(alignment: .leading, spacing: 10) {
@@ -415,7 +419,7 @@ struct DashboardView: View {
                     ))
                     // Sheds first when the lane is compact (plan: lane sizes).
                     if laneSize != .compact, !tiers.isEmpty {
-                        TierStrip(cells: tiers, range: start...end)
+                        TierStrip(cells: tiers, tiers: tierRows, range: start...end)
                     }
                 }
             }
@@ -1541,7 +1545,7 @@ private struct ProcessPane: View {
                     TableColumn("UID") { Text($0.process?.uid.formatted(.number.grouping(.never)) ?? "") }
                         .width(65)
                         .customizationID("uid")
-                    TableColumn(ProcessText.cpuColumn(model.processCPUScale)) { (row: ProcessRow) in
+                    TableColumn(ProcessText.cpuColumn(model.processCPUScaleInEffect)) { (row: ProcessRow) in
                         ProcessMetricCell(reading: row.cpuPercentOfMachine, format: .percent,
                                           heat: heat.cpu(row), hue: .blue, scale: model.processCPUFactor)
                     }
@@ -1621,7 +1625,7 @@ private struct ProcessPane: View {
                         .help("Exit status is not available without the helper")
                 }
 
-                Text("\(ProcessText.cpuScaleNote(model.processCPUScale)) App totals sum their members; footprint sums can count shared memory twice. Process sampling: 2 s; short-lived processes can be missed. Right-click a column header for wakeups, CPU time and start time.")
+                Text("\(ProcessText.cpuScaleNote(model.processCPUScaleInEffect)) App totals sum their members; footprint sums can count shared memory twice. Process sampling: 2 s; short-lived processes can be missed. Right-click a column header for wakeups, CPU time and start time.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -1706,6 +1710,7 @@ private struct SampleReportView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 Button("Save…") {
+                    exportError = nil
                     exportName = "Sample of \(report.name)"
                     exportFile = ExportFile(data: Data(report.text.utf8))
                 }
@@ -1803,6 +1808,8 @@ private struct InspectorView: View {
                 } else if model.selectedProcessRow != nil {
                     Text("Select a single process to inspect it; it may also have exited.")
                         .foregroundStyle(.secondary)
+                } else if let lane = model.inspectedLane {
+                    laneFacts(lane)
                 } else {
                     summary(model.systemFacts())
                 }
@@ -1811,6 +1818,30 @@ private struct InspectorView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .modifier(ProcessActionConfirmation(model: model, pendingAction: $pendingAction))
+    }
+
+    /// A lane's static facts and the source behind each of its readings (plan: lane or device).
+    @ViewBuilder
+    private func laneFacts(_ lane: LaneKind) -> some View {
+        let facts = model.laneFacts(lane)
+        HStack {
+            Text(LaneText.title(lane)).font(.title3.weight(.semibold))
+            Spacer()
+            Button("System Summary") { model.inspectedLane = nil }
+        }
+        InspectorSection("Facts") {
+            let known = facts.filter { $0.kind == .fact }
+            if known.isEmpty { Text("Nothing read yet").foregroundStyle(.secondary) }
+            ForEach(known) { LabeledContent($0.label, value: $0.value) }
+        }
+        InspectorSection("Sources") {
+            ForEach(facts.filter { $0.kind == .source }) { source in
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(source.label)
+                    Text(source.value).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+                }
+            }
+        }
     }
 
     @ViewBuilder
@@ -1840,7 +1871,7 @@ private struct InspectorView: View {
         }
 
         InspectorSection("Now") {
-            Text(ProcessText.cpu(process.cpuPercentOfMachine.numericValue, model.processCPUScale, factor: model.processCPUFactor))
+            Text(ProcessText.cpu(process.cpuPercentOfMachine.numericValue, model.processCPUScaleInEffect, factor: model.processCPUFactor))
             Text("Footprint \(MetricText.bytes(process.memoryFootprintBytes.numericValue))")
             Text("Disk \(MetricText.bytes(process.diskReadBytesPerSecond.numericValue))/s read, \(MetricText.bytes(process.diskWriteBytesPerSecond.numericValue))/s written")
             Text(WakeupText.rate(process.wakeupsPerSecond.numericValue))
@@ -2099,6 +2130,7 @@ private struct ConnectionsPane: View {
         DisclosureGroup("Connections") {
             VStack(alignment: .leading, spacing: 10) {
                 TextField("Filter: app, process, address or port", text: $model.connectionFilter)
+                    .modifier(ReportsTyping(model: model, field: "connections"))
                     .textFieldStyle(.roundedBorder)
                 Text(ConnectionText.coverage(model.connectionSnapshot))
                     .font(.caption)
@@ -2133,6 +2165,9 @@ private struct StartupPane: View {
                     }
                     .frame(width: 260)
                     Spacer()
+                    // Coreography only reads startup items; System Settings changes them.
+                    Button("Open Login Items & Extensions…") { SMAppService.openSystemSettingsLoginItems() }
+                        .help("Turn login and background items on or off in System Settings")
                     Button("Refresh") { model.refreshStartupItems() }
                 }
                 ForEach(StartupText.coverage(model.startupInventory), id: \.self) { note in
@@ -2140,11 +2175,26 @@ private struct StartupPane: View {
                 }
 
                 Table(model.startupRows) {
-                    TableColumn("Item") { Text($0.item.label).help($0.item.program ?? $0.item.plistPath) }
+                    TableColumn("Item") { row in
+                        Text(row.item.label)
+                            .help(row.item.program ?? row.item.plistPath)
+                            // The whole cell answers a right-click, not just the label's glyphs.
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .contentShape(Rectangle())
+                            .contextMenu {
+                                Button("Reveal Property List in Finder") {
+                                    NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: row.item.plistPath)])
+                                }
+                                Button("Copy Label") {
+                                    NSPasteboard.general.clearContents()
+                                    NSPasteboard.general.setString(row.item.label, forType: .string)
+                                }
+                            }
+                    }
                     TableColumn("Kind") { Text(StartupText.kind($0.item.kind)) }
                     TableColumn("State") { Text(StartupText.state($0.item)) }
                     TableColumn("Running") { Text($0.processCount == 0 ? "–" : "\($0.processCount)") }
-                    TableColumn(ProcessText.cpuColumn(model.processCPUScale)) { (row: StartupRow) in
+                    TableColumn(ProcessText.cpuColumn(model.processCPUScaleInEffect)) { (row: StartupRow) in
                         Text(MetricText.percent(row.cpuPercentOfMachine.map { $0 * model.processCPUFactor }))
                     }
                     TableColumn("Footprint") { Text(MetricText.bytes($0.memoryFootprintBytes)) }
@@ -2279,6 +2329,7 @@ private struct SessionNameField: View {
 
     var body: some View {
         TextField("Name", text: $name)
+            .modifier(ReportsTyping(model: model, field: "session-\(session.id)"))
             .textFieldStyle(.roundedBorder)
             .frame(width: 200)
             .onAppear { name = session.name }
@@ -3159,10 +3210,10 @@ private extension EnvironmentValues {
 private struct TierStrip: View {
     private static let rowHeight: CGFloat = 10
     let cells: [TierBandCell]
+    let tiers: [String]
     let range: ClosedRange<Date>
 
     var body: some View {
-        let tiers = Array(Set(cells.map(\.tier))).sorted()
         Chart(cells) { cell in
             RectangleMark(
                 xStart: .value("Start", max(cell.start, range.lowerBound)), xEnd: .value("End", min(cell.end, range.upperBound)),
@@ -3250,12 +3301,15 @@ private struct LaneMenu: View {
                 ForEach(LaneSize.allCases) { Text(LaneText.size($0)).tag($0) }
             }
             Divider()
+            Button("Show Facts and Sources") { model.showLaneFacts(lane) }
+            Divider()
             Button("Hide Lane") { model.laneLayout.set(lane, .hidden) }
                 .disabled(model.laneLayout.visible == [lane])
         } label: {
             Image(systemName: "ellipsis.circle")
         }
-        .menuStyle(.borderlessButton)
+        .menuStyle(.button)
+        .buttonStyle(.borderless)
         .menuIndicator(.hidden)
         .fixedSize()
         .padding(6)
@@ -3283,5 +3337,20 @@ enum LaneText {
         case .regular: String(localized: "Regular")
         case .tall: String(localized: "Tall")
         }
+    }
+}
+
+/// A text field that tells the model while it takes typing, so plain-letter
+/// shortcuts such as M stand aside.
+struct ReportsTyping: ViewModifier {
+    let model: DashboardModel
+    let field: String
+    @FocusState private var focused: Bool
+
+    func body(content: Content) -> some View {
+        content
+            .focused($focused)
+            .onChange(of: focused) { _, typing in model.setTyping(field, typing) }
+            .onDisappear { model.setTyping(field, false) }
     }
 }

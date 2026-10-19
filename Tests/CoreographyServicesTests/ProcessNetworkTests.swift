@@ -107,6 +107,11 @@ final class ProcessNetworkTests: XCTestCase {
         XCTAssertEqual(combined["Safari"]?.networkIsLowerBound, true)
         XCTAssertEqual(combined["Mail"]?.networkBytes, 0, "read as zero where network was read")
         XCTAssertEqual(combined["Mail"]?.networkIsLowerBound, true)
+        // A stored part with intervals but no app activity says nothing about its network either.
+        let quiet = (apps: [AppRangeTotal](), covered: Optional(range))
+        XCTAssertEqual(AppLedger.combine(quiet, live).apps.first?.networkIsLowerBound, true)
+        XCTAssertEqual(AppLedger.combine((apps: [AppRangeTotal](), covered: nil), live).apps.first?.networkIsLowerBound, false,
+                       "a part with no intervals at all changes nothing")
         let whole = AppLedger.combine(live, live).apps.first
         XCTAssertEqual(whole?.networkBytes, 6_000)
         XCTAssertEqual(whole?.networkIsLowerBound, false)

@@ -34,6 +34,16 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
 - The process table's columns can be shown, hidden and reordered from the
   header, with new opt-in CPU time and start time columns and sorts;
   wakeups move to the opt-in set, as the plan's default columns have it.
+- Each lane's menu shows its facts and sources in the inspector: chip,
+  core tiers, memory, GPUs, storage devices and volumes, interfaces,
+  adapter and battery, sensors and fans, and where each reading comes from.
+- `coreo top` ranks the busiest apps, live or once as JSON, and
+  `coreo holders` says which of your processes hold a port or a file.
+- Your own alert rules in Settings: a reading above or below a threshold
+  for a while raises it, a second threshold clears it, and it can notify
+  and run a Shortcut like the shipped rules.
+- The Startup tab opens Login Items & Extensions in System Settings, and each item
+  reveals its property list in Finder or copies its label.
 - The process pane groups as a parent-child tree or by user, besides by
   app and flat; filters and app scope keep the parents of each match.
 - The CPU lane shows each core tier's activity as a strip under the

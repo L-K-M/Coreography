@@ -41,6 +41,15 @@ final class ProcessGroupsTests: XCTestCase {
         XCTAssertEqual(game.gpuMillisecondsPerSecond.availability, .measured)
         XCTAssertEqual(game.cpuPowerWatts.numericValue, 1.5)
         XCTAssertEqual(game.cpuPowerWatts.availability, .estimated, "one member has no energy counter: a lower bound")
+        XCTAssertTrue(game.cpuPowerWatts.method?.contains("Lower bound") ?? false, "the method says what is missing")
+
+        // An app none of whose members has an energy counter is unknown, not 0 W, and sorts last.
+        let tool = try process(pid: 13, name: "Tool", cpu: 1, path: "/Applications/Tool.app/Contents/MacOS/Tool", power: nil)
+        let toolHelper = try process(pid: 14, name: "Tool Helper", cpu: 1, path: "/Applications/Tool.app/Contents/MacOS/Tool Helper", power: nil)
+        let apps = try ProcessGroups.rows(in: snapshot([main, helper, editor, tool, toolHelper]), matching: "", sortedBy: .power, grouping: .app)
+        XCTAssertEqual(apps.last?.name, "Tool")
+        XCTAssertNil(apps.last?.cpuPowerWatts.numericValue)
+        XCTAssertEqual(apps.last?.cpuPowerWatts.availability, .unsupported)
 
         let byPower = try ProcessGroups.rows(in: snapshot([main, helper, editor]), matching: "", sortedBy: .power, grouping: .flat)
         XCTAssertEqual(byPower.map(\.name), ["Editor", "Game", "Game Helper"], "unknown power sorts last")
