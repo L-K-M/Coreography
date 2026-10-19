@@ -33,6 +33,7 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
   after the store first exceeds it.
 
 ### Added
+- The lanes mark apps starting and exiting, such as "Mail started".
 - An opt-in Threads column and sort in the process table, and the
   header's thread total. `coreo top --sort threads` ranks by them.
 - With an app shown in the lanes, the network lane names its traffic, in

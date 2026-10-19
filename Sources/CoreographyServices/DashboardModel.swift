@@ -211,7 +211,7 @@ public final class DashboardModel {
     /// The range while a drag is in progress; reports wait for the drag to end.
     public var draftSelection: ClosedRange<Date>?
     public private(set) var markers: [TimelineMarker] = []
-    /// Sleep, wake, power source and pressure changes found in the displayed data.
+    /// Sleep, wake, power source, pressure changes and app starts and exits found in the displayed data.
     public private(set) var systemMarkers: [TimelineMarker] = []
     /// Everything the lanes mark: the person's actions, alerts and system events.
     public var timelineMarkers: [TimelineMarker] { ownMarkers + systemMarkers }
@@ -1948,11 +1948,13 @@ public final class DashboardModel {
     }
 
     /// Rebuilt from displayed frames: a held display keeps its markers, and
-    /// the 6 h range shows sleep and wake back to its stored start.
+    /// the 6 h range shows sleep and wake back to its stored start. App
+    /// starts and exits are live only: a recording keeps no process list.
     private func refreshSystemMarkers() {
         let sleepEvents: [PowerEvent] = if case .imported(let history) = sleepState { history.events } else { [] }
         systemMarkers = AutomaticMarkers.derive(
-            host: frames, power: powerFrames, sleepEvents: sleepEvents, since: storedHistory?.start
+            host: frames, power: powerFrames, sleepEvents: sleepEvents,
+            appEvents: openRecording == nil ? lifecycle.appEvents : [], since: storedHistory?.start
         )
     }
 
