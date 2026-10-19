@@ -11,6 +11,7 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
   after the store first exceeds it.
 
 ### Added
+- Process filters can be saved as chips.
 - The Power lane names what keeps the Mac awake; the inspector lists a
   process's sleep assertions; `#preventing-sleep` filters to them.
 - Settings: history retention presets with their disk cost and the
