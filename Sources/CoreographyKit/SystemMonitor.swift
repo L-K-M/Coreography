@@ -69,15 +69,17 @@ public actor SystemMonitor {
         if interrupted { resetCounters() }
 
         let cpu: MetricReading
+        let kernelCPU: MetricReading
         switch raw.cpu {
         case .success(let ticks):
-            let reading = try cpuReading(ticks, at: stamp)
-            cpu = interrupted
-                ? .gap(reason: "Sampling interrupted", source: Self.cpuSource)
-                : reading
+            let readings = try cpuReadings(ticks, at: stamp)
+            let gap = MetricReading.gap(reason: "Sampling interrupted", source: Self.cpuSource)
+            cpu = interrupted ? gap : readings.busy
+            kernelCPU = interrupted ? gap : readings.system
         case .failure(let error):
             resetCPUCounters()
             cpu = try missingReading(error, source: Self.cpuSource)
+            kernelCPU = cpu
         }
 
         let physicalBytes = raw.inventory.physicalMemoryBytes
@@ -102,7 +104,7 @@ public actor SystemMonitor {
 
         let snapshot = SystemSnapshot(
             stamp: stamp, inventory: raw.inventory,
-            cpuPercentOfMachine: cpu, memoryUsedBytes: memory, memory: detail,
+            cpuPercentOfMachine: cpu, cpuSystemPercentOfMachine: kernelCPU, memoryUsedBytes: memory, memory: detail,
             thermalPressure: thermal, continuity: interrupted ? .interrupted : .continuous
         )
         buffer.append(snapshot)
@@ -117,22 +119,29 @@ public actor SystemMonitor {
         buffer.removeAll()
     }
 
-    private func cpuReading(_ ticks: ProcessorTicks, at stamp: SampleStamp) throws -> MetricReading {
+    /// Busy (user, nice and system) and system-only shares from one set of tick deltas.
+    private func cpuReadings(
+        _ ticks: ProcessorTicks, at stamp: SampleStamp
+    ) throws -> (busy: MetricReading, system: MetricReading) {
         let rates = [
             user.record(ticks.user, at: stamp),
             system.record(ticks.system, at: stamp),
             idle.record(ticks.idle, at: stamp),
             nice.record(ticks.nice, at: stamp)
         ]
-        if let missing = rates.first(where: { $0.numericValue == nil }) { return missing }
+        if let missing = rates.first(where: { $0.numericValue == nil }) { return (missing, missing) }
 
         let values = rates.compactMap(\.numericValue)
         let total = values.reduce(0, +)
         guard total > 0, total.isFinite else {
-            return .gap(reason: "No elapsed CPU ticks", source: Self.cpuSource)
+            let gap = MetricReading.gap(reason: "No elapsed CPU ticks", source: Self.cpuSource)
+            return (gap, gap)
         }
         let busy = values[0] + values[1] + values[3]
-        return try .measured(busy / total * Self.percentScale, source: Self.cpuSource)
+        return (
+            try .measured(busy / total * Self.percentScale, source: Self.cpuSource),
+            try .measured(values[1] / total * Self.percentScale, source: Self.cpuSource)
+        )
     }
 
     private func memoryDetail(

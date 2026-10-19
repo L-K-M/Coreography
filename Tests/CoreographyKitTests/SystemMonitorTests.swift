@@ -22,6 +22,32 @@ final class SystemMonitorTests: XCTestCase {
         XCTAssertEqual(history.map(\.id), [busy.id, idle.id])
     }
 
+    func testKernelShareComesFromTheSameTicks() async throws {
+        let driver = FixtureHostDriver(samples: [
+            fixture(seconds: 0, user: 100, idle: 100, system: 50, nice: 10),
+            fixture(seconds: 1, user: 130, idle: 150, system: 60, nice: 20)
+        ])
+        let monitor = try SystemMonitor(driver: driver)
+        let first = try await monitor.sample()
+        XCTAssertEqual(first.cpuSystemPercentOfMachine?.availability, .collecting)
+        let second = try await monitor.sample()
+        XCTAssertEqual(second.cpuPercentOfMachine.numericValue, 50, "30 user + 10 nice + 10 system of 100 ticks")
+        XCTAssertEqual(second.cpuSystemPercentOfMachine?.numericValue, 10)
+    }
+
+    func testRecordingsWithoutTheKernelShareStillDecode() async throws {
+        let monitor = try SystemMonitor(driver: FixtureHostDriver(samples: [
+            fixture(seconds: 0, user: 100, idle: 100), fixture(seconds: 1, user: 105, idle: 195)
+        ]))
+        _ = try await monitor.sample()
+        let snapshot = try await monitor.sample()
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(snapshot)) as? [String: Any])
+        XCTAssertNotNil(object.removeValue(forKey: "cpuSystemPercentOfMachine"))
+        let decoded = try JSONDecoder().decode(SystemSnapshot.self, from: JSONSerialization.data(withJSONObject: object))
+        XCTAssertNil(decoded.cpuSystemPercentOfMachine)
+        XCTAssertEqual(decoded.cpuPercentOfMachine.numericValue, 5)
+    }
+
     func testSleepGapDoesNotBecomeAnIdleReading() async throws {
         let before = fixture(seconds: 0, user: 100, idle: 100)
         let after = fixture(seconds: 1, user: 100, idle: 200, wallSeconds: 3600)
@@ -160,14 +186,14 @@ final class SystemMonitorTests: XCTestCase {
     )
 
     private func fixture(
-        seconds: UInt64, user: UInt64, idle: UInt64, pageIns: UInt64 = 0,
+        seconds: UInt64, user: UInt64, idle: UInt64, system: UInt64 = 0, nice: UInt64 = 0, pageIns: UInt64 = 0,
         swapIns: UInt64 = 0, swapOuts: UInt64 = 0, wallSeconds: UInt64? = nil
     ) -> RawHostSnapshot {
         RawHostSnapshot(
             clockID: Self.clock, monotonicNanoseconds: seconds * 1_000_000_000,
             wallTime: Self.epoch.addingTimeInterval(Double(wallSeconds ?? seconds)),
             inventory: Self.inventory,
-            cpu: .success(ProcessorTicks(user: user, system: 0, idle: idle, nice: 0)),
+            cpu: .success(ProcessorTicks(user: user, system: system, idle: idle, nice: nice)),
             memory: .success(MemoryPages(
                 active: 100, inactive: 50, speculative: 10, wired: 20,
                 compressed: 30, compressorContents: 90, purgeable: 5, fileBacked: 25,

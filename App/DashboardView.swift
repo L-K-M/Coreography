@@ -279,6 +279,7 @@ struct DashboardView: View {
         let start = end.addingTimeInterval(-model.timeRange.seconds)
         let points = visiblePoints(model.points(for: metric), start, end)
         let scoped = metric == .cpu ? model.scopedSeries().map { visiblePoints($0.cpu, start, end) } : nil
+        let split = metric == .cpu ? model.cpuSplitPoints().filter { (start...end).contains($0.time) } : []
 
         return HStack(alignment: .top, spacing: 24) {
             VStack(alignment: .leading, spacing: 10) {
@@ -288,8 +289,14 @@ struct DashboardView: View {
                      : MetricText.bytes(reading?.numericValue))
                     .font(.system(size: 30, weight: .semibold))
                     .monospacedDigit()
-                Text(metric == .cpu ? "Whole-machine activity" : "Used memory, estimated")
-                    .font(.caption)
+                if metric == .cpu, let parts = model.displayedCPUSplit {
+                    Text("user \(MetricText.percent(parts.user))  system \(MetricText.percent(parts.system))")
+                        .font(.caption)
+                        .help("User includes nice time; system is the kernel's share")
+                } else {
+                    Text(metric == .cpu ? "Whole-machine activity" : "Used memory, estimated")
+                        .font(.caption)
+                }
                 Text(reading?.reason ?? reading?.method ?? "")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -320,6 +327,20 @@ struct DashboardView: View {
                     .frame(maxWidth: .infinity, minHeight: Layout.graphHeight)
             } else {
                 Chart {
+                    // User under system (plan: CPU lane); position, not hue, tells them apart.
+                    ForEach(split) { point in
+                        AreaMark(
+                            x: .value("Time", point.time), yStart: .value("User", 0), yEnd: .value("User", point.user),
+                            series: .value("Segment", "user-\(point.segment)")
+                        )
+                        .foregroundStyle(Color.blue.opacity(0.25))
+                        AreaMark(
+                            x: .value("Time", point.time), yStart: .value("System", point.user),
+                            yEnd: .value("System", point.user + point.system),
+                            series: .value("Segment", "system-\(point.segment)")
+                        )
+                        .foregroundStyle(Color.blue.opacity(0.55))
+                    }
                     ForEach(points) { point in
                         LineMark(
                             x: .value("Time", point.time),

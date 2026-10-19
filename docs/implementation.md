@@ -518,6 +518,11 @@ Implemented:
   shown in the process table and the inspector, and checked against the
   self-cost budget of 5 a second beyond the sampling tick. Gaps and
   restricted processes stay unknown, never zero.
+- CPU user under system: the kernel's share comes from the same Mach
+  tick deltas as the busy total, so the lane stacks user (with nice)
+  under system and the header names both. Stored history keeps only the
+  total, so the split covers the live hour; recordings made before it
+  decode without it.
 - GPU time and CPU power per process: GPU milliseconds per second from
   the GPU user clients under each `IOAccelerator` (`IOUserClientCreator`
   names the PID, `AppUsage` sums `accumulatedGPUTime` per command queue),
@@ -647,6 +652,7 @@ outstanding. The store, MCP and model features above await stack delivery.
 | Native network MIB, wide-counter mapping and three-lane UI | Passed at `e62fac1`, including native C fixtures, live CLI and both executable architectures; integrated candidate pending |
 | Native IOKit storage counters and four-lane renderer | Passed [native CI](https://github.com/L-K-M/Coreography/actions/runs/39110306993) at `6434722`: 75 tests, 16 drivers, 32 measured rate fields, no inventory issues; owner checks pending |
 | On-disk history store and recorder | History slice: 148 Swift tests pass on Linux against the real system SQLite (round trip with gaps, duplicates, retention, reopen, permissions, WAL, batching); native CI checks the CLI and file permissions |
+| CPU user and system | 286 Swift tests and 33 tooling tests pass on Linux (shares from one set of ticks, gaps breaking the area, old recordings decoding); the native snapshot gate requires a measured system share no larger than the total; the stacked area compiles only in native CI |
 | GPU time and CPU power per process | 283 Swift tests and the Linux C contract pass (per-client deltas with closed, new and reset clients, incomplete walks, gaps and clock changes, creator and queue decoding, the energy estimate and its missing counter, app totals and sorting); the native smoke requires a measured zero GPU time for `coreo` and an estimated or unsupported power; the registry walk and columns compile only in native CI |
 | Recordings | 274 Swift tests pass on Linux (round trip, consistent redaction of apps and marker names, newer, unreadable and backwards files refused, opening into the held display and returning to live); document registration and the open and save panels compile only in native CI |
 | Inspector history and threads | 271 Swift tests and the Linux C contract pass (history only after selection, cleared on change, threads through the model); the native contract counts this process's threads and refuses a wrong start time |

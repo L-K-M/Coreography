@@ -378,6 +378,7 @@ class TestReleaseSmoke(unittest.TestCase):
     def snapshot():
         return {
             "cpuPercentOfMachine": {"availability": "measured", "numericValue": 25},
+            "cpuSystemPercentOfMachine": {"availability": "measured", "numericValue": 5},
             "memoryUsedBytes": {"availability": "estimated", "numericValue": 4096},
             "inventory": {"physicalMemoryBytes": 8192},
             "thermalPressure": {"availability": "measured", "numericValue": 0},
@@ -406,7 +407,7 @@ class TestReleaseSmoke(unittest.TestCase):
         self.assertNotEqual(self.run_smoke(snapshot).returncode, 0)
 
     def test_release_gate_rejects_invalid_values(self):
-        for key, value in (("cpuPercentOfMachine", 101), ("memoryUsedBytes", 8193),
+        for key, value in (("cpuPercentOfMachine", 101), ("memoryUsedBytes", 8193), ("cpuSystemPercentOfMachine", 26),
                            ("cpuPercentOfMachine", True), ("memoryUsedBytes", float("nan"))):
             with self.subTest(key=key, value=value):
                 snapshot = self.snapshot()
