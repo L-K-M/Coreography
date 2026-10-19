@@ -579,13 +579,14 @@ jobs:
           set -euo pipefail
           CLI=dist/Coreography.app/Contents/Helpers/coreo
           "$CLI" top --json --count 3 --sort memory > "$RUNNER_TEMP/top.json"
-          if "$CLI" top --json --count 0 2> /dev/null; then echo "::error::top accepted a count of 0"; exit 1; fi
+          if "$CLI" top --json --count 0; then echo "::error::top accepted a count of 0"; exit 1; fi
           # A listener whose stdout is the file it holds open, on a port only this step knows.
           python3 -c 'import socket, time
           s = socket.socket(); s.bind(("127.0.0.1", 0)); s.listen()
           print(s.getsockname()[1], flush=True); time.sleep(120)' > "$RUNNER_TEMP/holder-port.txt" &
           listener=$!
           for _ in $(seq 50); do [ -s "$RUNNER_TEMP/holder-port.txt" ] && break; sleep 0.1; done
+          [ -s "$RUNNER_TEMP/holder-port.txt" ] || { echo "::error::the listener never reported its port"; exit 1; }
           "$CLI" holders --json --port "$(cat "$RUNNER_TEMP/holder-port.txt")" > "$RUNNER_TEMP/holders-port.json"
           "$CLI" holders --json --file holder-port.txt > "$RUNNER_TEMP/holders-file.json"
           kill "$listener"
