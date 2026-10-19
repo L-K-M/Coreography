@@ -302,7 +302,10 @@ struct DashboardView: View {
         let points = visiblePoints(model.points(for: metric), start, end)
         let scoped = metric == .cpu ? model.scopedSeries().map { visiblePoints($0.cpu, start, end) } : nil
         let split = metric == .cpu ? model.cpuSplitPoints().filter { (start...end).contains($0.time) } : []
-        let tiers = metric == .cpu ? model.tierBandCells().filter { $0.end >= start && $0.start <= end } : []
+        let allTiers = metric == .cpu ? model.tierBandCells() : []
+        let tiers = allTiers.filter { $0.end >= start && $0.start <= end }
+        // Rows come from every recorded tier, so scrubbing never adds or drops one.
+        let tierRows = Array(Set(allTiers.map(\.tier))).sorted()
 
         return HStack(alignment: .top, spacing: 24) {
             VStack(alignment: .leading, spacing: 10) {
@@ -415,7 +418,7 @@ struct DashboardView: View {
                     ))
                     // Sheds first when the lane is compact (plan: lane sizes).
                     if laneSize != .compact, !tiers.isEmpty {
-                        TierStrip(cells: tiers, range: start...end)
+                        TierStrip(cells: tiers, tiers: tierRows, range: start...end)
                     }
                 }
             }
@@ -3085,10 +3088,10 @@ private extension EnvironmentValues {
 private struct TierStrip: View {
     private static let rowHeight: CGFloat = 10
     let cells: [TierBandCell]
+    let tiers: [String]
     let range: ClosedRange<Date>
 
     var body: some View {
-        let tiers = Array(Set(cells.map(\.tier))).sorted()
         Chart(cells) { cell in
             RectangleMark(
                 xStart: .value("Start", max(cell.start, range.lowerBound)), xEnd: .value("End", min(cell.end, range.upperBound)),
