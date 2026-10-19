@@ -52,7 +52,7 @@ final class StartupInventoryTests: XCTestCase {
             job("com.apple.thing", .systemDaemons, disabled: false)
         ]
         let read = await StartupProvider(driver: Jobs(RawLaunchJobs(
-            jobs: jobs, unreadable: 1, overrides: ["com.example.agent": true], overridesProblem: nil
+            jobs: jobs, unreadable: 1, overrides: [.user: ["com.example.agent": true]], overridesProblem: nil
         ))).load()
         XCTAssertEqual(read.items.map(\.label), ["com.example.agent", "com.example.keeper", "com.apple.thing"])
         XCTAssertEqual(read.items.map(\.state), [.disabled, .disabled, .enabled])
@@ -64,6 +64,16 @@ final class StartupInventoryTests: XCTestCase {
         ))).load()
         XCTAssertEqual(unconfirmed.items.map(\.state), [.unconfirmed, .unconfirmed, .unconfirmed])
         XCTAssertEqual(unconfirmed.stateProblem, "launchctl could not start")
+    }
+
+    /// launchd keeps overrides per domain; one label can be an agent and a daemon.
+    func testOverridesApplyOnlyInTheirOwnDomain() async {
+        let jobs = [job("com.example.shared", .userAgents, disabled: false), job("com.example.shared", .daemons, disabled: false)]
+        let read = await StartupProvider(driver: Jobs(RawLaunchJobs(
+            jobs: jobs, unreadable: 0, overrides: [.user: ["com.example.shared": true], .system: ["com.example.shared": false]],
+            overridesProblem: nil
+        ))).load()
+        XCTAssertEqual(read.items.map(\.state), [.disabled, .enabled])
     }
 
     private func write(_ name: String, _ plist: [String: Any]) throws {

@@ -76,8 +76,10 @@ public struct StartupProvider: Sendable {
     }
 
     /// launchd's override wins over the plist's own Disabled key.
-    private static func state(_ job: RawLaunchJob, overrides: [String: Bool], readable: Bool) -> StartupEnabledState {
-        if let disabled = overrides[job.label] { return disabled ? .disabled : .enabled }
+    private static func state(
+        _ job: RawLaunchJob, overrides: [LaunchOverrideDomain: [String: Bool]], readable: Bool
+    ) -> StartupEnabledState {
+        if let disabled = overrides[job.domain.overrides]?[job.label] { return disabled ? .disabled : .enabled }
         guard readable else { return .unconfirmed }
         return job.disabledInPlist ? .disabled : .enabled
     }
