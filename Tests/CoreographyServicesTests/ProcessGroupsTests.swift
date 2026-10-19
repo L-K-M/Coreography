@@ -172,6 +172,14 @@ final class ProcessGroupsTests: XCTestCase {
         XCTAssertEqual(contributors.power.first?.isEstimate, true, "modeled energy is an estimate")
     }
 
+    /// Plan: app icons beside app rows. A helper outside the bundle does not hide it.
+    func testARowFindsTheAppBundleOfItsFirstMemberInOne() throws {
+        let processes = try snapshot([safari, webContent(responsible: 100), standaloneDaemon])
+        let rows = ProcessGroups.rows(in: processes, matching: "", sortedBy: .cpu, grouping: .app)
+        XCTAssertEqual(rows.first { $0.name == "Safari" }?.appBundlePath, "/Applications/Safari.app")
+        XCTAssertNil(rows.first { $0.name == "mds" }?.appBundlePath)
+    }
+
     /// Plan: opt-in CPU time and start time columns, sortable.
     func testGroupsTotalCPUTimeAndStartWithTheirFirstMember() throws {
         let processes = try snapshot([safari, webContent(responsible: 100), standaloneDaemon])

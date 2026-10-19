@@ -1558,7 +1558,10 @@ private struct ProcessPane: View {
                     TableColumn("Process") { row in
                         // New processes tint briefly (plan: change highlighting).
                         let isNew = row.process.map { model.isNewProcess($0.id) } ?? false
-                        Text(row.process != nil ? row.name : "\(row.name) (\(row.memberCount))")
+                        HStack(spacing: 4) {
+                            AppIcon(bundlePath: row.appBundlePath)
+                            Text(row.process != nil ? row.name : "\(row.name) (\(row.memberCount))")
+                        }
                             .padding(.horizontal, 4)
                             .background(isNew ? Color.accentColor.opacity(0.18) : Color.clear, in: RoundedRectangle(cornerRadius: 3))
                             .help(isNew ? String(localized: "Started within the last 10 seconds") : ProcessText.grouping(row.groupingMethod))
@@ -2103,6 +2106,37 @@ private struct HeatScale {
     private func share(_ reading: DashboardReading, _ top: Double) -> Double {
         guard let value = reading.numericValue, top > 0 else { return 0 }
         return value / top
+    }
+}
+
+/// An app's icon beside its row (plan: app icons identify apps at a
+/// glance); a fixed blank space outside a bundle keeps names aligned.
+private struct AppIcon: View {
+    private static let side: CGFloat = 16
+    let bundlePath: String?
+
+    var body: some View {
+        if let bundlePath {
+            Image(nsImage: AppIcons.icon(bundlePath))
+                .resizable()
+                .frame(width: Self.side, height: Self.side)
+                .accessibilityHidden(true)
+        } else {
+            Color.clear.frame(width: Self.side, height: Self.side)
+        }
+    }
+}
+
+/// Icons by bundle path: NSWorkspace reads each from disk, so once per app.
+@MainActor
+private enum AppIcons {
+    private static var cache: [String: NSImage] = [:]
+
+    static func icon(_ bundlePath: String) -> NSImage {
+        if let cached = cache[bundlePath] { return cached }
+        let icon = NSWorkspace.shared.icon(forFile: bundlePath)
+        cache[bundlePath] = icon
+        return icon
     }
 }
 

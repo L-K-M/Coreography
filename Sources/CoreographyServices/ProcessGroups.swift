@@ -440,6 +440,23 @@ enum ProcessGroups {
 }
 
 extension ProcessRow {
+    private static let bundleSuffix = ".app"
+
+    /// The outermost app bundle its program, or its first member's, runs
+    /// from, for the row's icon; nil outside a bundle.
+    /// Example: ".../Safari.app/Contents/MacOS/Safari" is "/Applications/Safari.app".
+    public var appBundlePath: String? {
+        var pending = [self]
+        while !pending.isEmpty {
+            let row = pending.removeFirst()
+            if let path = row.process?.executablePath, let bundle = path.range(of: Self.bundleSuffix + "/") {
+                return String(path[..<bundle.lowerBound]) + Self.bundleSuffix
+            }
+            pending += row.children ?? []
+        }
+        return nil
+    }
+
     /// The same row over other children, for the tree and scope to prune.
     func replacingChildren(_ children: [ProcessRow]?) -> ProcessRow {
         ProcessRow(
