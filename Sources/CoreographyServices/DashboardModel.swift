@@ -1254,10 +1254,12 @@ public final class DashboardModel {
         let accounts = accounts
         let wanted = accountsAsked
         accountLookup = Task { [weak self] in
-            let names = await Task.detached { accounts.names(for: wanted) }.value
+            let lookup = await Task.detached { accounts.lookup(wanted) }.value
             guard let self else { return }
             self.accountLookup = nil
-            if names != self.accountNames { self.accountNames = names }
+            // A failed lookup is asked again on a later refresh, not pinned to its UID.
+            self.accountsAsked.subtract(lookup.unanswered)
+            if lookup.names != self.accountNames { self.accountNames = lookup.names }
         }
         return accountNames
     }

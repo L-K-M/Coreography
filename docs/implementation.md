@@ -369,7 +369,7 @@ Implemented:
   totals each UID like an app, named by its account (looked up off the
   main actor with `getpwuid_r` and kept; a UID without an account
   keeps its number, and a lookup the user database could not answer is
-  tried again when the by-user view is chosen again). A filter or app
+  tried again on a later refresh). A filter or app
   scope in the tree keeps the parents leading to each match. The
   table's columns can be shown, hidden and reordered from the header
   and the choice is kept; CPU time (user plus system over each
