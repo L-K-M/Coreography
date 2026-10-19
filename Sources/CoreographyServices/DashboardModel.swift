@@ -284,6 +284,9 @@ public final class DashboardModel {
     @ObservationIgnored private var storedScopedCache: (
         app: String, window: ClosedRange<Date>, series: (cpu: [DashboardPoint], disk: [DashboardPoint], network: [DashboardPoint])
     )?
+    @ObservationIgnored private var scopedReadingCache: (
+        app: String, stamp: SampleStamp, readings: [ScopedMetric: ScopedAppReading]
+    )?
     @ObservationIgnored private var sleepState: SleepHistoryState = .notImported
     @ObservationIgnored private var sleepImport: Task<Void, Never>?
     @ObservationIgnored private var wakeImports = WakeImportSpacing()
@@ -1629,11 +1632,25 @@ public final class DashboardModel {
         lifecycle.isNew(identity, at: processSnapshot?.stamp.wallTime ?? Date())
     }
 
-    /// The scoped app's CPU share and disk rate from the ledger, for lane
-    /// overlays; on the 6 h range, stored intervals come first.
     /// The scoped app's network rate now; nil when not read lately.
     public var scopedNetworkRate: Double? { scopedSeries().flatMap(AppLedger.currentNetworkRate) }
 
+    /// The scoped app's memory or GPU reading in the displayed process
+    /// sample; nil without a scoped app or when the sample lacks it.
+    public func scopedAppReading(_ metric: ScopedMetric) -> ScopedAppReading? {
+        guard let scopedApp, let processSnapshot else { return nil }
+
+        // Lanes ask on every redraw, cursor moves included; group once per sample and app.
+        if let cache = scopedReadingCache, cache.app == scopedApp, cache.stamp == processSnapshot.stamp {
+            return cache.readings[metric]
+        }
+        let readings = ScopedApp.readings(of: scopedApp, in: processSnapshot)
+        scopedReadingCache = (app: scopedApp, stamp: processSnapshot.stamp, readings: readings)
+        return readings[metric]
+    }
+
+    /// The scoped app's CPU share and disk rate from the ledger, for lane
+    /// overlays; on the 6 h range, stored intervals come first.
     public func scopedSeries() -> (cpu: [DashboardPoint], disk: [DashboardPoint], network: [DashboardPoint])? {
         guard let scopedApp else { return nil }
         let live = ledger.series(for: scopedApp)

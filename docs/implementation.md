@@ -171,8 +171,13 @@ Implemented:
 - Scoped network: with an app shown in the lanes, the network lane
   names its TCP and UDP in plus out per second from the ledger, across
   every interface, live and from stored intervals; an interval that did
-  not read network breaks the series rather than reading zero. Memory and
-  GPU overlays remain, as the ledger keeps neither per app.
+  not read network breaks the series rather than reading zero.
+- Scoped memory and GPU: the memory lane names the app's summed process
+  footprints and the GPU lane its GPU time in ms/s, each with the app's
+  rank among apps with a readable, positive value, from the displayed
+  process sample. Neither is additive the way CPU is (shared pages count
+  per process; ms/s is not busy %), so the lines say so, and neither has
+  a series yet, as the ledger keeps neither per app.
 - Network in the ledger: each interval integrates every app's TCP and
   UDP rates (in plus out) from the traffic sample of the same moment
   and records whether network was read; a process's first interval with

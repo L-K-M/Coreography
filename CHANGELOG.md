@@ -33,6 +33,8 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
 ### Added
 - With an app shown in the lanes, the network lane names its traffic, in
   plus out, as the CPU and disk lanes do.
+- With an app shown in the lanes, the memory and GPU lanes name its
+  footprint and GPU time, and its rank among apps.
 - The process filter takes an account name, as in `user:_spotlight`.
 - `coreo stats --json [--minutes N]` summarizes every recorded metric:
   minimum, median, 95th percentile, maximum and mean.
