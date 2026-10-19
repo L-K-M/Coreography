@@ -46,8 +46,16 @@ int32_t coreo_process_read(int32_t pid, coreo_process_sample *sample);
 /* Signals the bridge may send; the caller names intent, not signal numbers. */
 enum {
     COREO_SIGNAL_TERMINATE = 1, /* SIGTERM: ask the process to exit */
-    COREO_SIGNAL_KILL = 2       /* SIGKILL: end it immediately */
+    COREO_SIGNAL_KILL = 2,      /* SIGKILL: end it immediately */
+    COREO_SIGNAL_STOP = 3,      /* SIGSTOP: suspend it */
+    COREO_SIGNAL_CONTINUE = 4,  /* SIGCONT: resume it */
+    COREO_SIGNAL_HANGUP = 5,    /* SIGHUP: daemons often reload */
+    COREO_SIGNAL_INTERRUPT = 6  /* SIGINT: as Control-C */
 };
+
+/* The nice range setpriority accepts. */
+#define COREO_NICE_MIN (-20)
+#define COREO_NICE_MAX 20
 
 /* Send a signal only if pid still has the given start time. Returns 0,
    EINVAL for pid <= 0 (process groups and broadcast are never targeted)
@@ -57,6 +65,13 @@ enum {
    microseconds and the kernel does not reuse a pid that quickly. */
 int32_t coreo_process_signal(int32_t pid, uint64_t start_seconds, uint64_t start_microseconds,
                              int32_t signal_kind);
+
+/* Set pid's nice value only if it still has the given start time. Returns
+   0, EINVAL for pid <= 0 or a value outside COREO_NICE_MIN..COREO_NICE_MAX,
+   ESRCH, EAGAIN as for signals, EACCES when lowering the value needs root,
+   EPERM for another user's process, ENOTSUP off macOS. */
+int32_t coreo_process_renice(int32_t pid, uint64_t start_seconds, uint64_t start_microseconds,
+                             int32_t nice_value);
 
 /* The largest argument block the kernel hands out (kern.argmax), or 0
    off macOS. Size the coreo_process_arguments buffer with it. */

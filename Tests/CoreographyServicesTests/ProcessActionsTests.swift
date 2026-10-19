@@ -43,6 +43,36 @@ final class ProcessActionsTests: XCTestCase {
         XCTAssertEqual(model.actionMessage, "Worker: The PID now belongs to a different process; nothing was sent")
     }
 
+    func testSignalsAndPriorityGoByIdentityAndRefuseWhatCannotBeUndone() async throws {
+        let signaler = RecordingSignaler(results: [.success(()), .failure(.needsAdministrator)])
+        let model = DashboardModel(
+            monitor: try SystemMonitor(driver: NoHostDriver()), interval: .seconds(1),
+            controller: ProcessController(driver: RecordingDriver(results: []), signaler: signaler)
+        )
+        let worker = try process(pid: 77, name: "Worker", start: 1234)
+        let session = try process(pid: 88, name: "WindowServer")
+
+        let suspend = model.actionRequest(for: worker, action: .suspend)
+        XCTAssertNil(suspend.refusal)
+        XCTAssertEqual(suspend.consequences, ["It stops running until resumed; an app stops responding meanwhile."])
+        model.perform(suspend)
+        XCTAssertEqual(signaler.calls.first?.signal, .suspend)
+        XCTAssertEqual(signaler.calls.first?.startSeconds, 1234)
+        XCTAssertEqual(model.markers.map(\.label), ["Suspend Worker"])
+
+        model.perform(model.actionRequest(for: worker, action: .lowerPriority))
+        XCTAssertEqual(signaler.calls.last?.nice, ProcessController.lowPriorityNice)
+        XCTAssertEqual(model.actionMessage, "Worker: Only an administrator can raise its priority again")
+
+        let frozen = model.actionRequest(for: session, action: .suspend)
+        XCTAssertEqual(frozen.refusal, "Suspending it would freeze the screen with no way back.")
+        model.perform(frozen)
+        XCTAssertEqual(signaler.calls.count, 2, "a refused action sends nothing")
+
+        XCTAssertTrue(model.copyText(for: worker).contains("PID 77"))
+        XCTAssertTrue(model.copyJSON(for: worker).contains("\"name\" : \"Worker\""))
+    }
+
     private func process(pid: Int32, name: String, parent: UInt32 = 1, start: UInt64 = 10) throws -> ObservedProcess {
         ProcessReading(
             id: try ProcessIdentity(pid: pid, startSeconds: start, startMicroseconds: 0),
@@ -75,6 +105,24 @@ private final class RecordingDriver: ProcessTerminating, @unchecked Sendable {
         pid: Int32, startSeconds: UInt64, startMicroseconds: UInt64, mode: ProcessTermination
     ) -> Result<Void, ProcessControlError> {
         calls.append(Call(pid: pid, startSeconds: startSeconds, mode: mode))
+        return results.removeFirst()
+    }
+}
+
+private final class RecordingSignaler: ProcessSignaling, @unchecked Sendable {
+    struct Call { let signal: ProcessSignal?; let nice: Int32?; let startSeconds: UInt64 }
+    private(set) var calls: [Call] = []
+    private var results: [Result<Void, ProcessControlError>]
+
+    init(results: [Result<Void, ProcessControlError>]) { self.results = results }
+
+    func send(_ signal: ProcessSignal, pid: Int32, startSeconds: UInt64, startMicroseconds: UInt64) -> Result<Void, ProcessControlError> {
+        calls.append(Call(signal: signal, nice: nil, startSeconds: startSeconds))
+        return results.removeFirst()
+    }
+
+    func renice(pid: Int32, startSeconds: UInt64, startMicroseconds: UInt64, to niceValue: Int32) -> Result<Void, ProcessControlError> {
+        calls.append(Call(signal: nil, nice: niceValue, startSeconds: startSeconds))
         return results.removeFirst()
     }
 }

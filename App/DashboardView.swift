@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 import Charts
 import Accessibility
 import UniformTypeIdentifiers
@@ -1377,8 +1378,7 @@ private struct ProcessPane: View {
                             .contextMenu {
                                 Button("Show \(row.appName) in lanes") { model.scopedApp = row.appName }
                                 if let process = row.process {
-                                    Button("Quit…") { pendingAction = model.actionRequest(for: process, mode: .graceful) }
-                                    Button("Force Quit…") { pendingAction = model.actionRequest(for: process, mode: .forced) }
+                                    ProcessActionMenu(model: model, process: process, pendingAction: $pendingAction)
                                 }
                             }
                     }
@@ -1459,14 +1459,77 @@ private struct ProcessActionConfirmation: ViewModifier {
 
     func body(content: Content) -> some View {
         content.confirmationDialog(
-            pendingAction.map { "\($0.mode == .forced ? "Force quit" : "Quit") “\($0.name)” (PID \($0.target.pid))?" } ?? "",
+            pendingAction.map { "\($0.action.verb) “\($0.name)” (PID \($0.target.pid))?" } ?? "",
             isPresented: Binding(get: { pendingAction != nil }, set: { if !$0 { pendingAction = nil } }),
             titleVisibility: .visible, presenting: pendingAction
         ) { request in
-            Button(request.mode == .forced ? "Force Quit" : "Quit", role: .destructive) { model.perform(request) }
+            // A refused action offers only Cancel; its reason is the message.
+            if request.refusal == nil {
+                Button(ActionText.button(request.action), role: request.action == .resume ? nil : .destructive) {
+                    model.perform(request)
+                }
+            }
             Button("Cancel", role: .cancel) {}
         } message: { request in
-            Text(request.consequences.joined(separator: "\n"))
+            Text(request.refusal ?? request.consequences.joined(separator: "\n"))
+        }
+    }
+}
+
+/// Whether a process menu lists Quit and Force Quit, which the inspector shows as buttons.
+private enum QuitEntries {
+    case yes, no
+}
+
+/// Every action for one process (plan: Quit, Force Quit, Suspend and Resume,
+/// Send Signal, Renice, Reveal in Finder, Copy). Each confirms first.
+private struct ProcessActionMenu: View {
+    let model: DashboardModel
+    let process: ObservedProcess
+    @Binding var pendingAction: ProcessActionRequest?
+    var includesQuit: QuitEntries = .yes
+
+    var body: some View {
+        if includesQuit == .yes {
+            Button("Quit…") { ask(.quit) }
+            Button("Force Quit…") { ask(.forceQuit) }
+            Divider()
+        }
+        Button("Suspend…") { ask(.suspend) }
+        Button("Resume") { model.perform(model.actionRequest(for: process, action: .resume)) }
+        Menu("Send Signal") {
+            Button("Hang Up (SIGHUP)…") { ask(.hangUp) }
+            Button("Interrupt (SIGINT)…") { ask(.interrupt) }
+        }
+        Button("Lower Priority…") { ask(.lowerPriority) }
+        Divider()
+        if let path = process.executablePath {
+            Button("Reveal in Finder") { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)]) }
+        }
+        Button("Copy as Text") { copy(model.copyText(for: process)) }
+        Button("Copy as JSON") { copy(model.copyJSON(for: process)) }
+    }
+
+    private func ask(_ action: ProcessAction) {
+        pendingAction = model.actionRequest(for: process, action: action)
+    }
+
+    private func copy(_ text: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+    }
+}
+
+private enum ActionText {
+    static func button(_ action: ProcessAction) -> String {
+        switch action {
+        case .quit: String(localized: "Quit")
+        case .forceQuit: String(localized: "Force Quit")
+        case .suspend: String(localized: "Suspend")
+        case .resume: String(localized: "Resume")
+        case .hangUp: String(localized: "Send Hang Up")
+        case .interrupt: String(localized: "Interrupt")
+        case .lowerPriority: String(localized: "Lower Priority")
         }
     }
 }
@@ -1563,8 +1626,10 @@ private struct InspectorView: View {
         }
 
         HStack {
-            Button("Quit…") { pendingAction = model.actionRequest(for: process, mode: .graceful) }
-            Button("Force Quit…") { pendingAction = model.actionRequest(for: process, mode: .forced) }
+            Button("Quit…") { pendingAction = model.actionRequest(for: process, action: .quit) }
+            Button("Force Quit…") { pendingAction = model.actionRequest(for: process, action: .forceQuit) }
+            Menu("More") { ProcessActionMenu(model: model, process: process, pendingAction: $pendingAction, includesQuit: .no) }
+                .fixedSize()
         }
     }
 

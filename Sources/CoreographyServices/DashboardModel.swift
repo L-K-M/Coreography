@@ -719,17 +719,38 @@ public final class DashboardModel {
         ProcessActions.request(for: process, mode: mode, in: processSnapshot)
     }
 
+    public func actionRequest(for process: ObservedProcess, action: ProcessAction) -> ProcessActionRequest {
+        ProcessActions.request(for: process, action: action, in: processSnapshot)
+    }
+
     /// Send a confirmed request; the identity is re-checked at the last moment.
     public func perform(_ request: ProcessActionRequest) {
-        switch controller.terminate(request.target, mode: request.mode) {
+        if let refusal = request.refusal {
+            actionMessage = "\(request.name): \(refusal)"
+            return
+        }
+        let outcome: ProcessActionOutcome = switch request.action {
+        case .quit: controller.terminate(request.target, mode: .graceful)
+        case .forceQuit: controller.terminate(request.target, mode: .forced)
+        case .suspend: controller.send(.suspend, to: request.target)
+        case .resume: controller.send(.resume, to: request.target)
+        case .hangUp: controller.send(.hangUp, to: request.target)
+        case .interrupt: controller.send(.interrupt, to: request.target)
+        case .lowerPriority: controller.lowerPriority(of: request.target)
+        }
+        switch outcome {
         case .requested:
-            let verb = request.mode == .forced ? "Force quit" : "Quit"
+            let verb = request.action.verb
             markers.append(TimelineMarker(time: Date(), label: "\(verb) \(request.name)", kind: .action))
-            actionMessage = "\(verb) requested for \(request.name) (PID \(request.target.pid))"
+            actionMessage = "\(verb) \(request.name) (PID \(request.target.pid)): requested"
         case .failed(let reason):
             actionMessage = "\(request.name): \(reason)"
         }
     }
+
+    /// One process as text or JSON, for the Copy commands.
+    public func copyText(for process: ObservedProcess) -> String { ProcessActions.text(for: process) }
+    public func copyJSON(for process: ObservedProcess) -> String { ProcessActions.json(for: process) }
 
     /// Coreography's own process cost, from the latest process sample.
     public var selfCost: SelfCost? {

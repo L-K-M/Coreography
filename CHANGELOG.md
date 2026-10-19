@@ -11,6 +11,8 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
   after the store first exceeds it.
 
 ### Added
+- Suspend, Resume, Send Signal, Lower Priority, Reveal in Finder and
+  Copy for processes, each identity-checked and confirmed.
 - Process filters can be saved as chips.
 - The Power lane names what keeps the Mac awake; the inspector lists a
   process's sleep assertions; `#preventing-sleep` filters to them.

@@ -233,6 +233,14 @@ Implemented:
   app's overlay extends into stored history. Export still covers live
   data only and says so; cursor readouts and contributors over the
   stored part, exporting it, and the 24 h range (the Day tier) remain.
+- More process actions: Suspend and Resume, Send Signal (hang-up,
+  interrupt), Lower Priority (nice 10), Reveal in Finder and Copy as
+  text or JSON join Quit and Force Quit, in the process menu and the
+  inspector. Signals and renice go through the same identity check as
+  Quit and confirm with their consequences; suspending the window
+  server, the login window or Coreography itself is refused, because
+  nothing could resume it. Raising priority again needs an
+  administrator and says so. Sample and spindump remain.
 - Saved filters: the current process filter can be kept as a chip
   under the field (up to 12, newest first, no duplicates); a click
   applies it and its menu removes it. Chips are saved in preferences.
@@ -345,6 +353,7 @@ time, helper, MCP or model integration in this slice.
 | Native network MIB, wide-counter mapping and three-lane UI | Passed at `e62fac1`, including native C fixtures, live CLI and both executable architectures; integrated candidate pending |
 | Native IOKit storage counters and four-lane renderer | Passed [native CI](https://github.com/L-K-M/Coreography/actions/runs/39110306993) at `6434722`: 75 tests, 16 drivers, 32 measured rate fields, no inventory issues; owner checks pending |
 | On-disk history store and recorder | History slice: 148 Swift tests pass on Linux against the real system SQLite (round trip with gaps, duplicates, retention, reopen, permissions, WAL, batching); native CI checks the CLI and file permissions |
+| More process actions | Actions slice: 201 Swift tests and the Linux C contract pass (identity-checked signals and renice, refusals, administrator message, copy text and JSON); the native contract stops, continues and renices a forked child and refuses a wrong start time; UI compile pending |
 | Saved filter chips | Filter-chip slice: 200 Swift tests pass on Linux (order, duplicates, blanks, limit, model save and remove); UI compile pending |
 | Sleep assertions | Assertion slice: 198 Swift tests pass on Linux (released and untyped assertions dropped, ages kept, effects classified, the filter token waiting for data); native powerd reads and the UI compile are pending |
 | Settings: retention and data sources | Settings slice: 195 Swift tests pass on Linux (plans applied from the next write, measured size, presets ordered and under the cap, saved choice, tier choice by retention); Settings UI compile pending |

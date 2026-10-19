@@ -21,8 +21,20 @@ public enum ProcessControlError: Error, Equatable, Sendable {
     case exited
     case identityChanged
     case notPermitted
+    /// Lowering a nice value again needs an administrator.
+    case needsAdministrator
     case refusedByApp
     case systemCall(code: Int32)
+}
+
+/// Signals beyond quitting, named by intent rather than number.
+public enum ProcessSignal: Sendable {
+    case suspend, resume, hangUp, interrupt
+}
+
+public protocol ProcessSignaling: Sendable {
+    func send(_ signal: ProcessSignal, pid: Int32, startSeconds: UInt64, startMicroseconds: UInt64) -> Result<Void, ProcessControlError>
+    func renice(pid: Int32, startSeconds: UInt64, startMicroseconds: UInt64, to niceValue: Int32) -> Result<Void, ProcessControlError>
 }
 
 public protocol ProcessTerminating: Sendable {
@@ -78,4 +90,36 @@ public struct ProcessControlDriver: ProcessTerminating {
         }
     }
     #endif
+}
+
+extension ProcessControlDriver: ProcessSignaling {
+    public func send(
+        _ signal: ProcessSignal, pid: Int32, startSeconds: UInt64, startMicroseconds: UInt64
+    ) -> Result<Void, ProcessControlError> {
+        #if os(macOS)
+        let kind: Int32 = switch signal {
+        case .suspend: Int32(COREO_SIGNAL_STOP)
+        case .resume: Int32(COREO_SIGNAL_CONTINUE)
+        case .hangUp: Int32(COREO_SIGNAL_HANGUP)
+        case .interrupt: Int32(COREO_SIGNAL_INTERRUPT)
+        }
+        let status = coreo_process_signal(pid, startSeconds, startMicroseconds, kind)
+        return status == 0 ? .success(()) : .failure(Self.error(status))
+        #else
+        return .failure(.unsupportedPlatform)
+        #endif
+    }
+
+    public func renice(
+        pid: Int32, startSeconds: UInt64, startMicroseconds: UInt64, to niceValue: Int32
+    ) -> Result<Void, ProcessControlError> {
+        #if os(macOS)
+        let status = coreo_process_renice(pid, startSeconds, startMicroseconds, niceValue)
+        // setpriority answers EACCES, not EPERM, when only root may lower the value.
+        if status == EACCES { return .failure(.needsAdministrator) }
+        return status == 0 ? .success(()) : .failure(Self.error(status))
+        #else
+        return .failure(.unsupportedPlatform)
+        #endif
+    }
 }
