@@ -31,6 +31,9 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
   after the store first exceeds it.
 
 ### Added
+- Each lane's menu shows its facts and sources in the inspector: chip,
+  core tiers, memory, GPUs, storage devices and volumes, interfaces,
+  adapter and battery, sensors and fans, and where each reading comes from.
 - `coreo top` ranks the busiest apps, live or once as JSON, and
   `coreo holders` says which of your processes hold a port or a file.
 - Your own alert rules in Settings: a reading above or below a threshold

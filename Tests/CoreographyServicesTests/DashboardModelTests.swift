@@ -57,6 +57,51 @@ final class DashboardModelTests: XCTestCase {
         XCTAssertTrue(spans.contains { $0.level == .warning })
     }
 
+    /// Plan: a lane's inspector names its static facts and each reading's source.
+    func testLaneFactsDescribeTheDisplayedHardwareAndSources() async throws {
+        let model = DashboardModel(
+            monitor: try SystemMonitor(driver: IncreasingHostDriver()), interval: .milliseconds(10),
+            gpuMonitor: try GPUMonitor(driver: CyclingGPUDriver())
+        )
+        model.start()
+        defer { model.stop() }
+        try await eventually { model.frames.count >= 3 && model.displayedGPUFrame?.devices.count == 2 }
+        model.toggleDisplayHold()
+
+        let cpu = model.laneFacts(.cpu)
+        let logical = try XCTUnwrap(cpu.first { $0.label == "Logical CPUs" })
+        XCTAssertEqual(logical.kind, .fact)
+        XCTAssertEqual(logical.value, "\(try XCTUnwrap(model.displayedFrame?.inventory.logicalCPUCount))")
+        let source = try XCTUnwrap(cpu.first { $0.label == "CPU" })
+        XCTAssertEqual(source.kind, .source)
+        XCTAssertTrue(source.value.hasPrefix("measured"), source.value)
+
+        let gpu = model.laneFacts(.gpu).filter { $0.kind == .fact }
+        XCTAssertEqual(gpu.map(\.label), ["GPU 1", "GPU 2"])
+        XCTAssertEqual(gpu.map(\.value), ["Integrated", "Discrete"])
+        XCTAssertTrue(model.laneFacts(.thermal).filter { $0.kind == .fact }.isEmpty, "no sensors were read, so no facts are claimed")
+
+        // External disks and disk images are often all named "Untitled"; each is its own row.
+        let volumes = try JSONDecoder().decode(CapturedVolumes.self, from: Data(#"""
+            {"volumes":[
+              {"path":"/Volumes/Untitled","name":"Untitled","kind":"external","isStartup":false,"totalBytes":1000000000,"availableBytes":1},
+              {"path":"/Volumes/Untitled 1","name":"Untitled","kind":"external","isStartup":false,"totalBytes":2000000000,"availableBytes":1}
+            ]}
+            """#.utf8))
+        let disk = LaneFacts.facts(.disk, LaneFacts.Inputs(volumes: volumes))
+        XCTAssertEqual(disk.filter { $0.label.hasPrefix("Volume") }.map(\.value), ["1 GB at /Volumes/Untitled", "2 GB at /Volumes/Untitled 1"],
+                       "each says where it is mounted, so the two can be told apart")
+        XCTAssertEqual(Set(disk.map(\.id)).count, disk.count, "row identities never repeat")
+
+        // Asking for a lane's facts shows them even while a process is selected.
+        model.selectedProcessRow = "process-1-1-0"
+        model.showLaneFacts(.memory)
+        XCTAssertNil(model.selectedProcessRow)
+        XCTAssertEqual(model.inspectedLane, .memory)
+        model.selectedProcessRow = "process-1-1-0"
+        XCTAssertNil(model.inspectedLane, "a process takes the inspector, and deselecting it returns to the summary")
+    }
+
     /// The busiest GPU names the value, so its graph must be that GPU's too.
     func testTheMenuBarGPUValueAndGraphDescribeOneDevice() async throws {
         let model = DashboardModel(

@@ -659,6 +659,13 @@ Implemented:
   never parsed. With nothing selected it shows the chip, model, macOS
   build, uptime, load averages and Coreography's own cost. Per-process
   history lanes, open files, assertions, threads and wakeups remain.
+- Lane inspector: a lane's menu shows its static facts (chip, model,
+  logical CPUs and core tiers; physical memory; each GPU; storage devices
+  and volume sizes; primary and observed interfaces; adapter rating,
+  battery health and cycles; sensor and fan counts) and each reading's
+  availability and source, from the displayed frames so a held window
+  describes what it shows. Facts never read are left out, not guessed.
+  SMART status remains (it needs the helper or an IOKit SMART client).
 - Startup tab, first part: launch agents and daemons from the user,
   global and system folders, with launchd's own enabled state from
   `launchctl print-disabled` (no root needed; when it fails the state is
