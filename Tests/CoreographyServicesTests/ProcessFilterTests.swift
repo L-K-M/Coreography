@@ -99,6 +99,18 @@ final class ProcessFilterTests: XCTestCase {
         XCTAssertEqual(ProcessFilter.parse("file:").issues, ["Unreadable file:; try file:~/Downloads"])
     }
 
+    func testFlatRowsAlsoMatchTheirAppsName() throws {
+        let stamp = SampleStamp(clockID: UUID(), monotonicNanoseconds: 1, wallTime: Date())
+        let host = try process(name: "Safari", cpu: 1, uid: 501, path: "/Applications/Safari.app/Contents/MacOS/Safari", pid: 10)
+        let content = try process(name: "com.apple.WebKit.WebContent", cpu: 45, uid: 501, path: nil, pid: 11, responsible: 10)
+        let snapshot = ProcessSnapshot(
+            stamp: stamp, collectorPID: 1, enumeration: try .measured(2), enumerationTruncated: false,
+            processes: [host, content], issues: [], continuity: .continuous
+        )
+        let flat = ProcessGroups.rows(in: snapshot, matching: "safari cpu:>10", sortedBy: .cpu, grouping: .flat)
+        XCTAssertEqual(flat.map(\.name), ["com.apple.WebKit.WebContent"], "the same rows as grouped mode, ungrouped")
+    }
+
     func testOnlyTheOwnHomeExpands() {
         let home = NSHomeDirectory()
         XCTAssertEqual(ProcessFilter.expandingHome("~"), home)

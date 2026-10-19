@@ -64,7 +64,7 @@ enum ProcessGroups {
         if grouping == .flat {
             // A flat row still belongs to its app: scope and the ledger key on it.
             let apps = snapshot.map(appNames) ?? [:]
-            return ProcessList.rows(in: snapshot, matching: filter, sortedBy: sort, isNew: isNew, facts: facts)
+            return ProcessList.rows(in: snapshot, matching: filter, sortedBy: sort, isNew: isNew, facts: facts, appNames: apps)
                 .map { leaf($0, method: nil, appName: apps[$0.id] ?? $0.name, traffic: facts.traffic) }
         }
 
