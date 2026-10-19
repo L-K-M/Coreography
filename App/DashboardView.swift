@@ -166,7 +166,15 @@ struct DashboardView: View {
             .padding(Layout.padding)
         }
         .frame(minWidth: 900, minHeight: 600)
+        .inspector(isPresented: $model.inspectorShown) {
+            InspectorView(model: model)
+                .inspectorColumnWidth(min: 260, ideal: 320, max: 480)
+        }
         .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button("Inspector", systemImage: "sidebar.right") { model.inspectorShown.toggle() }
+                    .help("Show or hide the inspector")
+            }
             ToolbarItem(placement: .principal) {
                 Text(ToolbarText.status(model))
                     .font(.caption)
@@ -1328,7 +1336,7 @@ private struct ProcessPane: View {
                     }
                 }
 
-                Table(rows, children: \.children) {
+                Table(rows, children: \.children, selection: $model.selectedProcessRow) {
                     TableColumn("Process") { row in
                         // New processes tint briefly (plan: change highlighting).
                         let isNew = row.process.map { model.isNewProcess($0.id) } ?? false
@@ -1389,7 +1397,17 @@ private struct ProcessPane: View {
             .padding(.top, 8)
         }
         // Destructive actions confirm with their consequences; the identity is re-checked on send.
-        .confirmationDialog(
+        .modifier(ProcessActionConfirmation(model: model, pendingAction: $pendingAction))
+    }
+}
+
+/// Quit and Force Quit confirm with their consequences stated before acting.
+private struct ProcessActionConfirmation: ViewModifier {
+    let model: DashboardModel
+    @Binding var pendingAction: ProcessActionRequest?
+
+    func body(content: Content) -> some View {
+        content.confirmationDialog(
             pendingAction.map { "\($0.mode == .forced ? "Force quit" : "Quit") “\($0.name)” (PID \($0.target.pid))?" } ?? "",
             isPresented: Binding(get: { pendingAction != nil }, set: { if !$0 { pendingAction = nil } }),
             titleVisibility: .visible, presenting: pendingAction
@@ -1398,6 +1416,156 @@ private struct ProcessPane: View {
             Button("Cancel", role: .cancel) {}
         } message: { request in
             Text(request.consequences.joined(separator: "\n"))
+        }
+    }
+}
+
+/// One inspector whose content follows the selection (plan: the inspector).
+/// A process shows identity, parent chain, signature, arguments, sockets and
+/// actions; nothing selected shows the Mac and Coreography's own cost.
+private struct InspectorView: View {
+    let model: DashboardModel
+    @State private var pendingAction: ProcessActionRequest?
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                if let inspection = model.processInspection {
+                    details(of: inspection)
+                } else if model.selectedProcessRow != nil {
+                    Text("Select a single process to inspect it; it may also have exited.")
+                        .foregroundStyle(.secondary)
+                } else {
+                    summary(model.systemFacts())
+                }
+            }
+            .padding()
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .modifier(ProcessActionConfirmation(model: model, pendingAction: $pendingAction))
+    }
+
+    @ViewBuilder
+    private func details(of inspection: ProcessInspection) -> some View {
+        let process = inspection.process
+        VStack(alignment: .leading, spacing: 4) {
+            Text(process.name).font(.title3.weight(.semibold))
+            Text("\(inspection.appName) · PID \(process.id.pid.formatted(.number.grouping(.never))) · UID \(process.uid.formatted(.number.grouping(.never)))")
+                .font(.caption).foregroundStyle(.secondary)
+            Text("Started \(Date(timeIntervalSince1970: TimeInterval(process.id.startSeconds)).formatted(date: .abbreviated, time: .standard))")
+                .font(.caption).foregroundStyle(.secondary)
+            if let path = process.executablePath {
+                Text(path).font(.caption.monospaced()).textSelection(.enabled)
+            }
+        }
+
+        if let explanation = inspection.explanation {
+            InspectorSection("About") {
+                Text(explanation.summary)
+                Text(InspectorText.quitting(explanation.quitting)).foregroundStyle(.secondary)
+            }
+        }
+
+        InspectorSection("Now") {
+            Text("CPU \(MetricText.percent(process.cpuPercentOfMachine.numericValue)) of the machine")
+            Text("Footprint \(MetricText.bytes(process.memoryFootprintBytes.numericValue))")
+            Text("Disk \(MetricText.bytes(process.diskReadBytesPerSecond.numericValue))/s read, \(MetricText.bytes(process.diskWriteBytesPerSecond.numericValue))/s written")
+        }
+
+        InspectorSection("Identity") {
+            Text(InspectorText.signing(inspection.detail))
+            if let label = inspection.launchdLabel { Text("launchd job \(label)") }
+            Text(inspection.parentChain.isEmpty ? String(localized: "No parent observed")
+                 : String(localized: "Parents: ") + inspection.parentChain.map { "\($0.name ?? "?") (\($0.pid))" }.joined(separator: " ← "))
+        }
+
+        InspectorSection("Arguments") {
+            if let detail = inspection.detail {
+                if let arguments = detail.arguments {
+                    Text(arguments.joined(separator: "\n")).font(.caption.monospaced()).textSelection(.enabled)
+                } else {
+                    Text(detail.argumentsProblem ?? "").foregroundStyle(.secondary)
+                }
+            } else {
+                Text("Reading…").foregroundStyle(.secondary)
+            }
+        }
+
+        InspectorSection("Sockets") {
+            if let sockets = inspection.sockets {
+                if sockets.isEmpty { Text("None open").foregroundStyle(.secondary) }
+                ForEach(sockets) { socket in
+                    Text("\(ConnectionText.transport(socket.transport)) \(ConnectionText.endpoint(socket.local)) \(socket.remote.map { "→ " + ConnectionText.endpoint($0) } ?? "") · \(ConnectionText.state(socket))")
+                        .font(.caption.monospaced())
+                }
+            } else {
+                Text(inspection.detail == nil ? "Reading…" : "Could not be read").foregroundStyle(.secondary)
+            }
+        }
+
+        HStack {
+            Button("Quit…") { pendingAction = model.actionRequest(for: process, mode: .graceful) }
+            Button("Force Quit…") { pendingAction = model.actionRequest(for: process, mode: .forced) }
+        }
+    }
+
+    @ViewBuilder
+    private func summary(_ facts: CapturedSystemFacts) -> some View {
+        Text("This Mac").font(.title3.weight(.semibold))
+        InspectorSection("System") {
+            if let chip = facts.chip { Text(chip) }
+            if let identifier = facts.model { Text(identifier) }
+            if let build = facts.osBuild { Text("macOS build \(build)") }
+            if let boot = facts.bootTime {
+                Text("Up since \(boot.formatted(date: .abbreviated, time: .shortened))")
+            }
+            if let loads = facts.loadAverages {
+                Text("Load \(loads.map { $0.formatted(.number.precision(.fractionLength(2))) }.joined(separator: " · "))")
+            }
+        }
+        InspectorSection("Coreography") {
+            SelfCostLine(model: model)
+        }
+        Text("Select a process to inspect it.").font(.caption).foregroundStyle(.secondary)
+    }
+}
+
+private struct InspectorSection<Content: View>: View {
+    let title: LocalizedStringKey
+    let content: Content
+
+    init(_ title: LocalizedStringKey, @ViewBuilder content: () -> Content) {
+        self.title = title
+        self.content = content()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+            content.font(.callout)
+        }
+    }
+}
+
+private enum InspectorText {
+    static func quitting(_ effect: QuitEffect) -> String {
+        switch effect {
+        case .restarts: return String(localized: "Quitting is safe: macOS starts it again.")
+        case .interrupts(let what): return String(localized: "Quitting interrupts it: \(what)")
+        case .logsOut: return String(localized: "Quitting it logs you out.")
+        case .notAllowed: return String(localized: "macOS does not allow quitting it.")
+        }
+    }
+
+    static func signing(_ detail: CapturedProcessDetail?) -> String {
+        guard let detail else { return String(localized: "Signature: reading…") }
+        guard let signing = detail.signing else { return String(localized: "Signature: no program path to check") }
+        let identifier = signing.identifier.map { " (\($0))" } ?? ""
+        switch signing.signer {
+        case .apple: return String(localized: "Signed by Apple\(identifier)")
+        case .developer(let team): return String(localized: "Signed by team \(team ?? "unknown")\(identifier)")
+        case .unsigned: return String(localized: "Unsigned")
+        case .unknown: return String(localized: "Signature could not be read")
         }
     }
 }

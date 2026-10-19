@@ -26,6 +26,7 @@
 #endif
 
 #if defined(__APPLE__)
+#include <stdlib.h>
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
@@ -69,6 +70,17 @@ test_invalid_args(void)
         assert(coreo_process_sockets(1, 1, 0, sockets, 4, NULL, &truncated) == EINVAL);
         assert(coreo_process_sockets(1, 1, 0, sockets, 4, &count, NULL) == EINVAL);
         assert(count == -1 && truncated == -1);
+    }
+
+    {
+        uint8_t block[16];
+        int32_t length = -1;
+
+        assert(coreo_process_arguments(0, 1, 0, block, 16, &length) == EINVAL);
+        assert(coreo_process_arguments(1, 1, 0, NULL, 16, &length) == EINVAL);
+        assert(coreo_process_arguments(1, 1, 0, block, 0, &length) == EINVAL);
+        assert(coreo_process_arguments(1, 1, 0, block, 16, NULL) == EINVAL);
+        assert(length == -1);
     }
 }
 
@@ -245,6 +257,32 @@ test_sockets(void)
     close(listener6);
 }
 
+/* This process's own argument block starts with argc and the executable
+   path; a wrong start time must not read. */
+static void
+test_arguments(void)
+{
+    coreo_process_sample self;
+    int32_t capacity = coreo_process_arguments_capacity();
+    uint8_t *block;
+    int32_t length = 0;
+    int32_t argc = 0;
+
+    assert(capacity > 0);
+    block = malloc((size_t)capacity);
+    assert(block != NULL);
+    assert(coreo_process_read(getpid(), &self) == 0);
+    assert(coreo_process_arguments(getpid(), self.start_seconds, self.start_microseconds,
+                                   block, capacity, &length) == 0);
+    assert(length > (int32_t)sizeof(argc));
+    memcpy(&argc, block, sizeof(argc));
+    assert(argc >= 1);
+    assert(strstr((const char *)block + sizeof(argc), "test_process_bridge") != NULL);
+    assert(coreo_process_arguments(getpid(), self.start_seconds + 1, self.start_microseconds,
+                                   block, capacity, &length) == EAGAIN);
+    free(block);
+}
+
 #else
 
 static void
@@ -291,6 +329,15 @@ test_platform(void)
         assert(coreo_process_sockets(42, 1, 0, sockets, 4, &count, &truncated) == ENOTSUP);
         assert(count == 0 && truncated == 0);
     }
+
+    {
+        uint8_t block[16];
+        int32_t length = -1;
+
+        assert(coreo_process_arguments_capacity() == 0);
+        assert(coreo_process_arguments(42, 1, 0, block, 16, &length) == ENOTSUP);
+        assert(length == 0);
+    }
 }
 
 #endif
@@ -302,6 +349,7 @@ main(void)
     test_platform();
 #if defined(__APPLE__)
     test_sockets();
+    test_arguments();
 #endif
     puts("test_process_bridge: all assertions passed");
     return 0;

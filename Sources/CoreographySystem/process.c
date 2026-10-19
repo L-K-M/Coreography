@@ -30,6 +30,7 @@
 #include <netinet/in.h>
 #include <stdlib.h>
 #include <sys/socket.h>
+#include <sys/sysctl.h>
 #include <mach/kern_return.h>
 #include <pthread.h>
 #include <signal.h>
@@ -286,6 +287,54 @@ _Static_assert(COREO_TCP_STATE_LAST_ACK == TSI_S_LAST_ACK, "TCP state numbering"
 _Static_assert(COREO_TCP_STATE_FIN_WAIT_2 == TSI_S_FIN_WAIT_2, "TCP state numbering");
 _Static_assert(COREO_TCP_STATE_TIME_WAIT == TSI_S_TIME_WAIT, "TCP state numbering");
 
+int32_t
+coreo_process_arguments_capacity(void)
+{
+    int mib[2] = {CTL_KERN, KERN_ARGMAX};
+    int argmax = 0;
+    size_t size = sizeof(argmax);
+
+    if (sysctl(mib, 2, &argmax, &size, NULL, 0) != 0 || argmax <= 0) {
+        return 0;
+    }
+    return argmax;
+}
+
+int32_t
+coreo_process_arguments(int32_t pid, uint64_t start_seconds, uint64_t start_microseconds,
+                        uint8_t *buffer, int32_t capacity, int32_t *length)
+{
+    struct proc_bsdinfo identity;
+    int mib[3] = {CTL_KERN, KERN_PROCARGS2, pid};
+    size_t size = (size_t)capacity;
+    int32_t err;
+
+    if (pid <= 0 || buffer == NULL || length == NULL || capacity <= 0) {
+        return EINVAL;
+    }
+    *length = 0;
+
+    err = coreo_read_identity(pid, &identity);
+    if (err != 0) {
+        return err;
+    }
+    if (identity.pbi_start_tvsec != start_seconds || identity.pbi_start_tvusec != start_microseconds) {
+        return EAGAIN;
+    }
+    if (sysctl(mib, 3, buffer, &size, NULL, 0) != 0) {
+        /* The kernel answers EINVAL for processes it will not describe. */
+        return errno == EINVAL ? EPERM : (errno ? errno : EIO);
+    }
+
+    /* The pid may have been reused while the block was copied. */
+    err = coreo_read_identity(pid, &identity);
+    if (err != 0 || identity.pbi_start_tvsec != start_seconds || identity.pbi_start_tvusec != start_microseconds) {
+        return err != 0 ? err : EAGAIN;
+    }
+    *length = (int32_t)size;
+    return 0;
+}
+
 /* in_sockinfo keeps ports in network byte order inside an int. */
 static void
 coreo_copy_endpoints(const struct in_sockinfo *in, coreo_socket_sample *entry)
@@ -452,6 +501,25 @@ coreo_process_signal(int32_t pid, uint64_t start_seconds, uint64_t start_microse
     if (pid <= 0 || (signal_kind != COREO_SIGNAL_TERMINATE && signal_kind != COREO_SIGNAL_KILL)) {
         return EINVAL;
     }
+    return ENOTSUP;
+}
+
+int32_t
+coreo_process_arguments_capacity(void)
+{
+    return 0;
+}
+
+int32_t
+coreo_process_arguments(int32_t pid, uint64_t start_seconds, uint64_t start_microseconds,
+                        uint8_t *buffer, int32_t capacity, int32_t *length)
+{
+    (void)start_seconds;
+    (void)start_microseconds;
+    if (pid <= 0 || buffer == NULL || length == NULL || capacity <= 0) {
+        return EINVAL;
+    }
+    *length = 0;
     return ENOTSUP;
 }
 

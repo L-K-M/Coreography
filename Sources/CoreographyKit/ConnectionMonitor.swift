@@ -110,6 +110,15 @@ public actor ConnectionMonitor {
         )
     }
 
+    /// One process's sockets, for the inspector; nil when they cannot be read.
+    public func connections(of process: ProcessReading) async -> [ConnectionReading]? {
+        let result = await driver.sockets(
+            pid: process.id.pid, startSeconds: process.id.startSeconds, startMicroseconds: process.id.startMicroseconds
+        )
+        guard case .success(let read) = result else { return nil }
+        return read.sockets.map { Self.reading($0, of: process) }
+    }
+
     private static func reading(_ socket: RawSocket, of process: ProcessReading) -> ConnectionReading {
         ConnectionReading(
             process: process.id, processName: process.name, descriptor: socket.descriptor,

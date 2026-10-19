@@ -117,6 +117,19 @@ public final class DashboardModel {
             if detailPane == .startup, startupInventory == nil { refreshStartupItems() }
         }
     }
+    /// The process table's selected row; selecting one opens the inspector.
+    public var selectedProcessRow: ProcessRow.ID? {
+        didSet {
+            guard selectedProcessRow != oldValue else { return }
+            if selectedProcessRow != nil { inspectorShown = true }
+            inspectSelection()
+        }
+    }
+    /// The inspector panel (plan: hidden by default, opens on selection).
+    public var inspectorShown = false
+    /// Read for the selected process only: arguments, signature and sockets.
+    public private(set) var processDetail: CapturedProcessDetail?
+    public private(set) var inspectedSockets: [CapturedConnection]?
     /// Startup items as last read; definitions change rarely, so they load on request.
     public private(set) var startupInventory: CapturedStartupInventory?
     public var startupVisibility: StartupVisibility = .thirdParty
@@ -164,6 +177,8 @@ public final class DashboardModel {
     @ObservationIgnored private var liveConnections: CapturedConnections?
     @ObservationIgnored private var sensorStats = SensorStats()
     @ObservationIgnored private let startupProvider: StartupProvider?
+    @ObservationIgnored private let inspector: ProcessInspector?
+    @ObservationIgnored private var inspection: Task<Void, Never>?
     @ObservationIgnored private var startupLoad: Task<Void, Never>?
     /// The on-disk part of a range longer than live history; nil otherwise.
     private var storedHistory: StoredHistory?
@@ -211,6 +226,7 @@ public final class DashboardModel {
         sleepProvider = SleepHistoryProvider()
         connectionMonitor = ConnectionMonitor()
         startupProvider = StartupProvider()
+        inspector = ProcessInspector()
         interval = .seconds(1)
         processInterval = .seconds(2)
         do {
@@ -248,7 +264,8 @@ public final class DashboardModel {
         sensorMonitor: SensorMonitor? = nil, controller: ProcessController = ProcessController(),
         askService: AskService = AskService(), notifier: AlertDelivery? = nil,
         historyRecorder: HistoryRecorder? = nil, sleepProvider: SleepHistoryProvider? = nil,
-        connectionMonitor: ConnectionMonitor? = nil, startupProvider: StartupProvider? = nil
+        connectionMonitor: ConnectionMonitor? = nil, startupProvider: StartupProvider? = nil,
+        inspector: ProcessInspector? = nil
     ) {
         self.controller = controller
         self.askService = askService
@@ -257,6 +274,7 @@ public final class DashboardModel {
         self.sleepProvider = sleepProvider
         self.connectionMonitor = connectionMonitor
         self.startupProvider = startupProvider
+        self.inspector = inspector
         self.monitor = monitor
         self.interval = interval
         self.processMonitor = processMonitor
@@ -275,6 +293,7 @@ public final class DashboardModel {
         storedLoad?.cancel()
         connectionSample?.cancel()
         startupLoad?.cancel()
+        inspection?.cancel()
     }
 
     public var latest: CapturedSnapshot? { frames.last }
@@ -895,6 +914,41 @@ public final class DashboardModel {
             startupInventory, processes: processSnapshot, ledger: ledger,
             now: processSnapshot?.stamp.wallTime ?? Date(), visibility: startupVisibility
         )
+    }
+
+    /// The selected process as it now stands; nil for a group row, or once it exited.
+    public var selectedProcess: ObservedProcess? {
+        guard let selectedProcessRow, let processSnapshot else { return nil }
+        return processSnapshot.processes.first { ProcessGroups.rowID($0) == selectedProcessRow }
+    }
+
+    /// Identity, parent chain, signature, arguments and sockets of the selected process.
+    public var processInspection: ProcessInspection? {
+        guard let process = selectedProcess, let processSnapshot else { return nil }
+        return ProcessInspections.make(
+            process, in: processSnapshot, startup: startupInventory, detail: processDetail, sockets: inspectedSockets
+        )
+    }
+
+    /// The inspector's summary when nothing is selected.
+    public func systemFacts() -> CapturedSystemFacts { SystemFacts.read() }
+
+    /// Read the selected process's detail once per selection, off the main actor.
+    private func inspectSelection() {
+        inspection?.cancel()
+        processDetail = nil
+        inspectedSockets = nil
+        guard let process = selectedProcess, let inspector else { return }
+        let connectionMonitor = connectionMonitor
+        inspection = Task { [weak self] in
+            async let detail = inspector.detail(of: process)
+            async let sockets = connectionMonitor?.connections(of: process)
+            let (readDetail, readSockets) = await (detail, sockets)
+            guard let self, !Task.isCancelled else { return }
+            self.processDetail = readDetail
+            self.inspectedSockets = readSockets.flatMap { $0 }
+        }
+        if startupInventory == nil { refreshStartupItems() }
     }
 
     /// Reread startup definitions and launchd's enable state; never two reads at once.
