@@ -1701,7 +1701,12 @@ public final class DashboardModel {
     public func addMarker(named name: String, at time: Date = Date()) {
         let trimmed = String(name.trimmingCharacters(in: .whitespacesAndNewlines).prefix(Self.maximumMarkerLength))
         let label = trimmed.isEmpty ? "Marker \(time.formatted(date: .omitted, time: .standard))" : trimmed
-        markers.append(TimelineMarker(time: time, label: label, kind: .note))
+        appendOwnMarker(TimelineMarker(time: time, label: label, kind: .note))
+    }
+
+    /// A marker made while a recording is open belongs to the replay, which is what shows.
+    private func appendOwnMarker(_ marker: TimelineMarker) {
+        if openRecording == nil { markers.append(marker) } else { recordingMarkers.append(marker) }
     }
 
     /// Plan: Annotate a time range. Its name marks where the range starts,
@@ -1709,8 +1714,9 @@ public final class DashboardModel {
     public func annotateSelection(named name: String) {
         guard let selection else { return }
         addMarker(named: name, at: selection.lowerBound)
-        guard selection.upperBound > selection.lowerBound, let start = markers.last else { return }
-        markers.append(TimelineMarker(time: selection.upperBound, label: "End of \(start.label)", kind: .note))
+        guard selection.upperBound > selection.lowerBound, let start = ownMarkers.last else { return }
+        let end = String("End of \(start.label)".prefix(Self.maximumMarkerLength))
+        appendOwnMarker(TimelineMarker(time: selection.upperBound, label: end, kind: .note))
     }
 
     public func stop() {

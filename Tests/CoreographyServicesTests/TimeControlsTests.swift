@@ -47,6 +47,10 @@ final class TimeControlsTests: XCTestCase {
         model.selection = start...start
         model.annotateSelection(named: "Instant")
         XCTAssertEqual(model.timelineMarkers.filter { $0.label.contains("Instant") }.count, 1, "an instant is one marker")
+
+        model.selection = start...start.addingTimeInterval(5)
+        model.annotateSelection(named: String(repeating: "x", count: 200))
+        XCTAssertTrue(model.timelineMarkers.allSatisfy { $0.label.count <= DashboardModel.maximumMarkerLength }, "the end's label keeps the limit too")
     }
 
     @MainActor

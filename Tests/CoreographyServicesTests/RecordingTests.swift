@@ -80,6 +80,13 @@ final class RecordingTests: XCTestCase {
                        "system markers come again from the frames, not twice")
         XCTAssertNil(model.processSnapshot, "no live process detail mixed into a replay")
 
+        // Markers made during a replay show on it.
+        model.addMarker(named: "Seen in replay", at: start)
+        model.selection = start...end
+        model.annotateSelection(named: "Replayed build")
+        XCTAssertTrue(model.timelineMarkers.contains { $0.label == "Seen in replay" })
+        XCTAssertTrue(model.timelineMarkers.contains { $0.label == "End of Replayed build" })
+
         model.toggleDisplayHold()
         XCTAssertNil(model.openRecording)
         XCTAssertEqual(model.displayMode, .live)
