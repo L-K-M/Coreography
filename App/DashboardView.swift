@@ -3021,6 +3021,10 @@ private struct ContributorLine: View {
         let prefix = model.cursorTime == nil
             ? String(localized: "Top")
             : String(localized: "Top at \(snapshot.time.formatted(date: .omitted, time: .standard))")
+        // The stored ledger kept CPU, disk and network per app, nothing else.
+        if snapshot.origin == .storedLedger, [.memory, .gpu, .power].contains(subsystem) {
+            return prefix + ": " + String(localized: "not kept in stored history")
+        }
         guard !contributors.isEmpty else { return prefix + ": " + String(localized: "no readable activity") }
         let items = contributors.map { contributor in
             let value = switch subsystem {

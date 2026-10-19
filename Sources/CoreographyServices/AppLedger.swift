@@ -182,6 +182,39 @@ struct AppLedger: Sendable {
     /// interval ends. An absent entry is idle (0); a missing interval is a gap.
     /// Network bytes per second (in plus out) only where the interval read
     /// network; an interval that did not breaks the line.
+    /// Who led in the interval holding `time`, for the cursor over stored
+    /// history (plan P3). CPU is a share of the machine, disk and network
+    /// rates over the interval; memory, GPU and power were never kept per
+    /// app and stay empty. Nil between intervals: nothing was observed.
+    func contributors(at time: Date) -> ContributorSnapshot? {
+        // Intervals are oldest first; six stored hours hold thousands of them.
+        var low = 0
+        var high = intervals.count
+        while low < high {
+            let middle = (low + high) / 2
+            if intervals[middle].end < time { low = middle + 1 } else { high = middle }
+        }
+        guard intervals.indices.contains(low), intervals[low].start < time else { return nil }
+        let interval = intervals[low]
+        let seconds = interval.end.timeIntervalSince(interval.start)
+        guard seconds > 0 else { return nil }
+
+        func ranked(_ value: (Entry) -> Double?, estimate: (Entry) -> Bool) -> [Contributor] {
+            Contributors.ranked(interval.entries.compactMap { entry in
+                value(entry).map { Contributor(name: names[entry.app], value: $0, isEstimate: estimate(entry)) }
+            })
+        }
+        let cpu = interval.cores > 0
+            ? ranked({ $0.cpuSeconds / (seconds * interval.cores) * Self.percentScale }, estimate: \.isLowerBound)
+            : []
+        return ContributorSnapshot(
+            id: UUID(), time: interval.end, cpu: cpu, memory: [],
+            disk: ranked({ $0.diskBytes / seconds }, estimate: \.isLowerBound),
+            network: interval.coversNetwork ? ranked({ $0.networkBytes / seconds }, estimate: { _ in false }) : [],
+            gpu: [], power: [], origin: .storedLedger
+        )
+    }
+
     func series(for name: String) -> (cpu: [DashboardPoint], disk: [DashboardPoint], network: [DashboardPoint]) {
         let app = indices[name]
         var cpu: [DashboardPoint] = []

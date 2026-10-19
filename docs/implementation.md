@@ -404,7 +404,10 @@ Implemented:
   second, not a busy share) and the CPU power the kernel's energy model
   gives each app (an estimate). Every lane but thermal shows them live
   or, under the cursor, from the process sample within 2.5 s ("Top at
-  …"), never a distant one.
+  …"), never a distant one. Before the live samples, the stored ledger
+  interval under the cursor names the CPU, disk and network leaders;
+  memory, GPU and power say they were not kept, and a cursor between
+  stored intervals names no one.
 - AppleSMC sensors through a read-only C bridge: temperature keys are
   discovered once, then read each second. The thermal lane draws the
   hottest plausible sensor (10-130 °C) over pressure bands, names its key

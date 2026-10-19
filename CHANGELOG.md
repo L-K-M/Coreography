@@ -39,6 +39,8 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
   cursor, as the CPU, memory and disk lanes do.
 - The GPU and power lanes name the apps using the most GPU time and
   modeled CPU power.
+- Pointing at stored history names the apps leading CPU, disk and
+  network then, not only within the live hour.
 - With an app shown in the lanes, the network lane names its traffic, in
   plus out, as the CPU and disk lanes do.
 - With an app shown in the lanes, the memory and GPU lanes name its

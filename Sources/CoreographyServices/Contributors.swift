@@ -10,6 +10,13 @@ public struct Contributor: Identifiable, Sendable {
     public let isEstimate: Bool
 }
 
+/// Where a contributor snapshot came from: a live process sample, or the
+/// stored app ledger, which keeps CPU, disk and network per app only.
+public enum ContributorOrigin: Sendable {
+    case processSample
+    case storedLedger
+}
+
 /// The leading apps per subsystem at one process sample (plan: "top then").
 ///
 /// Stored per sample so the cursor can replay who led at a past instant,
@@ -26,6 +33,7 @@ public struct ContributorSnapshot: Identifiable, Sendable {
     public let gpu: [Contributor]
     /// CPU power from the kernel's energy model, always an estimate.
     public let power: [Contributor]
+    public var origin: ContributorOrigin = .processSample
 }
 
 enum Contributors {
@@ -52,13 +60,18 @@ enum Contributors {
 
     /// Positive readings only: an idle or unreadable app is not a contributor.
     private static func top(_ rows: [ProcessRow], _ reading: (ProcessRow) -> MetricReading) -> [Contributor] {
-        rows.compactMap { row -> Contributor? in
+        ranked(rows.compactMap { row -> Contributor? in
             let value = reading(row)
-            guard let number = value.numericValue, number > 0 else { return nil }
+            guard let number = value.numericValue else { return nil }
             return Contributor(name: row.name, value: number, isEstimate: value.availability == .estimated)
-        }
-        .sorted { $0.value != $1.value ? $0.value > $1.value : $0.name < $1.name }
-        .prefix(limit)
-        .map { $0 }
+        })
+    }
+
+    /// The leaders among positive values, ties by name.
+    static func ranked(_ contributors: [Contributor]) -> [Contributor] {
+        contributors.filter { $0.value > 0 }
+            .sorted { $0.value != $1.value ? $0.value > $1.value : $0.name < $1.name }
+            .prefix(limit)
+            .map { $0 }
     }
 }

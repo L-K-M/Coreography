@@ -509,8 +509,12 @@ public final class DashboardModel {
         if let rail = displayedSensorFrame?.systemPowerWatts, rail.numericValue != nil { return rail }
         return displayedPowerFrame?.systemPowerWatts ?? displayedSensorFrame?.systemPowerWatts
     }
+    /// Before the live process samples, the stored ledger answers for the
+    /// cursor with what it kept: CPU, disk and network per app.
     public var displayedContributors: ContributorSnapshot? {
-        atCursor(contributorHistory, tolerance: Self.contributorTolerance) { $0.time }
+        if let live = atCursor(contributorHistory, tolerance: Self.contributorTolerance, time: { $0.time }) { return live }
+        guard let cursorTime, cursorTime < contributorHistory.first?.time ?? .distantFuture else { return nil }
+        return storedHistory?.ledger.contributors(at: cursorTime)
     }
 
     private func atCursor<Frame>(
