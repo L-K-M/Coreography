@@ -116,6 +116,19 @@ struct SettingsView: View {
                      : "A rule runs its Shortcut when it is raised, at most once every 15 minutes.")
                     .font(.caption).foregroundStyle(.secondary)
             }
+            Section("Lanes") {
+                ForEach(model.laneLayout.order) { lane in
+                    Toggle(LaneText.title(lane), isOn: Binding(
+                        get: { !model.laneLayout.hidden.contains(lane) },
+                        set: { model.laneLayout.set(lane, $0 ? .shown : .hidden) }
+                    ))
+                    .disabled(model.laneLayout.visible == [lane])
+                }
+                Button("Restore default lanes") { model.laneLayout = .standard }
+                    .disabled(model.laneLayout == .standard)
+                Text("Each lane's menu moves, resizes or hides it.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             Section("Menu bar") {
                 ForEach(0..<MenuBarLayout.maximumItems, id: \.self) { slot in
                     MenuBarSlot(model: model, slot: slot)
