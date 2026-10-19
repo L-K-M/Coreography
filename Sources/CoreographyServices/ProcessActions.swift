@@ -15,11 +15,25 @@ public struct ProcessActionRequest: Identifiable, Sendable {
     public let endsSession: Bool
 }
 
-/// A timeline marker for an action the person took (plan: actions drop markers).
+/// Who placed a marker: the person's own actions stand apart from what
+/// the system did.
+public enum MarkerKind: Sendable {
+    case action, alert, system
+}
+
+/// A timeline marker (plan: actions, alerts and system events drop markers).
 public struct TimelineMarker: Identifiable, Sendable {
     public let id: UUID
     public let time: Date
     public let label: String
+    public let kind: MarkerKind
+
+    init(id: UUID = UUID(), time: Date, label: String, kind: MarkerKind) {
+        self.id = id
+        self.time = time
+        self.label = label
+        self.kind = kind
+    }
 }
 
 enum ProcessActions {

@@ -154,6 +154,10 @@ public final class DashboardModel {
     /// The range while a drag is in progress; reports wait for the drag to end.
     public var draftSelection: ClosedRange<Date>?
     public private(set) var markers: [TimelineMarker] = []
+    /// Sleep, wake, power source and pressure changes found in the displayed data.
+    public private(set) var systemMarkers: [TimelineMarker] = []
+    /// Everything the lanes mark: the person's actions, alerts and system events.
+    public var timelineMarkers: [TimelineMarker] { markers + systemMarkers }
     /// One app scoping every view (plan P8); cleared only by its clear button.
     public var scopedApp: String?
     public private(set) var actionMessage: String?
@@ -504,6 +508,7 @@ public final class DashboardModel {
             switch result {
             case .success(let loaded):
                 self.storedHistory = loaded
+                self.refreshSystemMarkers()
                 self.storedHistoryProblem = nil
             case .failure(HistoryStoreError.storage(let reason)):
                 self.storedHistoryProblem = "Stored history could not be read: \(reason)"
@@ -558,7 +563,7 @@ public final class DashboardModel {
             switch event.kind {
             case .raised:
                 activeAlerts[rule.lane] = rule.title
-                markers.append(TimelineMarker(id: UUID(), time: event.time, label: rule.title))
+                markers.append(TimelineMarker(time: event.time, label: rule.title, kind: .alert))
                 guard rule.notifies, let notifier, alertCooldown.admit(rule.id, at: event.time) else { continue }
                 Task { await notifier.deliver(ruleID: rule.id, title: rule.title, body: "Open Coreography to see what is using it.") }
             case .cleared:
@@ -592,6 +597,7 @@ public final class DashboardModel {
             }
             guard let self else { return }
             self.sleepState = state
+            self.refreshSystemMarkers()
             self.sleepImport = nil
         }
     }
@@ -670,7 +676,7 @@ public final class DashboardModel {
         switch controller.terminate(request.target, mode: request.mode) {
         case .requested:
             let verb = request.mode == .forced ? "Force quit" : "Quit"
-            markers.append(TimelineMarker(id: UUID(), time: Date(), label: "\(verb) \(request.name)"))
+            markers.append(TimelineMarker(time: Date(), label: "\(verb) \(request.name)", kind: .action))
             actionMessage = "\(verb) requested for \(request.name) (PID \(request.target.pid))"
         case .failed(let reason):
             actionMessage = "\(request.name): \(reason)"
@@ -869,6 +875,7 @@ public final class DashboardModel {
                         if let gpus { self.gpuFrames = gpus }
                         if let power { self.powerFrames = power }
                         if let sensors { self.sensorFrames = sensors }
+                        self.refreshSystemMarkers()
                     }
                     try await Task.sleep(for: self.interval)
                 } catch is CancellationError {
@@ -907,6 +914,16 @@ public final class DashboardModel {
         sensorFrames = liveSensorFrames
         connectionSnapshot = liveConnections
         if detailPane == .sensors { publishSensorStats() }
+        refreshSystemMarkers()
+    }
+
+    /// Rebuilt from displayed frames: a held display keeps its markers, and
+    /// the 6 h range shows sleep and wake back to its stored start.
+    private func refreshSystemMarkers() {
+        let sleepEvents: [PowerEvent] = if case .imported(let history) = sleepState { history.events } else { [] }
+        systemMarkers = AutomaticMarkers.derive(
+            host: frames, power: powerFrames, sleepEvents: sleepEvents, since: storedHistory?.start
+        )
     }
 
     /// The Startup tab's rows, joined to displayed (possibly held) process data.
