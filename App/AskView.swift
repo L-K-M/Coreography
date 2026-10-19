@@ -183,7 +183,8 @@ struct SettingsView: View {
                 ForEach(model.dataSources, id: \.metric) { source in
                     VStack(alignment: .leading, spacing: 2) {
                         Text("\(source.metric): \(source.availability.rawValue)")
-                        if let detail = source.reason ?? source.source.map({ [$0.provider, $0.driver, $0.channel].compactMap { $0 }.joined(separator: " · ") }) {
+                        if let detail = source.reason ?? source.source.map({ [$0.provider, $0.driver, $0.channel].compactMap { $0 }.joined(separator: " · ") }),
+                           !detail.isEmpty {
                             Text(detail).font(.caption).foregroundStyle(.secondary)
                         }
                     }
@@ -230,7 +231,8 @@ private enum RetentionText {
         guard let bytes else { return String(localized: "Stored size unknown") }
         let used = ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
         let cap = ByteCountFormatter.string(fromByteCount: HistoryRetention.sizeCap, countStyle: .file)
-        return String(localized: "Now \(used) on disk; never more than \(cap)")
+        // Live pages only: freed pages and the write-ahead log can make the file itself larger.
+        return String(localized: "Now \(used) of history; never more than \(cap)")
     }
 }
 
