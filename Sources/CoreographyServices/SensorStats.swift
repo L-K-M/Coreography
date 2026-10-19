@@ -87,11 +87,12 @@ struct SensorStats: Sendable {
         if let power = sensors?.systemPowerWatts.numericValue {
             seen.append(("power-system", .power, "System power", Self.powerGroup, "W", power))
         }
+        // A sensor absent from this sample keeps its history but has no current
+        // value; a sample with nothing readable clears every current value.
+        for key in accumulators.keys { accumulators[key]?.current = nil }
         guard !seen.isEmpty else { return }
         if since == nil { since = time }
 
-        // A sensor absent from this sample keeps its history but has no current value.
-        for key in accumulators.keys { accumulators[key]?.current = nil }
         for reading in seen {
             if accumulators[reading.id] == nil {
                 accumulators[reading.id] = Accumulator(
