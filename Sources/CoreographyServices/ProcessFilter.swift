@@ -30,6 +30,8 @@ struct ProcessFacts: Sendable {
     var traffic: CapturedTraffic?
     /// `cpu:` bounds are typed in the table's scale; this turns a whole-machine share into it.
     var cpuFactor = 1.0
+    /// Account names by UID, for the by-user view.
+    var accountNames: [UInt32: String] = [:]
 }
 
 /// What connection data says about each process, for `#listening` and `port:`.

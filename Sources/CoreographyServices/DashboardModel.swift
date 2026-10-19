@@ -280,6 +280,7 @@ public final class DashboardModel {
     @ObservationIgnored private var wakeImports = WakeImportSpacing()
     @ObservationIgnored private var alertEngine = AlertEngine(rules: AlertRules.shipped)
     @ObservationIgnored private var customAlertStore = CustomAlertRules(defaults: .standard)
+    @ObservationIgnored private let accounts = AccountDirectory()
     @ObservationIgnored private var alertCooldown = AlertCooldown()
     /// Shortcut runs have their own cooldown, so a flapping rule cannot loop one.
     @ObservationIgnored private var shortcutCooldown = AlertCooldown()
@@ -1197,7 +1198,9 @@ public final class DashboardModel {
             isNew: { lifecycle.isNew($0, at: time) },
             facts: ProcessFacts(
                 sockets: connectionSnapshot.map(SocketFacts.init), sleepPreventers: assertionSnapshot?.sleepPreventers,
-                openFiles: openFileSnapshot?.files, traffic: trafficSnapshot, cpuFactor: processCPUFactor
+                openFiles: openFileSnapshot?.files, traffic: trafficSnapshot, cpuFactor: processCPUFactor,
+                // Only the by-user view names accounts; each UID is looked up once.
+                accountNames: processGrouping == .user ? accounts.names(for: Set((processSnapshot?.processes ?? []).map(\.uid))) : [:]
             )
         )
         let ranked = rangeRanked(rows)

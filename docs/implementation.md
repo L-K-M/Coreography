@@ -354,7 +354,8 @@ Implemented:
   tree nests each process under its parent (a parent younger than its
   child is a reused PID, so the child becomes a root; a parent loop
   lists each process once) with its own readings, and a by-user view
-  totals each UID like an app. A filter or app scope in the tree keeps
+  totals each UID like an app, named by its account (read once per UID
+  with `getpwuid_r`; a UID without an account keeps its number). A filter or app scope in the tree keeps
   the parents leading to each match. The table's columns can be shown,
   hidden and reordered from the header and the choice is kept; CPU time
   (user plus system over each process's life, summed for an app) and

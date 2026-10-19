@@ -231,7 +231,7 @@ enum ProcessGroups {
 
         var rows: [ProcessRow] = []
         for (uid, members) in byUser {
-            let name = userName(uid, currentUser: currentUser)
+            let name = userName(uid, currentUser: currentUser, account: facts.accountNames[uid])
             let nameMatches = parsed.isEmpty || (parsed.isTextOnly && parsed.matchesName(name))
             let visible = members.filter {
                 nameMatches || parsed.matches(
@@ -248,10 +248,12 @@ enum ProcessGroups {
         return sorted(rows, by: sort)
     }
 
-    /// Example: 0 -> "root", the current user 501 -> "You, UID 501", 502 -> "UID 502".
-    private static func userName(_ uid: UInt32, currentUser: UInt32) -> String {
+    /// Example: 0 -> "root", the current user 501 -> "You, alice", an account
+    /// "_spotlight", and a UID without an account -> "UID 502".
+    private static func userName(_ uid: UInt32, currentUser: UInt32, account: String?) -> String {
         if uid == 0 { return "root" }
-        return uid == currentUser ? "You, UID \(uid)" : "UID \(uid)"
+        let name = account ?? "UID \(uid)"
+        return uid == currentUser ? "You, \(name)" : name
     }
 
     /// A group row totals every member, even those a filter hides.

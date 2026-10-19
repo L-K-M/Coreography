@@ -31,6 +31,8 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
   after the store first exceeds it.
 
 ### Added
+- The by-user process view names accounts ("You, alice", "_spotlight")
+  instead of bare UIDs, and free text finds a group by its name.
 - Annotate in the range panel names a selected range; the name marks
   where it starts and ends on every lane.
 - The process table's columns can be shown, hidden and reordered from the
