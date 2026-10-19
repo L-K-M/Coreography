@@ -3,7 +3,7 @@ import CoreographyKit
 
 /// A parsed process filter (plan P22). Whitespace separates terms; every
 /// term must match. Examples: `safari`, `cpu:>10`, `mem:>1GB`, `disk:>5MB`,
-/// `pid:42`, `user:root`, `user:me`, `#apps`, `#mine`, `#third-party`, `#new`,
+/// `pid:42`, `user:root`, `user:me`, `user:alice`, `#apps`, `#mine`, `#third-party`, `#new`,
 /// `#listening`, `#preventing-sleep`, `port:443`, `file:~/Downloads`.
 /// Terms that cannot be evaluated are reported, never silently dropped.
 public typealias CapturedAssertions = AssertionSnapshot
@@ -77,6 +77,8 @@ public struct ProcessFilter: Equatable, Sendable {
         case disk(Comparison)
         case pid(Int32)
         case user(UInt32)
+        /// An account name, matched once the UID's name has been looked up.
+        case userName(String)
         case token(Token)
         /// Reverse lookup: processes with a socket on this local or remote port.
         case port(UInt16)
@@ -145,7 +147,13 @@ public struct ProcessFilter: Equatable, Sendable {
                 case "root": terms.append(.user(0))
                 case "me", "mine": terms.append(.user(currentUser))
                 default:
-                    if let uid = UInt32(value) { terms.append(.user(uid)) } else { issues.append("Unknown user \(value); use a UID, me or root") }
+                    if let uid = UInt32(value) {
+                        terms.append(.user(uid))
+                    } else if value.isEmpty {
+                        issues.append("Unreadable \(word); try user:root, user:me, a UID or an account name")
+                    } else {
+                        terms.append(.userName(value))
+                    }
                 }
             default:
                 terms.append(.text(word))
@@ -164,6 +172,9 @@ public struct ProcessFilter: Equatable, Sendable {
     var isEmpty: Bool { terms.isEmpty }
     /// Matching needs connection data, which is read only on demand.
     var usesAssertions: Bool { terms.contains(.token(.preventingSleep)) }
+
+    /// Matching needs account names, looked up off the main thread.
+    var usesAccountNames: Bool { terms.contains { if case .userName = $0 { true } else { false } } }
 
     /// Matching needs open-file data, read only on demand.
     var usesFiles: Bool { terms.contains { if case .file = $0 { true } else { false } } }
@@ -211,6 +222,8 @@ public struct ProcessFilter: Equatable, Sendable {
                 return process.id.pid == pid
             case .user(let uid):
                 return process.uid == uid
+            case .userName(let name):
+                return facts.accountNames[process.uid]?.caseInsensitiveCompare(name) == .orderedSame
             case .token(.apps):
                 return process.executablePath?.contains(".app/") ?? false
             case .token(.mine):

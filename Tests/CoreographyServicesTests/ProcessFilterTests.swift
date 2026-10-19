@@ -16,11 +16,11 @@ final class ProcessFilterTests: XCTestCase {
     }
 
     func testUnsupportedAndUnreadableTermsAreReportedNotDropped() {
-        let filter = ProcessFilter.parse("#not-responding #bogus cpu:lots user:nobody")
+        let filter = ProcessFilter.parse("#not-responding #bogus cpu:lots user:")
         XCTAssertTrue(filter.terms.isEmpty)
         XCTAssertEqual(filter.issues, [
             "Ignored #not-responding: needs the helper's responsiveness check", "Unknown token #bogus",
-            "Unreadable cpu:lots; try cpu:>10", "Unknown user nobody; use a UID, me or root"
+            "Unreadable cpu:lots; try cpu:>10", "Unreadable user:; try user:root, user:me, a UID or an account name"
         ])
     }
 
@@ -168,6 +168,22 @@ final class ProcessFilterTests: XCTestCase {
         let filter = ProcessFilter.parse("cpu:>nan mem:>=inf disk:1e400")
         XCTAssertTrue(filter.terms.isEmpty)
         XCTAssertEqual(filter.issues.count, 3)
+    }
+
+    /// Plan: `user:root` and its kin; an account name matches once names are known.
+    func testAUserNameMatchesItsAccountOnceNamesAreKnown() throws {
+        let filter = ProcessFilter.parse("user:Alice")
+        XCTAssertEqual(filter.terms, [.userName("Alice")])
+        XCTAssertTrue(filter.issues.isEmpty)
+        XCTAssertTrue(filter.usesAccountNames)
+        XCTAssertFalse(ProcessFilter.parse("user:root user:501").usesAccountNames)
+
+        let alice = try process(name: "zsh", cpu: 1, uid: 502, path: "/bin/zsh")
+        let bob = try process(name: "zsh", cpu: 1, uid: 503, path: "/bin/zsh")
+        let names = ProcessFacts(accountNames: [502: "alice", 503: "bob"])
+        XCTAssertTrue(filter.matches(alice, isNew: false, facts: names), "account names compare without case")
+        XCTAssertFalse(filter.matches(bob, isNew: false, facts: names))
+        XCTAssertFalse(filter.matches(alice, isNew: false), "an unnamed UID is not assumed to be anyone")
     }
 
     func testUsrLocalIsThirdParty() throws {
