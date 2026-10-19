@@ -1253,7 +1253,11 @@ public final class DashboardModel {
     }
 
     /// The multiplier from a process's whole-machine share to the chosen scale.
-    public var processCPUFactor: Double { processCPUScale.factor(logicalCPUs: latest?.inventory.logicalCPUCount ?? 1) }
+    public var processCPUFactor: Double { processCPUScaleInEffect.factor(logicalCPUs: latest?.inventory.logicalCPUCount ?? 1) }
+
+    /// The scale the numbers are in: one core needs the core count, so the
+    /// whole machine stands in until a host sample names it.
+    public var processCPUScaleInEffect: ProcessCPUScale { latest == nil ? .machine : processCPUScale }
 
     /// Lane order, hidden lanes and sizes; saved as they change.
     public var laneLayout = LaneLayout.saved() {

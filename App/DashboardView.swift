@@ -1529,7 +1529,7 @@ private struct ProcessPane: View {
                         .width(60)
                     TableColumn("UID") { Text($0.process?.uid.formatted(.number.grouping(.never)) ?? "") }
                         .width(65)
-                    TableColumn(ProcessText.cpuColumn(model.processCPUScale)) { (row: ProcessRow) in
+                    TableColumn(ProcessText.cpuColumn(model.processCPUScaleInEffect)) { (row: ProcessRow) in
                         ProcessMetricCell(reading: row.cpuPercentOfMachine, format: .percent,
                                           heat: heat.cpu(row), hue: .blue, scale: model.processCPUFactor)
                     }
@@ -1586,7 +1586,7 @@ private struct ProcessPane: View {
                         .help("Exit status is not available without the helper")
                 }
 
-                Text("\(ProcessText.cpuScaleNote(model.processCPUScale)) App totals sum their members; footprint sums can count shared memory twice. Process sampling: 2 s; short-lived processes can be missed.")
+                Text("\(ProcessText.cpuScaleNote(model.processCPUScaleInEffect)) App totals sum their members; footprint sums can count shared memory twice. Process sampling: 2 s; short-lived processes can be missed.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -1805,7 +1805,7 @@ private struct InspectorView: View {
         }
 
         InspectorSection("Now") {
-            Text(ProcessText.cpu(process.cpuPercentOfMachine.numericValue, model.processCPUScale, factor: model.processCPUFactor))
+            Text(ProcessText.cpu(process.cpuPercentOfMachine.numericValue, model.processCPUScaleInEffect, factor: model.processCPUFactor))
             Text("Footprint \(MetricText.bytes(process.memoryFootprintBytes.numericValue))")
             Text("Disk \(MetricText.bytes(process.diskReadBytesPerSecond.numericValue))/s read, \(MetricText.bytes(process.diskWriteBytesPerSecond.numericValue))/s written")
             Text(WakeupText.rate(process.wakeupsPerSecond.numericValue))
@@ -2071,7 +2071,7 @@ private struct StartupPane: View {
                     TableColumn("Kind") { Text(StartupText.kind($0.item.kind)) }
                     TableColumn("State") { Text(StartupText.state($0.item)) }
                     TableColumn("Running") { Text($0.processCount == 0 ? "–" : "\($0.processCount)") }
-                    TableColumn(ProcessText.cpuColumn(model.processCPUScale)) { (row: StartupRow) in
+                    TableColumn(ProcessText.cpuColumn(model.processCPUScaleInEffect)) { (row: StartupRow) in
                         Text(MetricText.percent(row.cpuPercentOfMachine.map { $0 * model.processCPUFactor }))
                     }
                     TableColumn("Footprint") { Text(MetricText.bytes($0.memoryFootprintBytes)) }
