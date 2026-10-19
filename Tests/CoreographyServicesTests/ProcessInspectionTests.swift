@@ -8,7 +8,7 @@ final class ProcessInspectionTests: XCTestCase {
     private let stamp = SampleStamp(clockID: UUID(), monotonicNanoseconds: 1, wallTime: Date())
 
     func testParentChainEndsAtLaunchdOrTheFirstUnobservedParent() throws {
-        let snapshot = try snapshot([(1, 0, "launchd", nil), (50, 1, "WindowServer", "/x/WindowServer"), (60, 50, "child", "/opt/child"), (70, 999, "orphan", nil)])
+        let snapshot = try snapshot([(1, 0, "launchd", nil), (50, 1, "WindowServer", "/System/Library/PrivateFrameworks/SkyLight.framework/Resources/WindowServer"), (60, 50, "child", "/opt/child"), (70, 999, "orphan", nil)])
         let child = try XCTUnwrap(snapshot.processes.first { $0.id.pid == 60 })
         let startup = StartupInventory(
             takenAt: Date(), items: [StartupItem(
@@ -34,6 +34,31 @@ final class ProcessInspectionTests: XCTestCase {
         }
     }
 
+    func testExplanationsRequireASystemPathAndDoNotPromiseSafeQuitting() throws {
+        let snapshot = try snapshot([
+            (10, 1, "mds", "/System/Library/Frameworks/CoreServices.framework/Frameworks/Metadata.framework/Support/mds"),
+            (11, 1, "mds", "/Applications/mds.app/Contents/MacOS/mds"),
+            (12, 1, "mds", "/usr/local/bin/mds"),
+            (13, 1, "mds", nil)
+        ])
+        let note = try XCTUnwrap(ProcessExplanations.note(for: snapshot.processes[0]))
+        XCTAssertTrue(note.summary.contains("Spotlight"))
+        XCTAssertFalse(note.quittingNote.contains("safe"), "a role does not establish that current work can be interrupted safely")
+        for process in snapshot.processes.dropFirst() {
+            XCTAssertNil(ProcessExplanations.note(for: process), "a name alone does not identify an Apple process")
+        }
+
+        let captured = DiagnosticSnapshot(
+            takenAt: stamp.wallTime, host: [], network: [], gpu: [], power: [], sensors: [],
+            processes: snapshot, ledger: AppLedger(capacity: 1)
+        )
+        XCTAssertEqual(DiagnosticTools.processDetails(captured, pid: 10)?.explanation, "\(note.summary) \(note.quittingNote)")
+        XCTAssertNil(DiagnosticTools.processDetails(captured, pid: 11)?.explanation)
+        let encoded = try DiagnosticToolCatalog.run("get_process_details", arguments: ["pid": 10], snapshot: captured)
+        XCTAssertTrue(encoded.contains("Spotlight"), "the qualified note is exported")
+        XCTAssertFalse(encoded.contains("/System/"), "path qualification must not export the path")
+    }
+
     @MainActor
     func testSelectingAProcessOpensTheInspectorAndReadsItsDetail() async throws {
         let model = DashboardModel(
@@ -53,6 +78,13 @@ final class ProcessInspectionTests: XCTestCase {
         while model.processDetail == nil, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(5)) }
         XCTAssertEqual(model.processInspection?.detail?.arguments, ["fixture", "--serve"])
         XCTAssertEqual(model.processInspection?.process.id, process.id)
+    }
+
+    func testKernelTaskUsesItsUnforgeablePIDInsteadOfAnExecutablePath() throws {
+        let snapshot = try snapshot([(0, 0, "kernel_task", nil), (10, 1, "kernel_task", nil)])
+        let note = try XCTUnwrap(ProcessExplanations.note(for: snapshot.processes[0]))
+        guard case .notAllowed = note.quitting else { return XCTFail("the kernel cannot be quit") }
+        XCTAssertNil(ProcessExplanations.note(for: snapshot.processes[1]), "a same-named user process is not the kernel")
     }
 
     private func snapshot(_ rows: [(Int32, UInt32, String, String?)]) throws -> CapturedProcesses {

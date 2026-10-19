@@ -15,11 +15,12 @@ public struct DiagnosticSnapshot: Sendable {
     let processes: CapturedProcesses?
     let ledger: AppLedger
     let sleep: SleepHistoryState
+    let assertions: AssertionSnapshot?
 
     init(
         takenAt: Date, host: [CapturedSnapshot], network: [CapturedNetwork], gpu: [CapturedGPU],
         power: [CapturedPower], sensors: [CapturedSensors], processes: CapturedProcesses?, ledger: AppLedger,
-        sleep: SleepHistoryState = .notImported
+        sleep: SleepHistoryState = .notImported, assertions: AssertionSnapshot? = nil
     ) {
         self.id = UUID()
         self.takenAt = takenAt
@@ -31,6 +32,7 @@ public struct DiagnosticSnapshot: Sendable {
         self.processes = processes
         self.ledger = ledger
         self.sleep = sleep
+        self.assertions = assertions
     }
 }
 
@@ -146,6 +148,20 @@ public struct SleepHistoryReport: Codable, Sendable {
     /// The newest records in the window, oldest first.
     public let events: [PowerEvent]
     public let omittedEvents: Int
+    /// Assertions holding the Mac or its display awake when the snapshot was taken.
+    public let currentAssertions: [AssertionRecord]
+    public let assertionsTakenAt: Date?
+    public let assertionsUnavailableReason: String?
+    public let omittedAssertions: Int
+}
+
+/// A live assertion with the name of the process holding it.
+public struct AssertionRecord: Codable, Sendable {
+    public let pid: Int32
+    public let process: String?
+    public let type: String
+    public let effect: AssertionEffect
+    public let since: Date?
 }
 
 public struct ProcessDetails: Codable, Sendable {
@@ -159,6 +175,8 @@ public struct ProcessDetails: Codable, Sendable {
     public let memoryFootprintBytes: MetricReading
     public let diskReadBytesPerSecond: MetricReading
     public let diskWriteBytesPerSecond: MetricReading
+    /// The curated note for a well-known system process: its role and what quitting does.
+    public let explanation: String?
 }
 
 /// The shared, read-only diagnostic contract (plan: one service for the
@@ -315,7 +333,8 @@ public enum DiagnosticTools {
             pid: process.id.pid, startSeconds: process.id.startSeconds, startMicroseconds: process.id.startMicroseconds,
             name: process.name, app: app?.appName ?? process.name, uid: process.uid,
             cpuPercentOfMachine: process.cpuPercentOfMachine, memoryFootprintBytes: process.memoryFootprintBytes,
-            diskReadBytesPerSecond: process.diskReadBytesPerSecond, diskWriteBytesPerSecond: process.diskWriteBytesPerSecond
+            diskReadBytesPerSecond: process.diskReadBytesPerSecond, diskWriteBytesPerSecond: process.diskWriteBytesPerSecond,
+            explanation: ProcessExplanations.note(for: process).map { "\($0.summary) \($0.quittingNote)" }
         )
     }
 
@@ -360,15 +379,37 @@ public enum DiagnosticTools {
         let inWindow = history.events.filter { $0.time >= start && $0.time <= end }
         let kept = inWindow.suffix(maximumSleepEvents)
         let partial: String? = if case .partial(let reason) = history.coverage { reason } else { nil }
+        let assertions = snapshot.assertions
+        let unavailable = assertions?.unavailableReason ?? (assertions == nil ? "Power assertions have not been read yet" : nil)
+        let preventers = unavailable == nil ? (assertions?.assertions.filter { $0.effect != .other } ?? []) : []
+        // Assertion names can contain paths and document titles; export only typed facts.
+        let processes: CapturedProcesses? = snapshot.processes.flatMap { processes in
+            guard let assertions, abs(processes.stamp.wallTime.timeIntervalSince(assertions.takenAt)) <= assertionProcessTolerance else {
+                return nil
+            }
+            return processes
+        }
         return SleepHistoryReport(
             snapshotID: snapshot.id, source: sleepSource, importedAt: history.importedAt,
             windowStart: start, windowEnd: end, coveredFrom: history.coveredFrom, coveredTo: history.coveredTo,
             partialCoverage: partial, periods: history.periods.filter { $0.end >= start && $0.start <= end },
-            events: Array(kept), omittedEvents: inWindow.count - kept.count
+            events: Array(kept), omittedEvents: inWindow.count - kept.count,
+            currentAssertions: preventers.prefix(maximumCurrentAssertions).map { assertion in
+                AssertionRecord(
+                    pid: assertion.pid,
+                    process: processes?.processes.first { $0.id.pid == assertion.pid }?.name,
+                    type: assertion.type, effect: assertion.effect, since: assertion.since
+                )
+            },
+            assertionsTakenAt: assertions?.takenAt, assertionsUnavailableReason: unavailable,
+            omittedAssertions: max(0, preventers.count - maximumCurrentAssertions)
         )
     }
 
     // MARK: Helpers
+
+    private static let maximumCurrentAssertions = 200
+    private static let assertionProcessTolerance: TimeInterval = 2.5
 
     private static func value(_ unit: String, _ reading: MetricReading, _ frame: UUID) -> DiagnosticValue {
         DiagnosticValue(unit: unit, reading: reading, evidence: "frame:\(frame)")

@@ -7,7 +7,7 @@ public typealias CapturedSystemFacts = SystemFacts
 
 /// What quitting a known system process does.
 public enum QuitEffect: Sendable {
-    /// launchd starts it again; nothing is lost.
+    /// macOS normally restarts it; current work can be interrupted.
     case restarts
     /// It stops something you would notice until it restarts.
     case interrupts(String)
@@ -18,9 +18,21 @@ public enum QuitEffect: Sendable {
 }
 
 /// A plain-language note for a well-known system process (plan P23).
+/// It describes the role, not the current job or a promise that quitting
+/// is safe right now.
 public struct ProcessExplanation: Sendable {
     public let summary: String
     public let quitting: QuitEffect
+
+    /// A general consequence, not a guarantee about current work.
+    public var quittingNote: String {
+        switch quitting {
+        case .restarts: "macOS normally restarts it; current work may be interrupted."
+        case .interrupts(let what): "Quitting interrupts it: \(what)"
+        case .logsOut: "Quitting it logs you out."
+        case .notAllowed: "macOS does not allow quitting it."
+        }
+    }
 }
 
 /// One step up the parent chain; a parent outside the snapshot has no name.
@@ -54,10 +66,10 @@ enum ProcessExplanations {
         "mds": .init(summary: "Spotlight's index server; busy after installs and large copies.", quitting: .restarts),
         "mds_stores": .init(summary: "Spotlight's index storage; busy while files are being indexed.", quitting: .restarts),
         "mdworker_shared": .init(summary: "Spotlight reading files to index them.", quitting: .restarts),
-        "backupd": .init(summary: "Time Machine making a backup.", quitting: .interrupts("The running backup stops until the next one.")),
-        "cloudd": .init(summary: "iCloud syncing data for apps.", quitting: .restarts),
-        "bird": .init(summary: "iCloud Drive syncing files.", quitting: .restarts),
-        "photoanalysisd": .init(summary: "Photos analysing your library, usually while the Mac is idle.", quitting: .restarts),
+        "backupd": .init(summary: "Runs Time Machine backups.", quitting: .interrupts("An active backup stops.")),
+        "cloudd": .init(summary: "Syncs iCloud data for apps.", quitting: .restarts),
+        "bird": .init(summary: "Syncs iCloud Drive files.", quitting: .restarts),
+        "photoanalysisd": .init(summary: "Analyses the Photos library, usually while the Mac is idle.", quitting: .restarts),
         "softwareupdated": .init(summary: "Checking for and preparing macOS updates.", quitting: .restarts),
         "trustd": .init(summary: "Checking certificates for secure connections.", quitting: .restarts),
         "syspolicyd": .init(summary: "Gatekeeper checking apps before they open.", quitting: .restarts),
@@ -74,7 +86,17 @@ enum ProcessExplanations {
         "nsurlsessiond": .init(summary: "Background downloads and uploads for apps.", quitting: .restarts)
     ]
 
-    static func note(for name: String) -> ProcessExplanation? { notes[name] }
+    /// Excludes writable third-party locations such as /usr/local.
+    private static let systemPrefixes = ["/System/", "/usr/libexec/", "/usr/sbin/", "/usr/bin/", "/sbin/", "/bin/", "/Library/Apple/System/"]
+
+    /// A missing path cannot establish that a familiar name belongs to macOS.
+    static func note(for process: ObservedProcess) -> ProcessExplanation? {
+        guard let note = notes[process.name] else { return nil }
+        // The kernel has no executable path; PID 0 cannot belong to a user process.
+        if process.id.pid == 0, process.name == "kernel_task" { return note }
+        guard let path = process.executablePath else { return nil }
+        return systemPrefixes.contains { path.hasPrefix($0) } ? note : nil
+    }
 }
 
 enum ProcessInspections {
@@ -98,7 +120,7 @@ enum ProcessInspections {
         let label = process.executablePath.flatMap { path in startup?.items.first { $0.program == path }?.label }
         return ProcessInspection(
             process: process, appName: ProcessGroups.appNames(snapshot)[process.id] ?? process.name,
-            parentChain: chain, launchdLabel: label, explanation: ProcessExplanations.note(for: process.name),
+            parentChain: chain, launchdLabel: label, explanation: ProcessExplanations.note(for: process),
             detail: detail?.process == process.id ? detail : nil, sockets: sockets
         )
     }

@@ -7,10 +7,15 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
 ## [Unreleased]
 
 ### Fixed
+- System-process notes require a system executable path, except for the
+  kernel's PID 0, and no longer promise that quitting is safe.
 - The history size cap no longer drops more history on every write
   after the store first exceeds it.
 
 ### Added
+- Diagnostic process role notes and current sleep-preventing assertion
+  types, with read time, availability and omissions. Private assertion
+  names stay out of diagnostic results.
 - Sample a process's call stacks for 3 seconds and read or save the report.
 - A HUD with CPU, GPU, temperature and power over full-screen apps
   (Option-Command-H or the menu bar extra).
