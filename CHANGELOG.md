@@ -7,6 +7,9 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
 ## [Unreleased]
 
 ### Fixed
+- Lower Priority leaves a process that already runs at a lower priority
+  alone instead of failing, and Hang Up and Interrupt on the window
+  server or login window warn that they log you out.
 - The Sensors tab no longer shows the last good readings as current
   after a sample in which no sensor could be read.
 - Startup items take launchd's enable state from their own domain, so an

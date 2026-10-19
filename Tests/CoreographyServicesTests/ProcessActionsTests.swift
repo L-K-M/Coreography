@@ -24,6 +24,16 @@ final class ProcessActionsTests: XCTestCase {
         XCTAssertEqual(unknown.consequences.last, "Child processes, if any, may also exit.")
     }
 
+    func testSignalsThatCanEndASessionSayItLogsYouOut() throws {
+        let windowServer = try process(pid: 80, name: "WindowServer")
+        let snapshot = try self.snapshot([windowServer])
+        for action in [ProcessAction.hangUp, .interrupt] {
+            let request = ProcessActions.request(for: windowServer, action: action, in: snapshot)
+            XCTAssertEqual(request.consequences.first, "This logs you out; unsaved work in every app is lost.", "\(action)")
+            XCTAssertTrue(request.endsSession, "\(action)")
+        }
+    }
+
     func testRequestsTargetTheExactIdentityAndMarkOnlySuccess() async throws {
         let driver = RecordingDriver(results: [.success(()), .failure(.identityChanged)])
         let model = DashboardModel(
@@ -62,7 +72,7 @@ final class ProcessActionsTests: XCTestCase {
 
         model.perform(model.actionRequest(for: worker, action: .lowerPriority))
         XCTAssertEqual(signaler.calls.last?.nice, ProcessController.lowPriorityNice)
-        XCTAssertEqual(model.actionMessage, "Worker: Only an administrator can raise its priority again")
+        XCTAssertEqual(model.actionMessage, "Worker: Its priority was not changed; only an administrator can change it")
 
         let frozen = model.actionRequest(for: session, action: .suspend)
         XCTAssertEqual(frozen.refusal, "Suspending it would freeze the screen with no way back.")

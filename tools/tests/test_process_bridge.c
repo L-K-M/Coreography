@@ -186,13 +186,19 @@ test_platform(void)
                                 COREO_SIGNAL_CONTINUE) == 0);
     assert(waitpid(child, &stop_status, WCONTINUED) == child && WIFCONTINUED(stop_status));
 
-    /* Renice lowers priority; raising it back needs root. */
+    /* Renice only lowers priority: a process already at or below the target
+       keeps its own nice value, and a raise is never attempted. */
     assert(coreo_process_renice((int32_t)child, target.start_seconds + 1, target.start_microseconds, 10) == EAGAIN);
     assert(coreo_process_renice((int32_t)child, target.start_seconds, target.start_microseconds, 10) == 0);
     errno = 0;
     assert(getpriority(PRIO_PROCESS, (id_t)child) == 10 && errno == 0);
-    assert(coreo_process_renice((int32_t)child, target.start_seconds, target.start_microseconds, 0)
-           == (getuid() == 0 ? 0 : EACCES));
+    assert(coreo_process_renice((int32_t)child, target.start_seconds, target.start_microseconds, 0) == 0);
+    errno = 0;
+    assert(getpriority(PRIO_PROCESS, (id_t)child) == 10 && errno == 0);
+    assert(setpriority(PRIO_PROCESS, (id_t)child, 15) == 0);
+    assert(coreo_process_renice((int32_t)child, target.start_seconds, target.start_microseconds, 10) == 0);
+    errno = 0;
+    assert(getpriority(PRIO_PROCESS, (id_t)child) == 15 && errno == 0);
 
     assert(coreo_process_signal((int32_t)child, target.start_seconds, target.start_microseconds,
                                 COREO_SIGNAL_TERMINATE) == 0);

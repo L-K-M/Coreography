@@ -562,8 +562,11 @@ Implemented:
   inspector. Signals and renice go through the same identity check as
   Quit and confirm with their consequences; suspending the window
   server, the login window or Coreography itself is refused, because
-  nothing could resume it. Raising priority again needs an
-  administrator and says so. Sample and spindump remain.
+  nothing could resume it. Lower Priority only lowers: a process already
+  at nice 10 or beyond keeps its own value. Hang-up and interrupt on the
+  window server or login window warn that they log you out, as Quit does.
+  Raising priority again needs an administrator and says so. Sample and
+  spindump remain.
 - Saved filters: the current process filter can be kept as a chip
   under the field (up to 12, newest first, no duplicates); a click
   applies it and its menu removes it. Chips are saved in preferences.

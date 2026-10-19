@@ -307,6 +307,7 @@ coreo_process_renice(int32_t pid, uint64_t start_seconds, uint64_t start_microse
 {
     struct proc_bsdinfo identity;
     int32_t err;
+    int current;
 
     if (pid <= 0 || nice_value < COREO_NICE_MIN || nice_value > COREO_NICE_MAX) {
         return EINVAL;
@@ -317,6 +318,16 @@ coreo_process_renice(int32_t pid, uint64_t start_seconds, uint64_t start_microse
     }
     if (identity.pbi_start_tvsec != start_seconds || identity.pbi_start_tvusec != start_microseconds) {
         return EAGAIN;
+    }
+    /* Lowering only: a process already at or below the target keeps its own
+       value, rather than being raised to it (which needs root anyway). */
+    errno = 0;
+    current = getpriority(PRIO_PROCESS, (id_t)pid);
+    if (current == -1 && errno != 0) {
+        return errno;
+    }
+    if (current >= nice_value) {
+        return 0;
     }
     if (setpriority(PRIO_PROCESS, (id_t)pid, nice_value) != 0) {
         return errno ? errno : EIO;
