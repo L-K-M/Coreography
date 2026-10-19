@@ -129,6 +129,11 @@ final class ProcessNetworkTests: XCTestCase {
         let network = ledger.series(for: "Safari").network
         XCTAssertEqual(network.map(\.value), [1_500, 1_500], "in plus out per second; the unread interval is absent")
         XCTAssertNotEqual(network[0].segment, network[1].segment, "and the line breaks there")
+        XCTAssertEqual(AppLedger.currentNetworkRate(ledger.series(for: "Safari")), 1_500)
+
+        // An app whose newest interval did not read network has no current rate, not an old one.
+        ledger.record(try snapshot([safari], at: 8), logicalCPUCount: 4)
+        XCTAssertNil(AppLedger.currentNetworkRate(ledger.series(for: "Safari")))
     }
 
     func testTotalsSavedBeforeNetworkBoundsStillDecode() throws {

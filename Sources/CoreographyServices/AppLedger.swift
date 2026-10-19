@@ -216,6 +216,13 @@ struct AppLedger: Sendable {
         return (cpu, disk, network)
     }
 
+    /// The newest network rate, or nil when the newest interval did not read
+    /// network: an older rate shown as current would mislead.
+    static func currentNetworkRate(_ series: (cpu: [DashboardPoint], disk: [DashboardPoint], network: [DashboardPoint])) -> Double? {
+        guard let network = series.network.last, network.time == series.disk.last?.time else { return nil }
+        return network.value
+    }
+
     /// Two totals over disjoint intervals, combined per app.
     static func combine(
         _ older: (apps: [AppRangeTotal], covered: ClosedRange<Date>?),

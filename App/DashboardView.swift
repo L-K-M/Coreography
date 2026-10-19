@@ -1240,7 +1240,8 @@ private struct NetworkLane: View {
                 interfacePicker
                 // A scoped app's TCP and UDP, every interface together (plan P8).
                 if let app = model.scopedApp {
-                    Text("\(app): \(MetricText.rate(model.scopedSeries()?.network.last?.value)) in + out")
+                    Text(model.scopedNetworkRate.map { "\(app): \(MetricText.rate($0)) in + out" }
+                         ?? String(localized: "\(app): network not read lately"))
                         .font(.caption.weight(.medium)).foregroundStyle(.blue)
                 }
                 if let inventory = model.networkFrames.last {

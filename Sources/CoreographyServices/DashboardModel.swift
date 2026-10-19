@@ -1626,6 +1626,9 @@ public final class DashboardModel {
 
     /// The scoped app's CPU share and disk rate from the ledger, for lane
     /// overlays; on the 6 h range, stored intervals come first.
+    /// The scoped app's network rate now; nil when not read lately.
+    public var scopedNetworkRate: Double? { scopedSeries().flatMap(AppLedger.currentNetworkRate) }
+
     public func scopedSeries() -> (cpu: [DashboardPoint], disk: [DashboardPoint], network: [DashboardPoint])? {
         guard let scopedApp else { return nil }
         let live = ledger.series(for: scopedApp)
