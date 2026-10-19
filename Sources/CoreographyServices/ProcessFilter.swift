@@ -4,8 +4,25 @@ import CoreographyKit
 /// A parsed process filter (plan P22). Whitespace separates terms; every
 /// term must match. Examples: `safari`, `cpu:>10`, `mem:>1GB`, `disk:>5MB`,
 /// `pid:42`, `user:root`, `user:me`, `#apps`, `#mine`, `#third-party`, `#new`,
-/// `#listening`.
+/// `#listening`, `port:443`.
 /// Terms that cannot be evaluated are reported, never silently dropped.
+/// What connection data says about each process, for `#listening` and `port:`.
+struct ProcessSocketFacts: Sendable {
+    let listening: Set<ProcessIdentity>
+    /// Every local and remote port of each process's sockets.
+    let ports: [ProcessIdentity: Set<UInt16>]
+
+    init(_ snapshot: CapturedConnections) {
+        listening = snapshot.listeningProcesses
+        var ports: [ProcessIdentity: Set<UInt16>] = [:]
+        for connection in snapshot.connections {
+            if connection.local.port != 0 { ports[connection.process, default: []].insert(connection.local.port) }
+            if let remote = connection.remote { ports[connection.process, default: []].insert(remote.port) }
+        }
+        self.ports = ports
+    }
+}
+
 public struct ProcessFilter: Equatable, Sendable {
     enum Comparison: Equatable, Sendable {
         case greater(Double), greaterOrEqual(Double), less(Double), lessOrEqual(Double), equal(Double)
@@ -33,6 +50,8 @@ public struct ProcessFilter: Equatable, Sendable {
         case pid(Int32)
         case user(UInt32)
         case token(Token)
+        /// Reverse lookup: processes with a socket on this local or remote port.
+        case port(UInt16)
     }
 
     /// Tokens the plan names whose data sources do not exist yet.
@@ -86,6 +105,8 @@ public struct ProcessFilter: Equatable, Sendable {
                 } else { issues.append("Unreadable \(word); try disk:>5MB") }
             case "pid":
                 if let pid = Int32(value) { terms.append(.pid(pid)) } else { issues.append("Unreadable \(word)") }
+            case "port":
+                if let port = UInt16(value), port > 0 { terms.append(.port(port)) } else { issues.append("Unreadable \(word); try port:443") }
             case "user", "uid":
                 switch value.lowercased() {
                 case "root": terms.append(.user(0))
@@ -102,7 +123,14 @@ public struct ProcessFilter: Equatable, Sendable {
 
     var isEmpty: Bool { terms.isEmpty }
     /// Matching needs connection data, which is read only on demand.
-    var usesListening: Bool { terms.contains(.token(.listening)) }
+    var usesSockets: Bool {
+        terms.contains { term in
+            switch term {
+            case .token(.listening), .port: true
+            default: false
+            }
+        }
+    }
     /// Only free text: a matching app name shows the whole group.
     var isTextOnly: Bool { terms.allSatisfy { if case .text = $0 { true } else { false } } }
 
@@ -115,10 +143,10 @@ public struct ProcessFilter: Equatable, Sendable {
 
     /// Unknown readings never match a numeric predicate: they are not zero.
     /// Text also matches the member's app, so `safari cpu:>10` keeps Safari's helpers.
-    /// - Parameter listening: processes holding a listening socket; nil
-    ///   until connection data exists, when `#listening` matches nothing.
+    /// - Parameter sockets: what connection data says about each process;
+    ///   nil until it exists, when `#listening` and `port:` match nothing.
     func matches(
-        _ process: ObservedProcess, isNew: Bool, appName: String? = nil, listening: Set<ProcessIdentity>? = nil,
+        _ process: ObservedProcess, isNew: Bool, appName: String? = nil, sockets: ProcessSocketFacts? = nil,
         currentUser: UInt32 = UInt32(getuid())
     ) -> Bool {
         terms.allSatisfy { term in
@@ -151,7 +179,9 @@ public struct ProcessFilter: Equatable, Sendable {
             case .token(.new):
                 return isNew
             case .token(.listening):
-                return listening?.contains(process.id) ?? false
+                return sockets?.listening.contains(process.id) ?? false
+            case .port(let port):
+                return sockets?.ports[process.id]?.contains(port) ?? false
             }
         }
     }
