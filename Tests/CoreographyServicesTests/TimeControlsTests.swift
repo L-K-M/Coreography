@@ -30,6 +30,29 @@ final class TimeControlsTests: XCTestCase {
         XCTAssertFalse(model.samplingPaused)
     }
 
+    /// Plan: the range inspector's Annotate names a range where it starts and ends.
+    @MainActor
+    func testAnnotatingARangeMarksItsStartAndEnd() async throws {
+        let model = DashboardModel(monitor: try SystemMonitor(driver: Counting()), interval: .milliseconds(10))
+        model.annotateSelection(named: "Nothing selected")
+        XCTAssertTrue(model.timelineMarkers.isEmpty, "without a range there is nothing to annotate")
+
+        let start = Date(timeIntervalSince1970: 1_700_000_000)
+        model.selection = start...start.addingTimeInterval(30)
+        model.annotateSelection(named: "  Build  ")
+        XCTAssertEqual(model.timelineMarkers.map(\.label), ["Build", "End of Build"])
+        XCTAssertEqual(model.timelineMarkers.map(\.time), [start, start.addingTimeInterval(30)])
+        XCTAssertTrue(model.timelineMarkers.allSatisfy { $0.kind == .note })
+
+        model.selection = start...start
+        model.annotateSelection(named: "Instant")
+        XCTAssertEqual(model.timelineMarkers.filter { $0.label.contains("Instant") }.count, 1, "an instant is one marker")
+
+        model.selection = start...start.addingTimeInterval(5)
+        model.annotateSelection(named: String(repeating: "x", count: 200))
+        XCTAssertTrue(model.timelineMarkers.allSatisfy { $0.label.count <= DashboardModel.maximumMarkerLength }, "the end's label keeps the limit too")
+    }
+
     /// One core = 100 % needs the core count; until a sample names it, labels must not claim it.
     @MainActor
     func testTheOneCoreScaleWaitsForTheCoreCount() async throws {
