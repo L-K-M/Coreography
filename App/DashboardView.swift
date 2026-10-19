@@ -3445,6 +3445,7 @@ struct ReportsTyping: ViewModifier {
 }
 
 /// What a lane draws: the model's visible window, or the range up to now before any data.
+@MainActor
 private enum LaneWindow {
     static func bounds(_ model: DashboardModel) -> (start: Date, end: Date) {
         let window = model.visibleWindow ?? Date().addingTimeInterval(-model.timeRange.seconds)...Date()
@@ -3467,12 +3468,15 @@ final class ScrollPanner {
         self.handler = handler
         guard monitor == nil else { return }
         monitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { event in
-            MainActor.assumeIsolated {
-                guard let handler = ScrollPanner.shared.handler,
-                      abs(event.scrollingDeltaX) > abs(event.scrollingDeltaY) else { return event }
-                handler(event.scrollingDeltaX)
-                return nil
+            // Only plain values cross into the main actor; the event itself is not Sendable.
+            let deltaX = event.scrollingDeltaX
+            let deltaY = event.scrollingDeltaY
+            let consumed = MainActor.assumeIsolated { () -> Bool in
+                guard let handler = ScrollPanner.shared.handler, abs(deltaX) > abs(deltaY) else { return false }
+                handler(deltaX)
+                return true
             }
+            return consumed ? nil : event
         }
     }
 
