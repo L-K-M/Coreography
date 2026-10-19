@@ -115,6 +115,13 @@ Implemented:
   forgets dragged places. Control-Command-J cycles the level (Option-Command-H
   is macOS's Hide Others, so the HUD uses Control).
 
+- Pan and zoom: two-finger sideways scrolling over any lane pans the
+  window back (detaching from live, as scrubbing does) and forward, never
+  past the oldest data held or the newest; pinching steps through the
+  range pills, apart for closer and together for wider. Short ranges pan
+  through the live hour; longer ranges pan only within the stored part
+  already loaded, so loading stored history for a window further back
+  remains. Return to Now and Return to live end the pan.
 - Time controls: Pause Recording (toolbar, menu bar extra and palette)
   stops sampling, so every series and the store keep a gap, marked
   "Recording paused" and "Recording resumed"; reopening the window does

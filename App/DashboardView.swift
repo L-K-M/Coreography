@@ -299,8 +299,9 @@ struct DashboardView: View {
         let maximum = metric == .cpu
             ? MetricText.percentScale
             : Double(model.latest?.inventory.physicalMemoryBytes ?? 1)
-        let end = model.displayedEndTime ?? Date()
-        let start = end.addingTimeInterval(-model.timeRange.seconds)
+        let window = LaneWindow.bounds(model)
+        let start = window.start
+        let end = window.end
         let points = visiblePoints(model.points(for: metric), start, end)
         let scoped = metric == .cpu ? model.scopedSeries().map { visiblePoints($0.cpu, start, end) } : nil
         let split = metric == .cpu ? model.cpuSplitPoints().filter { (start...end).contains($0.time) } : []
@@ -446,8 +447,9 @@ private struct MemoryLane: View {
     @Bindable var model: DashboardModel
 
     var body: some View {
-        let end = model.displayedEndTime ?? Date()
-        let start = end.addingTimeInterval(-model.timeRange.seconds)
+        let window = LaneWindow.bounds(model)
+        let start = window.start
+        let end = window.end
         let stack = Decimation.stack(model.memoryStack().filter { $0.time >= start && $0.time <= end }, start: start, end: end)
         let pressure = model.memoryPressureSpans().filter { $0.end >= start && $0.start <= end }
         let capacity = Double(max(1, model.latest?.inventory.physicalMemoryBytes ?? 1))
@@ -637,8 +639,9 @@ private struct GPULane: View {
     @Bindable var model: DashboardModel
 
     var body: some View {
-        let end = model.displayedEndTime ?? Date()
-        let start = end.addingTimeInterval(-model.timeRange.seconds)
+        let window = LaneWindow.bounds(model)
+        let start = window.start
+        let end = window.end
         let series = model.gpuSeries()
         let hasVisiblePoints = series.contains { $0.points.contains { $0.time >= start && $0.time <= end } }
         let latest = model.displayedGPUFrame
@@ -771,8 +774,9 @@ private struct PowerLane: View {
     @Bindable var model: DashboardModel
 
     var body: some View {
-        let end = model.displayedEndTime ?? Date()
-        let start = end.addingTimeInterval(-model.timeRange.seconds)
+        let window = LaneWindow.bounds(model)
+        let start = window.start
+        let end = window.end
         let points = visiblePoints(model.batteryChargePoints(), start, end)
         let plugged = model.externalPowerSpans().filter { $0.end >= start && $0.start <= end }
         let latest = model.displayedPowerFrame
@@ -985,8 +989,9 @@ private struct ThermalLane: View {
     @Bindable var model: DashboardModel
 
     var body: some View {
-        let end = model.displayedEndTime ?? Date()
-        let start = end.addingTimeInterval(-model.timeRange.seconds)
+        let window = LaneWindow.bounds(model)
+        let start = window.start
+        let end = window.end
         let spans = model.thermalPressureSpans().filter { $0.end >= start && $0.start <= end }
         let temperatures = visiblePoints(model.hottestTemperaturePoints(), start, end)
         let reading = model.displayedFrame?.thermalPressure
@@ -1217,8 +1222,9 @@ private struct NetworkLane: View {
     @Bindable var model: DashboardModel
 
     var body: some View {
-        let end = model.displayedEndTime ?? Date()
-        let start = end.addingTimeInterval(-model.timeRange.seconds)
+        let window = LaneWindow.bounds(model)
+        let start = window.start
+        let end = window.end
         let received = visiblePoints(model.points(for: .networkReceived), start, end)
         let sent = visiblePoints(model.points(for: .networkSent), start, end)
         let receiveReading = model.reading(for: .networkReceived)
@@ -1292,8 +1298,9 @@ private struct DiskLane: View {
     @Bindable var model: DashboardModel
 
     var body: some View {
-        let end = model.displayedEndTime ?? Date()
-        let start = end.addingTimeInterval(-model.timeRange.seconds)
+        let window = LaneWindow.bounds(model)
+        let start = window.start
+        let end = window.end
         let read = visiblePoints(model.points(for: .diskRead), start, end)
         let written = visiblePoints(model.points(for: .diskWritten), start, end)
         HStack(alignment: .top, spacing: 24) {
@@ -2879,6 +2886,10 @@ private struct ChartInteraction: View {
     @GestureState private var dragging = false
     /// Decided when a drag starts: Command makes it the comparison range.
     @State private var dragsComparison: Bool?
+    /// This plot's claim on horizontal scrolling while the pointer is over it.
+    @State private var scrollOwner = UUID()
+    private static let pinchCloser: CGFloat = 1.15
+    private static let pinchWider: CGFloat = 1 / 1.15
 
     var body: some View {
         Rectangle()
@@ -2891,10 +2902,23 @@ private struct ChartInteraction: View {
                     let x = location.x - geometry[plot].origin.x
                     // The axis margin maps to no date; keep the cursor rather than flicker to live.
                     if let time = proxy.value(atX: x, as: Date.self) { model.cursorTime = time }
+                    // Two-finger sideways scrolling pans: content moving right shows older data.
+                    let width = max(geometry[plot].size.width, 1)
+                    ScrollPanner.shared.begin(scrollOwner) { delta in
+                        model.pan(bySeconds: Double(delta) * model.timeRange.seconds / Double(width))
+                    }
                 case .ended:
                     model.cursorTime = nil
+                    ScrollPanner.shared.end(scrollOwner)
                 }
             }
+            // A lane torn down under the pointer never sees its hover end.
+            .onDisappear { ScrollPanner.shared.end(scrollOwner) }
+            // Pinching steps through the range pills: apart zooms closer, together wider; a slight touch does nothing.
+            .simultaneousGesture(MagnifyGesture().onEnded { value in
+                if value.magnification > Self.pinchCloser { model.zoom(.closer) }
+                if value.magnification < Self.pinchWider { model.zoom(.wider) }
+            })
             // Dragging across any lane selects one range for all of them (plan P7).
             .gesture(DragGesture(minimumDistance: 4).updating($dragging) { _, state, _ in
                 state = true
@@ -3417,5 +3441,47 @@ struct ReportsTyping: ViewModifier {
             .focused($focused)
             .onChange(of: focused) { _, typing in model.setTyping(field, typing) }
             .onDisappear { model.setTyping(field, false) }
+    }
+}
+
+/// What a lane draws: the model's visible window, or the range up to now before any data.
+private enum LaneWindow {
+    static func bounds(_ model: DashboardModel) -> (start: Date, end: Date) {
+        let window = model.visibleWindow ?? Date().addingTimeInterval(-model.timeRange.seconds)...Date()
+        return (window.lowerBound, window.upperBound)
+    }
+}
+
+/// Horizontal scrolling over a lane pans the timeline (plan: scroll to pan
+/// further back). The plot under the pointer owns it; vertical scrolling
+/// still scrolls the window.
+@MainActor
+final class ScrollPanner {
+    static let shared = ScrollPanner()
+    private var monitor: Any?
+    private var owner: UUID?
+    private var handler: ((CGFloat) -> Void)?
+
+    func begin(_ owner: UUID, _ handler: @escaping (CGFloat) -> Void) {
+        self.owner = owner
+        self.handler = handler
+        guard monitor == nil else { return }
+        monitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { event in
+            MainActor.assumeIsolated {
+                guard let handler = ScrollPanner.shared.handler,
+                      abs(event.scrollingDeltaX) > abs(event.scrollingDeltaY) else { return event }
+                handler(event.scrollingDeltaX)
+                return nil
+            }
+        }
+    }
+
+    /// Another plot may already have taken over; only the owner lets go.
+    func end(_ owner: UUID) {
+        guard self.owner == owner else { return }
+        self.owner = nil
+        handler = nil
+        if let monitor { NSEvent.removeMonitor(monitor) }
+        monitor = nil
     }
 }
