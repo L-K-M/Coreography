@@ -30,6 +30,8 @@ final class HUDController {
     @ObservationIgnored private var panel: NSPanel?
     @ObservationIgnored private let model: DashboardModel
     @ObservationIgnored private var moveObserver: NSObjectProtocol?
+    /// Set while the HUD moves itself, so only a person's drag is remembered.
+    @ObservationIgnored private var isPlacing = false
 
     init(model: DashboardModel) { self.model = model }
 
@@ -93,14 +95,21 @@ final class HUDController {
     }
 
     /// A dragged position on this display wins; otherwise the chosen corner.
+    /// A shown HUD stays on its display when settings change; a new one
+    /// opens on the display in use.
     private func place(_ panel: NSPanel) {
-        guard let screen = NSScreen.main else { return }
-        if let saved = positions()[Self.key(screen)] {
-            panel.setFrameOrigin(NSPoint(x: saved[0], y: saved[1]))
-            return
-        }
+        guard let screen = (isShown ? panel.screen : nil) ?? NSScreen.main else { return }
+        isPlacing = true
+        defer { isPlacing = false }
         let frame = screen.visibleFrame
         let size = panel.frame.size
+        // Displays change resolution and arrangement, so a saved spot is kept inside this one.
+        if let saved = positions()[Self.key(screen)], saved.count == 2 {
+            let x = min(max(saved[0], frame.minX), frame.maxX - size.width)
+            let y = min(max(saved[1], frame.minY), frame.maxY - size.height)
+            panel.setFrameOrigin(NSPoint(x: x, y: y))
+            return
+        }
         let left = frame.minX + Self.margin
         let right = frame.maxX - size.width - Self.margin
         let bottom = frame.minY + Self.margin
@@ -115,7 +124,7 @@ final class HUDController {
     }
 
     private func rememberPosition() {
-        guard !settings.clickThrough, let panel, let screen = panel.screen else { return }
+        guard !isPlacing, !settings.clickThrough, let panel, let screen = panel.screen else { return }
         var all = positions()
         all[Self.key(screen)] = [panel.frame.origin.x, panel.frame.origin.y]
         UserDefaults.standard.set(all, forKey: Self.positionsKey)
@@ -147,7 +156,10 @@ private struct HUDView: View {
         let scale = CGFloat(settings.textScale)
         Group {
             if settings.density == .line {
+                // The panel is one line high: shrink rather than wrap out of sight.
                 Text(items.map { "\(HUDText.label($0)) \(HUDText.value($0, model))" }.joined(separator: " | "))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.5)
             } else {
                 VStack(alignment: .leading, spacing: 3) {
                     ForEach(items, id: \.self) { item in
@@ -168,8 +180,9 @@ private struct HUDView: View {
         .foregroundStyle(.white)
         .shadow(color: settings.scrim ? .clear : .black, radius: 2)
         .padding(10)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        // The panel keeps a row for a hint that may not show; the backing fits what does.
         .background(settings.scrim ? Color.black.opacity(0.6) : Color.clear, in: RoundedRectangle(cornerRadius: 10))
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .accessibilityElement(children: .combine)
     }
 }
