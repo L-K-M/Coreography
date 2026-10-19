@@ -388,7 +388,8 @@ Implemented:
   lists each kind its members run, and `#rosetta` filters to translated
   processes. An opt-in Signed by column names Apple, the developer team
   or Unsigned; signatures are checked off the main actor once per
-  program, only while the column shows, and an app lists each signer.
+  program, four at a time, starting only while the column shows, and an
+  app lists each signer.
   QoS, instructions and ports columns remain.
 - The memory lane stacks the composition under the physical-memory line,
   draws a pressure band above it, and has a ten-column numeric table and

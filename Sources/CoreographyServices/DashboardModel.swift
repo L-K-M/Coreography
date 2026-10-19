@@ -1273,8 +1273,9 @@ public final class DashboardModel {
         return accountNames
     }
 
-    /// Whether the table shows its signer column; signatures are checked
-    /// only then. Showing it again retries programs that could not be checked.
+    /// Whether the table shows its signer column; checks start only then,
+    /// and a batch already running finishes into the cache. Showing it again
+    /// retries programs that could not be checked.
     public var showsSigners = false {
         didSet { if showsSigners, !oldValue { signersAsked = [] } }
     }

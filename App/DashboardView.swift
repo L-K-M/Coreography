@@ -1656,7 +1656,8 @@ private struct ProcessPane: View {
                 }
                 .frame(height: 260)
                 .onChange(of: columns) { _, chosen in ProcessColumns.save(chosen) }
-                // Signatures are read from disk, so only while their column shows.
+                // Signatures are read from disk, so checks start only while their
+                // column shows. `.automatic` is the column's hidden default.
                 .onChange(of: columns, initial: true) { _, chosen in
                     model.showsSigners = chosen[visibility: ProcessColumns.signerID] == .visible
                 }

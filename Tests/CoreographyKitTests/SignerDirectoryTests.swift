@@ -20,6 +20,42 @@ final class SignerDirectoryTests: XCTestCase {
         XCTAssertEqual(checks["/opt/tool"], 1)
         XCTAssertEqual(checks["/gone"], 2)
     }
+
+    /// A first showing checks several programs at once, but never all of them.
+    func testChecksRunSeveralAtATime() async {
+        let driver = SlowSignatures()
+        let directory = SignerDirectory(driver: driver)
+        let paths = Set((1...12).map { "/opt/tool\($0)" })
+
+        let found = await directory.signers(for: paths)
+        XCTAssertEqual(found.count, paths.count)
+        let peak = await driver.peak
+        XCTAssertEqual(peak, SlowSignatures.width)
+    }
+}
+
+/// Holds every check until four run at once, so the peak shows the width.
+/// A serial directory waits out each hold and peaks at one.
+private actor SlowSignatures: ProcessDetailReading {
+    static let width = 4
+    private static let hold = Duration.milliseconds(500)
+    private static let poll = Duration.milliseconds(5)
+    private var running = 0
+    private(set) var peak = 0
+
+    func arguments(pid: Int32, startSeconds: UInt64, startMicroseconds: UInt64) async -> Result<[String], ProcessDetailError> {
+        .failure(.unsupportedPlatform)
+    }
+
+    func signing(path: String) async -> CodeSigning {
+        running += 1
+        peak = max(peak, running)
+        let clock = ContinuousClock()
+        let deadline = clock.now + Self.hold
+        while peak < Self.width, clock.now < deadline { try? await Task.sleep(for: Self.poll) }
+        running -= 1
+        return CodeSigning(signature: .apple, identifier: nil, teamID: nil)
+    }
 }
 
 private actor Signatures: ProcessDetailReading {
