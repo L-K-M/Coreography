@@ -734,8 +734,11 @@ Implemented:
   from a sample, an unreadable direction or an interruption breaks its
   line; devices are never summed. The memory lane expands the same way
   (Show Paging) into swap in above and out below, and page-ins from
-  files. Per-app traffic, capacity, cumulative writes and SMART, and the
-  GPU, power and thermal details remain.
+  files. The power lane expands into the battery's capacity as nested
+  bars (design, what it holds now, its charge) and every sleep assertion
+  held. Per-app traffic, capacity, cumulative writes and SMART, and the
+  GPU and thermal details remain; the Sensors tab shows sensors by
+  region with current, minimum, maximum and average.
 - Lane inspector: a lane's menu shows its static facts (chip, model,
   logical CPUs and core tiers; physical memory; each GPU; storage devices
   and volume sizes; primary and observed interfaces; adapter rating,

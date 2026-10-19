@@ -799,6 +799,8 @@ private struct PowerLane: View {
         HStack(alignment: .top, spacing: 24) {
             VStack(alignment: .leading, spacing: 6) {
                 Text("Power").font(.caption.weight(.medium)).foregroundStyle(.secondary)
+                    .onTapGesture(count: 2) { model.toggleDetail(.power) }
+                    .help(String(localized: "Double-click to show or hide battery capacity and sleep assertions"))
                 Text(MetricText.watts(system?.numericValue) + (system?.availability == .estimated ? " est." : ""))
                     .font(.system(size: 30, weight: .semibold))
                 Text(PowerText.systemSource(system)).font(.caption)
@@ -816,12 +818,18 @@ private struct PowerLane: View {
             .monospacedDigit()
             .frame(width: Layout.headerWidth, alignment: .leading)
 
-            if points.isEmpty {
-                Text(latest?.batteryChargePercent.reason ?? String(localized: "Collecting samples…"))
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, minHeight: graphHeight)
-            } else {
-                chart(points: points, plugged: plugged, start: start, end: end)
+            VStack(alignment: .leading, spacing: 8) {
+                if points.isEmpty {
+                    Text(latest?.batteryChargePercent.reason ?? String(localized: "Collecting samples…"))
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, minHeight: graphHeight)
+                } else {
+                    chart(points: points, plugged: plugged, start: start, end: end)
+                }
+                // The lane's detail (plan: battery health as nested bars, assertions).
+                if model.expandedLanes.contains(.power) {
+                    PowerDetail(frame: latest, holders: model.sleepPreventers)
+                }
             }
         }
         .padding(Layout.padding)
@@ -1402,6 +1410,59 @@ private struct DiskLane: View {
         }
         .labelsHidden()
         .help("Automatic selection requires one observed device and complete inventory. Drivers are not summed.")
+    }
+}
+
+/// Battery capacity as nested bars, design capacity outermost, then what
+/// the battery holds now (its health), then its charge; and every sleep
+/// assertion held. A Mac without a battery shows the assertions alone.
+///
+/// ```text
+/// [design ##########################]
+/// [holds  ######################    ]  health 87 % est.
+/// [charge ############              ]  charged 55 %
+/// ```
+private struct PowerDetail: View {
+    private static let barWidth: CGFloat = 220
+    private static let barHeight: CGFloat = 8
+    let frame: CapturedPower?
+    let holders: [AssertionHolder]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if let health = frame?.batteryHealthPercent.numericValue {
+                let charge = frame?.batteryChargePercent.numericValue
+                bar(String(localized: "Design"), share: 1)
+                bar(String(localized: "Holds"), share: health / MetricText.percentScale,
+                    note: String(localized: "health \(MetricText.percent(health)) est."))
+                if let charge {
+                    bar(String(localized: "Charge"), share: health / MetricText.percentScale * charge / MetricText.percentScale,
+                        note: String(localized: "charged \(MetricText.percent(charge))"))
+                }
+            }
+            if holders.isEmpty {
+                Text("No sleep assertions held").font(.caption).foregroundStyle(.secondary)
+            }
+            ForEach(holders) { holder in
+                Text("\(holder.processName ?? "PID \(holder.assertion.pid)"): \(PowerText.assertion(holder.assertion))")
+                    .font(.caption)
+            }
+        }
+    }
+
+    private func bar(_ label: String, share: Double, note: String = "") -> some View {
+        HStack(spacing: 8) {
+            Text(label).font(.caption).frame(width: 50, alignment: .leading)
+            ZStack(alignment: .leading) {
+                RoundedRectangle(cornerRadius: 2).strokeBorder(Color.secondary.opacity(0.5))
+                RoundedRectangle(cornerRadius: 2).fill(Color.green.opacity(0.6))
+                    .frame(width: Self.barWidth * min(max(share, 0), 1))
+            }
+            .frame(width: Self.barWidth, height: Self.barHeight)
+            Text(note).font(.caption).foregroundStyle(.secondary)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(label) \(note)")
     }
 }
 
@@ -3678,6 +3739,11 @@ private struct LaneMenu: View {
             }
             if lane == .cpu {
                 Button(model.expandedLanes.contains(.cpu) ? "Hide Cores" : "Show Cores") { model.toggleDetail(.cpu) }
+            }
+            if lane == .power {
+                Button(model.expandedLanes.contains(.power) ? "Hide Battery and Assertions" : "Show Battery and Assertions") {
+                    model.toggleDetail(.power)
+                }
             }
             if lane == .memory {
                 Button(model.expandedLanes.contains(.memory) ? "Hide Paging" : "Show Paging") { model.toggleDetail(.memory) }
