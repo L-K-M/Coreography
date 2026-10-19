@@ -3,7 +3,10 @@ import CoreographyKit
 
 public enum ProcessGrouping: String, CaseIterable, Identifiable, Sendable {
     case app
+    /// Each process under its parent.
+    case tree
     case flat
+    case user
 
     public var id: Self { self }
 }
@@ -18,14 +21,26 @@ public enum ProcessGroupingMethod: String, Sendable {
     case standalone
 }
 
-/// One process-pane row: an app group with member rows, or a single process.
+/// What a process-pane row stands for.
+public enum ProcessRowKind: Equatable, Sendable {
+    case process
+    /// An app's processes folded under it.
+    case app
+    /// Every process one user runs, by UID.
+    case user(UInt32)
+}
+
+/// One process-pane row: a group with member rows, or a single process,
+/// which in the tree also carries its child processes.
 public struct ProcessRow: Identifiable, Sendable {
     public let id: String
+    public let kind: ProcessRowKind
     public let name: String
-    /// The process for a leaf row; nil for a group.
+    /// The process for a process row; nil for a group.
     public let process: ObservedProcess?
     public let groupingMethod: ProcessGroupingMethod?
     /// The app this row belongs to; the key for scope and the app ledger.
+    /// Empty for a user group, which belongs to no app.
     public let appName: String
     public let memberCount: Int
     public let cpuPercentOfMachine: MetricReading
@@ -40,7 +55,8 @@ public struct ProcessRow: Identifiable, Sendable {
     public let gpuMillisecondsPerSecond: MetricReading
     /// CPU power from the kernel's energy model; an estimate.
     public let cpuPowerWatts: MetricReading
-    /// Member rows for a group; nil for a leaf so tables show no disclosure.
+    /// Member rows for a group, or child processes in the tree; nil for a
+    /// leaf so tables show no disclosure.
     public let children: [ProcessRow]?
 }
 
@@ -59,15 +75,40 @@ enum ProcessGroups {
     static func rows(
         in snapshot: CapturedProcesses?, matching filter: String,
         sortedBy sort: ProcessSort, grouping: ProcessGrouping,
-        isNew: (ProcessIdentity) -> Bool = { _ in false }, facts: ProcessFacts = ProcessFacts()
+        isNew: (ProcessIdentity) -> Bool = { _ in false }, facts: ProcessFacts = ProcessFacts(),
+        currentUser: UInt32 = UInt32(getuid())
     ) -> [ProcessRow] {
-        if grouping == .flat {
+        switch grouping {
+        case .app:
+            return appRows(in: snapshot, matching: filter, sortedBy: sort, isNew: isNew, facts: facts)
+        case .flat:
             // A flat row still belongs to its app: scope and the ledger key on it.
             let apps = snapshot.map(appNames) ?? [:]
             return ProcessList.rows(in: snapshot, matching: filter, sortedBy: sort, isNew: isNew, facts: facts, appNames: apps)
                 .map { leaf($0, method: nil, appName: apps[$0.id] ?? $0.name, traffic: facts.traffic) }
+        case .tree:
+            return treeRows(in: snapshot, matching: filter, sortedBy: sort, isNew: isNew, facts: facts, currentUser: currentUser)
+        case .user:
+            return userRows(in: snapshot, matching: filter, sortedBy: sort, isNew: isNew, facts: facts, currentUser: currentUser)
         }
+    }
 
+    /// Rows whose app is `app`, with the groups and parents that lead to them.
+    /// Example: scoping the tree to Terminal keeps launchd > Terminal > zsh.
+    static func scoped(_ rows: [ProcessRow], to app: String) -> [ProcessRow] {
+        rows.compactMap { row in
+            // An app group's members all share its app.
+            if row.kind == .app { return row.appName == app ? row : nil }
+            let children = scoped(row.children ?? [], to: app)
+            guard row.appName == app || !children.isEmpty else { return nil }
+            return row.replacingChildren(children.isEmpty ? nil : children)
+        }
+    }
+
+    private static func appRows(
+        in snapshot: CapturedProcesses?, matching filter: String, sortedBy sort: ProcessSort,
+        isNew: (ProcessIdentity) -> Bool, facts: ProcessFacts
+    ) -> [ProcessRow] {
         let parsed = ProcessFilter.parse(filter)
         let processes = snapshot?.processes ?? []
         let byPID = Dictionary(processes.map { ($0.id.pid, $0) }) { first, _ in first }
@@ -103,24 +144,140 @@ enum ProcessGroups {
                 continue
             }
             let children = sorted(visible.map { leaf($0.0, method: $0.1, appName: name, traffic: facts.traffic) }, by: sort)
-            let all = group.map(\.0)
-            let network = all.map { ProcessNetwork.rates(for: $0, in: facts.traffic) }
-            rows.append(ProcessRow(
-                id: "group-\(key)", name: name, process: nil, groupingMethod: nil, appName: name,
-                memberCount: all.count,
-                cpuPercentOfMachine: total(all.map(\.cpuPercentOfMachine), overlap: nil),
-                memoryFootprintBytes: total(all.map(\.memoryFootprintBytes), overlap: footprintMethod),
-                diskReadBytesPerSecond: total(all.map(\.diskReadBytesPerSecond), overlap: nil),
-                diskWriteBytesPerSecond: total(all.map(\.diskWriteBytesPerSecond), overlap: nil),
-                wakeupsPerSecond: total(all.map(\.wakeupsPerSecond), overlap: nil),
-                networkReceivedBytesPerSecond: total(network.map(\.received), overlap: nil),
-                networkSentBytesPerSecond: total(network.map(\.sent), overlap: nil),
-                gpuMillisecondsPerSecond: total(all.map(\.gpuMillisecondsPerSecond), overlap: nil),
-                cpuPowerWatts: total(all.map(\.cpuPowerWatts), overlap: nil),
-                children: children
+            rows.append(groupRow(
+                id: "group-\(key)", kind: .app, name: name, appName: name, members: group.map(\.0),
+                children: children, traffic: facts.traffic
             ))
         }
         return sorted(rows, by: sort)
+    }
+
+    /// Each process under its parent, as Activity Monitor's hierarchy shows it.
+    /// A parent counts only if observed and started no later than the child,
+    /// so a reused PID never adopts another process's children. A filter
+    /// keeps each match with the parents that lead to it.
+    ///
+    /// ```text
+    /// launchd ─┬─ Terminal ── zsh ── python3
+    ///          └─ Safari
+    /// ```
+    private static func treeRows(
+        in snapshot: CapturedProcesses?, matching filter: String, sortedBy sort: ProcessSort,
+        isNew: (ProcessIdentity) -> Bool, facts: ProcessFacts, currentUser: UInt32
+    ) -> [ProcessRow] {
+        guard let snapshot else { return [] }
+        let parsed = ProcessFilter.parse(filter, currentUser: currentUser)
+        let apps = appNames(snapshot)
+        let processes = snapshot.processes
+        let byPID = Dictionary(processes.map { ($0.id.pid, $0) }) { first, _ in first }
+
+        var roots: [ObservedProcess] = []
+        var children: [ProcessIdentity: [ObservedProcess]] = [:]
+        for process in processes {
+            guard let parent = parent(of: process, in: byPID) else {
+                roots.append(process)
+                continue
+            }
+            children[parent.id, default: []].append(process)
+        }
+
+        // Walk down from each root; a parent loop has no root, so its first
+        // member stands in for one. Each process joins the tree once.
+        var order: [ObservedProcess] = []
+        var tree: [ProcessIdentity: [ObservedProcess]] = [:]
+        var visited: Set<ProcessIdentity> = []
+        var starts: [ObservedProcess] = []
+        for start in roots + processes where !visited.contains(start.id) {
+            starts.append(start)
+            visited.insert(start.id)
+            var pending = [start]
+            while let process = pending.popLast() {
+                order.append(process)
+                for child in children[process.id] ?? [] where visited.insert(child.id).inserted {
+                    tree[process.id, default: []].append(child)
+                    pending.append(child)
+                }
+            }
+        }
+
+        // Parents precede their children in the walk, so building it backwards
+        // finishes every subtree before its parent.
+        var built: [ProcessIdentity: ProcessRow] = [:]
+        for process in order.reversed() {
+            let kids = (tree[process.id] ?? []).compactMap { built[$0.id] }
+            let appName = apps[process.id] ?? process.name
+            let matches = parsed.isEmpty
+                || parsed.matches(process, isNew: isNew(process.id), appName: appName, facts: facts, currentUser: currentUser)
+            guard matches || !kids.isEmpty else { continue }
+            built[process.id] = leaf(process, method: nil, appName: appName, traffic: facts.traffic)
+                .replacingChildren(kids.isEmpty ? nil : sorted(kids, by: sort))
+        }
+        return sorted(starts.compactMap { built[$0.id] }, by: sort)
+    }
+
+    /// One group per UID, totalled like an app group.
+    private static func userRows(
+        in snapshot: CapturedProcesses?, matching filter: String, sortedBy sort: ProcessSort,
+        isNew: (ProcessIdentity) -> Bool, facts: ProcessFacts, currentUser: UInt32
+    ) -> [ProcessRow] {
+        guard let snapshot else { return [] }
+        let parsed = ProcessFilter.parse(filter, currentUser: currentUser)
+        let apps = appNames(snapshot)
+        let byUser = Dictionary(grouping: snapshot.processes, by: \.uid)
+
+        var rows: [ProcessRow] = []
+        for (uid, members) in byUser {
+            let name = userName(uid, currentUser: currentUser)
+            let nameMatches = parsed.isEmpty || (parsed.isTextOnly && parsed.matchesName(name))
+            let visible = members.filter {
+                nameMatches || parsed.matches(
+                    $0, isNew: isNew($0.id), appName: apps[$0.id] ?? $0.name, facts: facts, currentUser: currentUser
+                )
+            }
+            guard !visible.isEmpty else { continue }
+            let children = sorted(visible.map { leaf($0, method: nil, appName: apps[$0.id] ?? $0.name, traffic: facts.traffic) }, by: sort)
+            rows.append(groupRow(
+                id: "user-\(uid)", kind: .user(uid), name: name, appName: "", members: members,
+                children: children, traffic: facts.traffic
+            ))
+        }
+        return sorted(rows, by: sort)
+    }
+
+    /// Example: 0 -> "root", the current user 501 -> "You, UID 501", 502 -> "UID 502".
+    private static func userName(_ uid: UInt32, currentUser: UInt32) -> String {
+        if uid == 0 { return "root" }
+        return uid == currentUser ? "You, UID \(uid)" : "UID \(uid)"
+    }
+
+    /// A group row totals every member, even those a filter hides.
+    private static func groupRow(
+        id: String, kind: ProcessRowKind, name: String, appName: String, members: [ObservedProcess],
+        children: [ProcessRow], traffic: CapturedTraffic?
+    ) -> ProcessRow {
+        let network = members.map { ProcessNetwork.rates(for: $0, in: traffic) }
+        return ProcessRow(
+            id: id, kind: kind, name: name, process: nil, groupingMethod: nil, appName: appName,
+            memberCount: members.count,
+            cpuPercentOfMachine: total(members.map(\.cpuPercentOfMachine), overlap: nil),
+            memoryFootprintBytes: total(members.map(\.memoryFootprintBytes), overlap: footprintMethod),
+            diskReadBytesPerSecond: total(members.map(\.diskReadBytesPerSecond), overlap: nil),
+            diskWriteBytesPerSecond: total(members.map(\.diskWriteBytesPerSecond), overlap: nil),
+            wakeupsPerSecond: total(members.map(\.wakeupsPerSecond), overlap: nil),
+            networkReceivedBytesPerSecond: total(network.map(\.received), overlap: nil),
+            networkSentBytesPerSecond: total(network.map(\.sent), overlap: nil),
+            gpuMillisecondsPerSecond: total(members.map(\.gpuMillisecondsPerSecond), overlap: nil),
+            cpuPowerWatts: total(members.map(\.cpuPowerWatts), overlap: nil),
+            children: children
+        )
+    }
+
+    /// The observed parent, unless it started after the child (a reused PID).
+    private static func parent(of process: ObservedProcess, in byPID: [Int32: ObservedProcess]) -> ObservedProcess? {
+        guard let pid = Int32(exactly: process.parentPID), pid != process.id.pid, let parent = byPID[pid] else { return nil }
+        let parentStart = (parent.id.startSeconds, parent.id.startMicroseconds)
+        let processStart = (process.id.startSeconds, process.id.startMicroseconds)
+        return parentStart <= processStart ? parent : nil
     }
 
     /// Each process's app, as the grouped table names it.
@@ -180,7 +337,7 @@ enum ProcessGroups {
     ) -> ProcessRow {
         let network = ProcessNetwork.rates(for: process, in: traffic)
         return ProcessRow(
-            id: rowID(process), name: process.name, process: process,
+            id: rowID(process), kind: .process, name: process.name, process: process,
             groupingMethod: method, appName: appName, memberCount: 1,
             cpuPercentOfMachine: process.cpuPercentOfMachine,
             memoryFootprintBytes: process.memoryFootprintBytes,
@@ -253,5 +410,19 @@ enum ProcessGroups {
         case .power: row.cpuPowerWatts.numericValue
         case .name: nil
         }
+    }
+}
+
+extension ProcessRow {
+    /// The same row over other children, for the tree and scope to prune.
+    func replacingChildren(_ children: [ProcessRow]?) -> ProcessRow {
+        ProcessRow(
+            id: id, kind: kind, name: name, process: process, groupingMethod: groupingMethod, appName: appName,
+            memberCount: memberCount, cpuPercentOfMachine: cpuPercentOfMachine, memoryFootprintBytes: memoryFootprintBytes,
+            diskReadBytesPerSecond: diskReadBytesPerSecond, diskWriteBytesPerSecond: diskWriteBytesPerSecond,
+            wakeupsPerSecond: wakeupsPerSecond, networkReceivedBytesPerSecond: networkReceivedBytesPerSecond,
+            networkSentBytesPerSecond: networkSentBytesPerSecond, gpuMillisecondsPerSecond: gpuMillisecondsPerSecond,
+            cpuPowerWatts: cpuPowerWatts, children: children
+        )
     }
 }

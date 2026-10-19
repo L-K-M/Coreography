@@ -134,6 +134,8 @@ swift run coreo silicon --once --json   # Apple Silicon; IOReport power and freq
 swift run coreo connections --once --json # macOS only; your processes' sockets
 swift run coreo traffic --once --json   # macOS only; per-process network rates
 swift run coreo diagnose --json         # macOS only; summary, signals, top apps
+swift run coreo top                     # macOS only; busiest apps, redrawn every 2 s
+swift run coreo holders --json --port 8080 # macOS only; who holds a port or file
 swift run coreo mcp --stdio             # macOS only; read-only MCP server
 swift run coreo history --json cpu      # recorded history for one metric
 swift run coreo sleep --json            # macOS only; sleep and wake records

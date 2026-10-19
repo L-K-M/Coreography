@@ -12,8 +12,7 @@ after two GLM rounds and passing CI. The network slice in
 [PR #7](https://github.com/L-K-M/Coreography/pull/7) merged at `9ae6ca3`;
 storage-driver rates and a fourth lane merged in
 [PR #8](https://github.com/L-K-M/Coreography/pull/8) at `dc3d6bd`.
-Later slices, each merged after CI and review through PR #55; the rest are
-stacked work awaiting CI, completed review and merge:
+Later slices, each merged after CI and review:
 memory composition,
 swap and pressure in [PR #9](https://github.com/L-K-M/Coreography/pull/9);
 app grouping in [PR #10](https://github.com/L-K-M/Coreography/pull/10);
@@ -349,7 +348,12 @@ Implemented:
   responsible app that started no later, otherwise under their
   outermost `.app` bundle. Group CPU and disk totals are measured only
   when every member is readable; otherwise they are labelled lower
-  bounds. Footprint sums are always estimates. A flat view remains.
+  bounds. Footprint sums are always estimates. A flat view remains, a
+  tree nests each process under its parent (a parent younger than its
+  child is a reused PID, so the child becomes a root; a parent loop
+  lists each process once) with its own readings, and a by-user view
+  totals each UID like an app. A filter or app scope in the tree keeps
+  the parents leading to each match.
 - The memory lane stacks the composition under the physical-memory line,
   draws a pressure band above it, and has a ten-column numeric table and
   per-layer chart accessibility. `coreo snapshot` exports the same detail.
@@ -426,6 +430,14 @@ Implemented:
   explicitly; sleep history arrived with the sleep import below.
   `coreo diagnose --json [--seconds N]` samples 3-60 s and prints a report
   an assistant can use. MCP transport and the app bridge remain M5.
+- `coreo top [--json] [--count N] [--sort KEY]` ranks apps and lone
+  processes, grouped as the pane groups them, after a two-second
+  baseline, and without `--json` redraws every two seconds.
+  `coreo holders --json --port N` and `--file TEXT` answer which of your
+  processes hold a port or an open file, with the same limitations the
+  app's reverse lookup names. Native CI checks the memory order and that
+  a listener holding a port and a file is found. `record` and `export`
+  from the command line remain, since recordings belong to the app.
 - `coreo mcp --stdio`: a read-only MCP server (JSON-RPC 2.0, protocol
   2025-06-18, also accepting 2025-03-26 and 2024-11-05) exposing the six
   contract tools with JSON schemas and read-only annotations. It runs the
@@ -453,7 +465,15 @@ Implemented:
   a marker; unknown readings pause the clocks rather than count. The
   memory, battery and startup-disk rules notify, through UserNotifications
   (so Focus applies), with a 15-minute cooldown and one banner per rule;
-  Shortcut actions are described above. User-defined rules remain.
+  Shortcut actions are described above. Settings > Your alert rules
+  adds up to 20 of the person's own: a metric (CPU, memory used, GPU,
+  hottest sensor, system power, battery, download, upload, disk read or
+  write), above or below a threshold for a wait, clearing back past a
+  second threshold for another wait, optionally notifying. They read what
+  history records (the primary interface, a lone storage device and a
+  lone GPU), ignore readings older than 10 s so a stopped sampler cannot
+  hold them raised, and an edited rule starts cleared. Rules sharing a
+  lane name themselves together in its tint.
 - Process pane change highlighting: CPU, footprint and disk cells are
   shaded in their subsystem hue by share of the column's top row; a
   process first seen within 10 s (not present at launch) tints its name;
@@ -571,7 +591,8 @@ Implemented:
   counted per client so a closed client never pulls its process back.
   It reads for every process, other users' included, and a process with
   no client reads as zero; it is labelled ms/s, not busy %. CPU power is
-  the estimate from `ri_energy_nj` (`RUSAGE_INFO_V6`); a process that ran
+  the estimate from `ri_energy_nj` (`RUSAGE_INFO_V6`, which every
+  supported macOS has; the app needs macOS 26); a process that ran
   with a zero counter has no energy model on that Mac and reads as
   unsupported. Both sum per app and sort the table.
 - More process actions: Suspend and Resume, Send Signal (hang-up,
@@ -653,7 +674,10 @@ Implemented:
   hidden by default. Each row is joined to its running processes'
   current CPU and footprint and their apps' CPU-seconds over the last
   hour. Read on request, never polled. Login and background items need
-  the helper and are named as missing.
+  the helper and are named as missing. Coreography changes nothing:
+  Open Login Items & Extensions uses `SMAppService`'s documented link to
+  System Settings, and each item's menu reveals its property list or
+  copies its label.
 - Sensors tab: every plausible SMC temperature, each fan and the system
   power rail with current, minimum, maximum and mean since a reset,
   grouped by region (plan P15). Statistics accumulate on live samples
