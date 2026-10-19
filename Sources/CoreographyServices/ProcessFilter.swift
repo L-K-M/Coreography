@@ -26,6 +26,8 @@ struct ProcessFacts: Sendable {
     var sleepPreventers: Set<Int32>?
     /// Open file paths by process.
     var openFiles: [ProcessIdentity: [String]]?
+    /// Per-process network rates of the same moment.
+    var traffic: CapturedTraffic?
 }
 
 /// What connection data says about each process, for `#listening` and `port:`.

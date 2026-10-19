@@ -110,6 +110,7 @@ public enum CommandPalette {
         case .memory: "Sort by Memory"
         case .diskRead: "Sort by Disk Read"
         case .diskWrite: "Sort by Disk Write"
+        case .network: "Sort by Network"
         case .name: "Sort by Name"
         }
     }

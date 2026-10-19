@@ -33,6 +33,9 @@ public struct ProcessRow: Identifiable, Sendable {
     public let diskReadBytesPerSecond: MetricReading
     public let diskWriteBytesPerSecond: MetricReading
     public let wakeupsPerSecond: MetricReading
+    /// TCP and UDP bytes per second; zero for a process with no socket open.
+    public let networkReceivedBytesPerSecond: MetricReading
+    public let networkSentBytesPerSecond: MetricReading
     /// Member rows for a group; nil for a leaf so tables show no disclosure.
     public let children: [ProcessRow]?
 }
@@ -58,7 +61,7 @@ enum ProcessGroups {
             // A flat row still belongs to its app: scope and the ledger key on it.
             let apps = snapshot.map(appNames) ?? [:]
             return ProcessList.rows(in: snapshot, matching: filter, sortedBy: sort, isNew: isNew, facts: facts)
-                .map { leaf($0, method: nil, appName: apps[$0.id] ?? $0.name) }
+                .map { leaf($0, method: nil, appName: apps[$0.id] ?? $0.name, traffic: facts.traffic) }
         }
 
         let parsed = ProcessFilter.parse(filter)
@@ -92,11 +95,12 @@ enum ProcessGroups {
             guard !visible.isEmpty else { continue }
 
             if group.count == 1, let (process, method) = group.first {
-                rows.append(leaf(process, method: method, appName: process.name))
+                rows.append(leaf(process, method: method, appName: process.name, traffic: facts.traffic))
                 continue
             }
-            let children = sorted(visible.map { leaf($0.0, method: $0.1, appName: name) }, by: sort)
+            let children = sorted(visible.map { leaf($0.0, method: $0.1, appName: name, traffic: facts.traffic) }, by: sort)
             let all = group.map(\.0)
+            let network = all.map { ProcessNetwork.rates(for: $0, in: facts.traffic) }
             rows.append(ProcessRow(
                 id: "group-\(key)", name: name, process: nil, groupingMethod: nil, appName: name,
                 memberCount: all.count,
@@ -105,6 +109,8 @@ enum ProcessGroups {
                 diskReadBytesPerSecond: total(all.map(\.diskReadBytesPerSecond), overlap: nil),
                 diskWriteBytesPerSecond: total(all.map(\.diskWriteBytesPerSecond), overlap: nil),
                 wakeupsPerSecond: total(all.map(\.wakeupsPerSecond), overlap: nil),
+                networkReceivedBytesPerSecond: total(network.map(\.received), overlap: nil),
+                networkSentBytesPerSecond: total(network.map(\.sent), overlap: nil),
                 children: children
             ))
         }
@@ -164,9 +170,10 @@ enum ProcessGroups {
     }
 
     private static func leaf(
-        _ process: ObservedProcess, method: ProcessGroupingMethod?, appName: String
+        _ process: ObservedProcess, method: ProcessGroupingMethod?, appName: String, traffic: CapturedTraffic?
     ) -> ProcessRow {
-        ProcessRow(
+        let network = ProcessNetwork.rates(for: process, in: traffic)
+        return ProcessRow(
             id: rowID(process), name: process.name, process: process,
             groupingMethod: method, appName: appName, memberCount: 1,
             cpuPercentOfMachine: process.cpuPercentOfMachine,
@@ -174,6 +181,8 @@ enum ProcessGroups {
             diskReadBytesPerSecond: process.diskReadBytesPerSecond,
             diskWriteBytesPerSecond: process.diskWriteBytesPerSecond,
             wakeupsPerSecond: process.wakeupsPerSecond,
+            networkReceivedBytesPerSecond: network.received,
+            networkSentBytesPerSecond: network.sent,
             children: nil
         )
     }
@@ -227,6 +236,7 @@ enum ProcessGroups {
 
     private static func value(_ row: ProcessRow, sort: ProcessSort) -> Double? {
         switch sort {
+        case .network: ProcessNetwork.total(row.networkReceivedBytesPerSecond, row.networkSentBytesPerSecond)
         case .cpu: row.cpuPercentOfMachine.numericValue
         case .memory: row.memoryFootprintBytes.numericValue
         case .diskRead: row.diskReadBytesPerSecond.numericValue

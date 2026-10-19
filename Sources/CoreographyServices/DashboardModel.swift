@@ -162,6 +162,8 @@ public final class DashboardModel {
     public private(set) var inspectedFiles: [String]?
     /// Displayed (possibly held) power assertions; nil until first read.
     public private(set) var assertionSnapshot: CapturedAssertions?
+    /// Displayed (possibly held) per-process network rates; nil until first read.
+    public private(set) var trafficSnapshot: CapturedTraffic?
     /// Time Machine and Spotlight state when last read; nil until first read.
     public private(set) var maintenanceStatus: CapturedMaintenance?
     public var processSort: ProcessSort = .cpu
@@ -222,6 +224,8 @@ public final class DashboardModel {
     @ObservationIgnored private var openFileSample: Task<Void, Never>?
     @ObservationIgnored private var liveOpenFiles: CapturedOpenFiles?
     @ObservationIgnored private var liveAssertions: CapturedAssertions?
+    @ObservationIgnored private let trafficMonitor: ProcessTrafficMonitor?
+    @ObservationIgnored private var liveTraffic: CapturedTraffic?
     @ObservationIgnored private var filterStore = SavedFilters(defaults: .standard)
     private var sessionRecording: SessionRecording?
     @ObservationIgnored private let sessionArchive: SessionArchive?
@@ -296,6 +300,7 @@ public final class DashboardModel {
             let power = try PowerMonitor()
             let sensors = try SensorMonitor()
             let silicon = try SiliconMonitor()
+            let traffic = try ProcessTrafficMonitor()
             monitor = system
             processMonitor = processes
             networkMonitor = network
@@ -304,6 +309,7 @@ public final class DashboardModel {
             powerMonitor = power
             sensorMonitor = sensors
             siliconMonitor = silicon
+            trafficMonitor = traffic
         } catch {
             monitor = nil
             processMonitor = nil
@@ -313,6 +319,7 @@ public final class DashboardModel {
             powerMonitor = nil
             sensorMonitor = nil
             siliconMonitor = nil
+            trafficMonitor = nil
             collectionError = "Cannot initialize monitoring: \(error)"
         }
         applyRetention()
@@ -325,7 +332,7 @@ public final class DashboardModel {
         networkMonitor: NetworkMonitor? = nil, diskMonitor: DiskMonitor? = nil,
         gpuMonitor: GPUMonitor? = nil, powerMonitor: PowerMonitor? = nil,
         sensorMonitor: SensorMonitor? = nil, siliconMonitor: SiliconMonitor? = nil,
-        controller: ProcessController = ProcessController(),
+        trafficMonitor: ProcessTrafficMonitor? = nil, controller: ProcessController = ProcessController(),
         askService: AskService = AskService(), notifier: AlertDelivery? = nil,
         historyRecorder: HistoryRecorder? = nil, sleepProvider: SleepHistoryProvider? = nil,
         connectionMonitor: ConnectionMonitor? = nil, startupProvider: StartupProvider? = nil,
@@ -356,6 +363,7 @@ public final class DashboardModel {
         self.powerMonitor = powerMonitor
         self.sensorMonitor = sensorMonitor
         self.siliconMonitor = siliconMonitor
+        self.trafficMonitor = trafficMonitor
     }
 
     deinit {
@@ -855,6 +863,11 @@ public final class DashboardModel {
         SelfCost.measure(in: processSnapshot, logicalCPUCount: latest?.inventory.logicalCPUCount)
     }
 
+    /// One process's TCP and UDP rates from the displayed traffic sample.
+    public func networkRates(for process: ObservedProcess) -> (received: DashboardReading, sent: DashboardReading) {
+        ProcessNetwork.rates(for: process, in: trafficSnapshot)
+    }
+
     public var visibleProcessRows: [ProcessRow] {
         let time = processSnapshot?.stamp.wallTime ?? Date()
         let lifecycle = lifecycle
@@ -863,7 +876,7 @@ public final class DashboardModel {
             isNew: { lifecycle.isNew($0, at: time) },
             facts: ProcessFacts(
                 sockets: connectionSnapshot.map(SocketFacts.init), sleepPreventers: assertionSnapshot?.sleepPreventers,
-                openFiles: openFileSnapshot?.files
+                openFiles: openFileSnapshot?.files, traffic: trafficSnapshot
             )
         )
         guard let scopedApp else { return rows }
@@ -1123,6 +1136,7 @@ public final class DashboardModel {
         let powerMonitor = powerMonitor
         let sensorMonitor = sensorMonitor
         let siliconMonitor = siliconMonitor
+        let trafficMonitor = trafficMonitor
         let assertionReader = assertionReader
 
         importSleepHistory(after: .zero)
@@ -1138,6 +1152,7 @@ public final class DashboardModel {
             await powerMonitor?.reset()
             await sensorMonitor?.reset()
             await siliconMonitor?.reset()
+            await trafficMonitor?.reset()
             var nextProcessSample = ContinuousClock.now
             while !Task.isCancelled {
                 do {
@@ -1177,8 +1192,11 @@ public final class DashboardModel {
                     }
                     var processes: CapturedProcesses?
                     var assertions: CapturedAssertions?
+                    var traffic: CapturedTraffic?
                     if let processMonitor, ContinuousClock.now >= nextProcessSample {
                         processes = try await processMonitor.sample()
+                        // Read right after processes, so PIDs and names describe the same moment.
+                        traffic = try await trafficMonitor?.sample()
                         // One call to powerd; read beside processes so PIDs match the same moment.
                         assertions = await assertionReader?.read()
                         nextProcessSample = ContinuousClock.now.advanced(by: processInterval)
@@ -1199,6 +1217,7 @@ public final class DashboardModel {
                         if self.wantsOpenFiles { self.sampleOpenFiles() }
                     }
                     if let assertions { self.liveAssertions = assertions }
+                    if let traffic { self.liveTraffic = traffic }
                     if let network { self.liveNetworkFrames = network }
                     if let disks { self.liveDiskFrames = disks }
                     if let gpus { self.liveGPUFrames = gpus }
@@ -1218,6 +1237,7 @@ public final class DashboardModel {
                     if self.displayMode == .live {
                         self.frames = history
                         if let assertions { self.assertionSnapshot = assertions }
+                        if let traffic { self.trafficSnapshot = traffic }
                         if let processes {
                             self.processSnapshot = processes
                             self.contributorHistory = self.liveContributorHistory
@@ -1270,6 +1290,7 @@ public final class DashboardModel {
         siliconFrames = liveSiliconFrames
         connectionSnapshot = liveConnections
         assertionSnapshot = liveAssertions
+        trafficSnapshot = liveTraffic
         openFileSnapshot = liveOpenFiles
         if detailPane == .sensors { publishSensorStats() }
         refreshSystemMarkers()

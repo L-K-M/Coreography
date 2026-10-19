@@ -91,6 +91,7 @@ public actor DiagnosticService {
     private let powerMonitor: PowerMonitor
     private let sensorMonitor: SensorMonitor
     private let siliconMonitor: SiliconMonitor
+    private let trafficMonitor: ProcessTrafficMonitor
     private let connectionMonitor = ConnectionMonitor()
 
     public init() throws {
@@ -102,6 +103,7 @@ public actor DiagnosticService {
         powerMonitor = try PowerMonitor()
         sensorMonitor = try SensorMonitor()
         siliconMonitor = try SiliconMonitor()
+        trafficMonitor = try ProcessTrafficMonitor()
     }
 
     public func report() async throws -> DiagnosticReport {
@@ -160,6 +162,14 @@ public actor DiagnosticService {
         _ = try await siliconMonitor.sample()
         try await Task.sleep(for: Self.warmupInterval)
         return try await siliconMonitor.sample()
+    }
+
+    /// Per-process network rates: a baseline, two seconds, then the interval.
+    public func captureTrafficOnce() async throws -> CapturedTraffic {
+        await trafficMonitor.reset()
+        _ = try await trafficMonitor.sample()
+        try await Task.sleep(for: .seconds(2))
+        return try await trafficMonitor.sample()
     }
 
     /// Sockets need process identities, not rates, so one process sample suffices.
