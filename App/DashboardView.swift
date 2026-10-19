@@ -8,7 +8,11 @@ import CoreographyServices
 @MainActor
 struct DashboardView: View {
     @Bindable var model: DashboardModel
+    let hud: HUDController
     @FocusState private var processFilterFocused: Bool
+    /// A palette process action, confirmed once the palette has closed.
+    @State private var queuedPaletteAction: ProcessActionRequest?
+    @State private var paletteAction: ProcessActionRequest?
 
     var body: some View {
         ScrollView {
@@ -175,6 +179,13 @@ struct DashboardView: View {
         )) {
             SampleReportView(model: model)
         }
+        .sheet(isPresented: $model.paletteShown, onDismiss: {
+            paletteAction = queuedPaletteAction
+            queuedPaletteAction = nil
+        }) {
+            CommandPaletteView(model: model, hud: hud) { queuedPaletteAction = $0 }
+        }
+        .modifier(ProcessActionConfirmation(model: model, pendingAction: $paletteAction))
         .inspector(isPresented: $model.inspectorShown) {
             InspectorView(model: model)
                 .inspectorColumnWidth(min: 260, ideal: 320, max: 480)

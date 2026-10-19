@@ -17,6 +17,7 @@
 		A1000000000000000000000A /* HUD.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000A; };
 		A1000000000000000000000B /* Automation.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000B; };
 		A1000000000000000000000C /* Intents.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000C; };
+		A1000000000000000000000D /* CommandPaletteView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000D; };
 		A10000000000000000000007 /* coreo in Helpers */ = {isa = PBXBuildFile; fileRef = A20000000000000000000007; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 /* End PBXBuildFile section */
 
@@ -48,6 +49,7 @@
 		A2000000000000000000000A = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HUD.swift; sourceTree = "<group>"; };
 		A2000000000000000000000B = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Automation.swift; sourceTree = "<group>"; };
 		A2000000000000000000000C = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Intents.swift; sourceTree = "<group>"; };
+		A2000000000000000000000D = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandPaletteView.swift; sourceTree = "<group>"; };
 		A20000000000000000000007 = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = coreo; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -64,7 +66,7 @@
 		};
 		A50000000000000000000002 /* App */ = {
 			isa = PBXGroup;
-			children = (A20000000000000000000001, A20000000000000000000002, A20000000000000000000008, A20000000000000000000009, A2000000000000000000000A, A2000000000000000000000B, A2000000000000000000000C, A20000000000000000000003, A20000000000000000000004, );
+			children = (A20000000000000000000001, A20000000000000000000002, A20000000000000000000008, A20000000000000000000009, A2000000000000000000000A, A2000000000000000000000B, A2000000000000000000000C, A2000000000000000000000D, A20000000000000000000003, A20000000000000000000004, );
 			path = App;
 			sourceTree = "<group>";
 		};
@@ -121,7 +123,7 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
-		A40000000000000000000001 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (A10000000000000000000001, A10000000000000000000002, A10000000000000000000008, A10000000000000000000009, A1000000000000000000000A, A1000000000000000000000B, A1000000000000000000000C, ); runOnlyForDeploymentPostprocessing = 0; };
+		A40000000000000000000001 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (A10000000000000000000001, A10000000000000000000002, A10000000000000000000008, A10000000000000000000009, A1000000000000000000000A, A1000000000000000000000B, A1000000000000000000000C, A1000000000000000000000D, ); runOnlyForDeploymentPostprocessing = 0; };
 		A40000000000000000000004 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (A10000000000000000000005, ); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXSourcesBuildPhase section */
 

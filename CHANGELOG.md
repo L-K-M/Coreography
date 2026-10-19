@@ -13,6 +13,8 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
   after the store first exceeds it.
 
 ### Added
+- Command-Shift-P opens a command palette listing every window action
+  by name, with the reason any of them cannot run now.
 - Shortcuts actions for the system summary, top apps, recording, and
   who uses a port or has a file open; `coreography://` links that
   navigate, filter, select a process, set the range, record or toggle
