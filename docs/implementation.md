@@ -503,7 +503,7 @@ Implemented:
   processes gone within 30 s are listed with their app as ghosts. Exit
   status is not claimed, and samples across sleep are not read as exits.
 - Process filter grammar: whitespace-separated terms that all must match:
-  free text, `cpu:>10`, `mem:>1GB`, `disk:>5MB`, `pid:42`, `user:root|me|UID`
+  free text, `cpu:>10`, `mem:>1GB`, `disk:>5MB`, `pid:42`, `user:root|me|UID|name`
   and the tokens `#apps`, `#mine`, `#root`, `#third-party` and `#new`. An
   unreadable reading never satisfies a numeric predicate. Tokens awaiting
   data (`#listening`, `#not-responding`, `#preventing-sleep`) and
