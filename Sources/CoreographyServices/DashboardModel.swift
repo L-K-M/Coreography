@@ -178,8 +178,12 @@ public final class DashboardModel {
     public var processGrouping: ProcessGrouping = .app
     /// The shared hover time across all lanes; nil follows the live edge.
     public var cursorTime: Date?
+    /// A new range reads its own stored span at once; the reload interval belongs to the old one.
     public var timeRange: TimeRange = .minute {
-        didSet { refreshStoredHistory() }
+        didSet {
+            if timeRange != oldValue { dropStoredHistory() }
+            refreshStoredHistory()
+        }
     }
     /// A dragged time range; cleared only explicitly (plan: Esc or clear).
     public var selection: ClosedRange<Date>?

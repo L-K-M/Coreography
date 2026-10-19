@@ -143,6 +143,33 @@ final class DashboardModelTests: XCTestCase {
         XCTAssertTrue(model.points(for: .cpu).allSatisfy { $0.time >= now }, "leaving the range drops the stored part")
     }
 
+    /// A longer range reads further back at once, not after the last range's reload interval.
+    func testSwitchingToALongerRangeLoadsItsHistoryAtOnce() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("coreo-ranges-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = try HistoryStore(directory: directory)
+        let now = Date()
+        let threeDaysAgo = now.addingTimeInterval(-3 * 86_400)
+        try await store.append((0..<120).map {
+            HistorySample(metric: .cpu, time: threeDaysAgo.addingTimeInterval(Double($0)), value: 40, availability: .measured)
+        }, now: threeDaysAgo.addingTimeInterval(120))
+        let threeHoursAgo = now.addingTimeInterval(-3 * 3600)
+        try await store.append((0..<120).map {
+            HistorySample(metric: .cpu, time: threeHoursAgo.addingTimeInterval(Double($0)), value: 40, availability: .measured)
+        }, now: now)
+        let model = DashboardModel(
+            monitor: try SystemMonitor(driver: IncreasingHostDriver(origin: now)), interval: .milliseconds(10),
+            historyRecorder: HistoryRecorder(store: store)
+        )
+        model.start()
+        defer { model.stop() }
+        try await eventually { model.frames.count >= 2 }
+        model.timeRange = .sixHours
+        try await eventually { model.points(for: .cpu).contains { $0.time < now.addingTimeInterval(-3600) } }
+        model.timeRange = .week
+        try await eventually { model.points(for: .cpu).contains { $0.time < now.addingTimeInterval(-86_400) } }
+    }
+
     func testQuittingWritesTheBufferedHistory() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("coreo-quit-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: directory) }

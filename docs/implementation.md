@@ -3,7 +3,7 @@
 Track actual delivery against the [product plan](plan.md). A stage is
 complete only after its relevant checks and review pass and its PR merges.
 
-## Current slice: recordings
+## Current slice: review fixes
 
 The native foundation merged in [PR #5](https://github.com/L-K-M/Coreography/pull/5)
 at `aee9494` after two GLM rounds and passing CI. Process monitoring merged
@@ -12,7 +12,8 @@ after two GLM rounds and passing CI. The network slice in
 [PR #7](https://github.com/L-K-M/Coreography/pull/7) merged at `9ae6ca3`;
 storage-driver rates and a fourth lane merged in
 [PR #8](https://github.com/L-K-M/Coreography/pull/8) at `dc3d6bd`.
-Later slices are stacked work awaiting CI, completed review and merge:
+Later slices, each merged after CI and review through PR #55; the rest are
+stacked work awaiting CI, completed review and merge:
 memory composition,
 swap and pressure in [PR #9](https://github.com/L-K-M/Coreography/pull/9);
 app grouping in [PR #10](https://github.com/L-K-M/Coreography/pull/10);
@@ -40,8 +41,8 @@ Maintenance states follow in [PR #53](https://github.com/L-K-M/Coreography/pull/
 and automation in [PR #54](https://github.com/L-K-M/Coreography/pull/54),
 the command palette in [PR #55](https://github.com/L-K-M/Coreography/pull/55).
 IOReport power and frequency (M2, first rung) follow in
-[PR #56](https://github.com/L-K-M/Coreography/pull/56). This slice adds
-bottleneck hints in [PR #57](https://github.com/L-K-M/Coreography/pull/57).
+[PR #56](https://github.com/L-K-M/Coreography/pull/56), and bottleneck
+hints in [PR #57](https://github.com/L-K-M/Coreography/pull/57).
 The Month tier follows in [PR #58](https://github.com/L-K-M/Coreography/pull/58).
 Per-process network (S3) follows in [PR #59](https://github.com/L-K-M/Coreography/pull/59).
 The Dock icon follows in [PR #60](https://github.com/L-K-M/Coreography/pull/60).
@@ -50,10 +51,16 @@ Network in the ledger follows in [PR #62](https://github.com/L-K-M/Coreography/p
 MCP access through the app follows in [PR #64](https://github.com/L-K-M/Coreography/pull/64).
 Time controls follow in [PR #65](https://github.com/L-K-M/Coreography/pull/65).
 HUD levels follow in [PR #66](https://github.com/L-K-M/Coreography/pull/66).
-Range comparison follows on `feat/range-compare`.
-Menu bar items follow on `feat/menu-bar-items`.
-Inspector history follows on `feat/inspector-history`.
-This slice adds recordings.
+Range comparison, menu bar items, inspector history and recordings follow
+in PRs [#68](https://github.com/L-K-M/Coreography/pull/68) to
+[#71](https://github.com/L-K-M/Coreography/pull/71); GPU time and CPU power,
+the CPU split, lane layout, history fixes, the CPU scale, volume capacity,
+the Low Power Mode cadence and the core-tier band in
+[#72](https://github.com/L-K-M/Coreography/pull/72) to
+[#79](https://github.com/L-K-M/Coreography/pull/79). This slice fixes what
+the reviews of the merged slices found, in
+[#80](https://github.com/L-K-M/Coreography/pull/80) and
+[#81](https://github.com/L-K-M/Coreography/pull/81).
 
 Implemented:
 
