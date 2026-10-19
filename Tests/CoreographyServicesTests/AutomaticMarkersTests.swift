@@ -29,6 +29,17 @@ final class AutomaticMarkersTests: XCTestCase {
         let longer = AutomaticMarkers.derive(host: host, power: [], sleepEvents: events, since: epoch.addingTimeInterval(-3600))
         XCTAssertEqual(longer.first?.label, "Sleep", "the stored range reaches the earlier sleep")
     }
+
+    func testSameTimeMarkersKeepOneOrderAndOneIdentity() {
+        let wake = PowerEvent(time: epoch, kind: .wake, reason: "Lid Open", powerSource: nil, batteryPercent: nil)
+        let darkWake = PowerEvent(time: epoch, kind: .darkWake, reason: nil, powerSource: nil, batteryPercent: nil)
+        // An import can list one record twice; it is one marker, not two with one identity.
+        let markers = AutomaticMarkers.derive(host: [], power: [], sleepEvents: [wake, darkWake, wake], since: .distantPast)
+        let reversed = AutomaticMarkers.derive(host: [], power: [], sleepEvents: [darkWake, wake], since: .distantPast)
+        XCTAssertEqual(markers.map(\.label), reversed.map(\.label), "ties break by label, not by input order")
+        XCTAssertEqual(Set(markers.map(\.id)).count, markers.count)
+        XCTAssertEqual(markers.count, 2)
+    }
 }
 
 /// One host sample per second with the given kernel pressure; nil fails the read.

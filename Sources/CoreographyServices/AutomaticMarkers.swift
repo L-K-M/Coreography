@@ -25,7 +25,9 @@ enum AutomaticMarkers {
         markers += sleepEvents.filter { $0.time >= earliest }.map { event in
             system(at: event.time, label: sleepLabel(event))
         }
-        return markers.sorted { $0.time < $1.time }
+        // Rebuilt every sample: a repeated record is one marker, and ties keep one order.
+        var seen: Set<UUID> = []
+        return markers.filter { seen.insert($0.id).inserted }.sorted { ($0.time, $0.label) < ($1.time, $1.label) }
     }
 
     /// A marker where a known level differs from the previous known one;
@@ -70,7 +72,8 @@ enum AutomaticMarkers {
     }
 
     /// Rebuilt every sample, so the id follows the event: the chart keeps
-    /// its marks instead of replacing them each second.
+    /// its marks instead of replacing them each second. It holds within one
+    /// launch only (Hasher reseeds per process), which suits derived markers.
     private static func system(at time: Date, label: String) -> TimelineMarker {
         var hasher = Hasher()
         hasher.combine(time)

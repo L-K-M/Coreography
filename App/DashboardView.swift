@@ -2509,10 +2509,15 @@ private enum RangeText {
     }
 
     /// "Markers: 10:02 Memory pressure warning · 10:05 Wake: Lid Open".
+    /// A long range can hold dozens of transitions; the caption names the first few and counts the rest.
+    private static let shownMarkers = 8
+
     static func markers(_ markers: [TimelineMarker]) -> String {
-        String(localized: "Markers: ") + markers.map {
+        let shown = markers.prefix(shownMarkers).map {
             "\($0.time.formatted(date: .omitted, time: .shortened)) \($0.label)"
         }.joined(separator: " · ")
+        let more = markers.count - min(markers.count, shownMarkers)
+        return more == 0 ? String(localized: "Markers: \(shown)") : String(localized: "Markers: \(shown) · \(more) more")
     }
 
     /// "CPU mean 12% → 38%, memory peak 9.1 GB → 11.4 GB".
