@@ -10,6 +10,9 @@
  *   users, ESRCH once reaped) and reports CPU times in Mach timebase
  *   ticks, not nanoseconds (rm_time_mach); convert via
  *   mach_timebase_info().
+ * - PROC_PIDLISTFDS and proc_pidfdinfo(PROC_PIDFDSOCKETINFO) are public
+ *   and same-uid checked; socket_fdinfo carries family, kind (TCP or plain
+ *   internet), TCP state and endpoints with ports in network byte order.
  * - proc_pidpath is public; responsibility_get_pid_responsible_for_pid is
  *   private libsystem SPI (Activity Monitor-style app grouping), resolved
  *   at runtime so its absence degrades to path grouping, never a crash.
@@ -24,6 +27,9 @@
 
 #include <dlfcn.h>
 #include <libproc.h>
+#include <netinet/in.h>
+#include <stdlib.h>
+#include <sys/socket.h>
 #include <mach/kern_return.h>
 #include <pthread.h>
 #include <signal.h>
@@ -263,6 +269,152 @@ coreo_process_signal(int32_t pid, uint64_t start_seconds, uint64_t start_microse
     return 0;
 }
 
+_Static_assert(COREO_TCP_STATE_CLOSED == TSI_S_CLOSED, "TCP state numbering");
+_Static_assert(COREO_TCP_STATE_LISTEN == TSI_S_LISTEN, "TCP state numbering");
+_Static_assert(COREO_TCP_STATE_SYN_SENT == TSI_S_SYN_SENT, "TCP state numbering");
+_Static_assert(COREO_TCP_STATE_SYN_RECEIVED == TSI_S_SYN_RECEIVED, "TCP state numbering");
+_Static_assert(COREO_TCP_STATE_ESTABLISHED == TSI_S_ESTABLISHED, "TCP state numbering");
+/* xnu spells this one with two underscores; accept either spelling. */
+#if defined(TSI_S__CLOSE_WAIT)
+_Static_assert(COREO_TCP_STATE_CLOSE_WAIT == TSI_S__CLOSE_WAIT, "TCP state numbering");
+#else
+_Static_assert(COREO_TCP_STATE_CLOSE_WAIT == TSI_S_CLOSE_WAIT, "TCP state numbering");
+#endif
+_Static_assert(COREO_TCP_STATE_FIN_WAIT_1 == TSI_S_FIN_WAIT_1, "TCP state numbering");
+_Static_assert(COREO_TCP_STATE_CLOSING == TSI_S_CLOSING, "TCP state numbering");
+_Static_assert(COREO_TCP_STATE_LAST_ACK == TSI_S_LAST_ACK, "TCP state numbering");
+_Static_assert(COREO_TCP_STATE_FIN_WAIT_2 == TSI_S_FIN_WAIT_2, "TCP state numbering");
+_Static_assert(COREO_TCP_STATE_TIME_WAIT == TSI_S_TIME_WAIT, "TCP state numbering");
+
+/* in_sockinfo keeps ports in network byte order inside an int. */
+static void
+coreo_copy_endpoints(const struct in_sockinfo *in, coreo_socket_sample *entry)
+{
+    entry->local_port = ntohs((uint16_t)in->insi_lport);
+    entry->remote_port = ntohs((uint16_t)in->insi_fport);
+    if (in->insi_vflag & INI_IPV6) {
+        entry->ip_version = 6;
+        memcpy(entry->local_address, &in->insi_laddr.ina_6, 16);
+        memcpy(entry->remote_address, &in->insi_faddr.ina_6, 16);
+        return;
+    }
+    entry->ip_version = 4;
+    memcpy(entry->local_address, &in->insi_laddr.ina_46.i46a_addr4, 4);
+    memcpy(entry->remote_address, &in->insi_faddr.ina_46.i46a_addr4, 4);
+}
+
+/* Fill one sample from a socket fd; ENOENT for sockets that are not
+   internet TCP or UDP, or that closed since they were listed. */
+static int32_t
+coreo_read_socket(int32_t pid, int32_t fd, coreo_socket_sample *entry)
+{
+    struct socket_fdinfo info;
+    int rc;
+
+    errno = 0;
+    rc = proc_pidfdinfo(pid, fd, PROC_PIDFDSOCKETINFO, &info, (int)sizeof(info));
+    if (rc != (int)sizeof(info)) {
+        return errno == EBADF || errno == 0 ? ENOENT : errno;
+    }
+    if (info.psi.soi_family != AF_INET && info.psi.soi_family != AF_INET6) {
+        return ENOENT;
+    }
+
+    memset(entry, 0, sizeof(*entry));
+    entry->fd = fd;
+    if (info.psi.soi_kind == SOCKINFO_TCP) {
+        entry->kind = COREO_SOCKET_TCP;
+        entry->tcp_state = info.psi.soi_proto.pri_tcp.tcpsi_state;
+        coreo_copy_endpoints(&info.psi.soi_proto.pri_tcp.tcpsi_ini, entry);
+        return 0;
+    }
+    if (info.psi.soi_kind == SOCKINFO_IN && info.psi.soi_protocol == IPPROTO_UDP) {
+        entry->kind = COREO_SOCKET_UDP;
+        entry->tcp_state = COREO_TCP_STATE_NONE;
+        coreo_copy_endpoints(&info.psi.soi_proto.pri_in, entry);
+        return 0;
+    }
+    return ENOENT;
+}
+
+int32_t
+coreo_process_sockets(int32_t pid, uint64_t start_seconds, uint64_t start_microseconds,
+                      coreo_socket_sample *sockets, int32_t capacity,
+                      int32_t *count, int32_t *truncated)
+{
+    struct proc_bsdinfo identity;
+    struct proc_fdinfo *fds;
+    int32_t err;
+    int size;
+    int fd_count;
+
+    if (pid <= 0 || sockets == NULL || count == NULL || truncated == NULL || capacity <= 0) {
+        return EINVAL;
+    }
+    *count = 0;
+    *truncated = 0;
+
+    err = coreo_read_identity(pid, &identity);
+    if (err != 0) {
+        return err;
+    }
+    if (identity.pbi_start_tvsec != start_seconds || identity.pbi_start_tvusec != start_microseconds) {
+        return EAGAIN;
+    }
+
+    /* Ask for the table size, then read with headroom for fds opened meanwhile. */
+    errno = 0;
+    size = proc_pidinfo(pid, PROC_PIDLISTFDS, 0, NULL, 0);
+    if (size <= 0) {
+        return errno ? errno : EIO;
+    }
+    size += 32 * (int)PROC_PIDLISTFD_SIZE;
+    fds = malloc((size_t)size);
+    if (fds == NULL) {
+        return ENOMEM;
+    }
+    errno = 0;
+    size = proc_pidinfo(pid, PROC_PIDLISTFDS, 0, fds, size);
+    if (size <= 0) {
+        err = errno ? errno : EIO;
+        free(fds);
+        return err;
+    }
+
+    fd_count = size / (int)PROC_PIDLISTFD_SIZE;
+    for (int i = 0; i < fd_count; i++) {
+        coreo_socket_sample entry;
+
+        if (fds[i].proc_fdtype != PROX_FDTYPE_SOCKET) {
+            continue;
+        }
+        err = coreo_read_socket(pid, fds[i].proc_fd, &entry);
+        if (err == ENOENT) {
+            continue;
+        }
+        if (err != 0) {
+            free(fds);
+            *count = 0;
+            return err;
+        }
+        if (*count == capacity) {
+            *truncated = 1;
+            break;
+        }
+        sockets[(*count)++] = entry;
+    }
+    free(fds);
+
+    /* The pid may have been reused while the table was read. */
+    err = coreo_read_identity(pid, &identity);
+    if (err != 0 || identity.pbi_start_tvsec != start_seconds || identity.pbi_start_tvusec != start_microseconds) {
+        *count = 0;
+        *truncated = 0;
+        return err != 0 ? err : EAGAIN;
+    }
+    return 0;
+}
+
 #else /* !__APPLE__ */
 
 int32_t
@@ -300,6 +452,21 @@ coreo_process_signal(int32_t pid, uint64_t start_seconds, uint64_t start_microse
     if (pid <= 0 || (signal_kind != COREO_SIGNAL_TERMINATE && signal_kind != COREO_SIGNAL_KILL)) {
         return EINVAL;
     }
+    return ENOTSUP;
+}
+
+int32_t
+coreo_process_sockets(int32_t pid, uint64_t start_seconds, uint64_t start_microseconds,
+                      coreo_socket_sample *sockets, int32_t capacity,
+                      int32_t *count, int32_t *truncated)
+{
+    (void)start_seconds;
+    (void)start_microseconds;
+    if (pid <= 0 || sockets == NULL || count == NULL || truncated == NULL || capacity <= 0) {
+        return EINVAL;
+    }
+    *count = 0;
+    *truncated = 0;
     return ENOTSUP;
 }
 

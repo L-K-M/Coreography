@@ -106,7 +106,17 @@ public final class DashboardModel {
     public private(set) var gpuFrames: [CapturedGPU] = []
     public private(set) var powerFrames: [CapturedPower] = []
     public private(set) var sensorFrames: [CapturedSensors] = []
-    public var processFilter = ""
+    public var processFilter = "" {
+        didSet { if wantsConnections { sampleConnections() } }
+    }
+    /// The pane under the lanes; connections are read only while shown or filtered on.
+    public var detailPane: DetailPane = .processes {
+        didSet { if wantsConnections { sampleConnections() } }
+    }
+    /// Free text over app, process, address and port in the Connections tab.
+    public var connectionFilter = ""
+    /// Displayed (possibly held) sockets; nil until first read.
+    public private(set) var connectionSnapshot: CapturedConnections?
     public var processSort: ProcessSort = .cpu
     public var processGrouping: ProcessGrouping = .app
     /// The shared hover time across all lanes; nil follows the live edge.
@@ -139,6 +149,9 @@ public final class DashboardModel {
     @ObservationIgnored private let notifier: AlertDelivery?
     @ObservationIgnored private let historyRecorder: HistoryRecorder?
     @ObservationIgnored private let sleepProvider: SleepHistoryProvider?
+    @ObservationIgnored private let connectionMonitor: ConnectionMonitor?
+    @ObservationIgnored private var connectionSample: Task<Void, Never>?
+    @ObservationIgnored private var liveConnections: CapturedConnections?
     /// The on-disk part of a range longer than live history; nil otherwise.
     private var storedHistory: StoredHistory?
     @ObservationIgnored private var storedLoad: Task<Void, Never>?
@@ -183,6 +196,7 @@ public final class DashboardModel {
         historyRecorder = history.recorder
         historyProblem = history.error
         sleepProvider = SleepHistoryProvider()
+        connectionMonitor = ConnectionMonitor()
         interval = .seconds(1)
         processInterval = .seconds(2)
         do {
@@ -219,13 +233,15 @@ public final class DashboardModel {
         gpuMonitor: GPUMonitor? = nil, powerMonitor: PowerMonitor? = nil,
         sensorMonitor: SensorMonitor? = nil, controller: ProcessController = ProcessController(),
         askService: AskService = AskService(), notifier: AlertDelivery? = nil,
-        historyRecorder: HistoryRecorder? = nil, sleepProvider: SleepHistoryProvider? = nil
+        historyRecorder: HistoryRecorder? = nil, sleepProvider: SleepHistoryProvider? = nil,
+        connectionMonitor: ConnectionMonitor? = nil
     ) {
         self.controller = controller
         self.askService = askService
         self.notifier = notifier
         self.historyRecorder = historyRecorder
         self.sleepProvider = sleepProvider
+        self.connectionMonitor = connectionMonitor
         self.monitor = monitor
         self.interval = interval
         self.processMonitor = processMonitor
@@ -242,6 +258,7 @@ public final class DashboardModel {
         askTask?.cancel()
         sleepImport?.cancel()
         storedLoad?.cancel()
+        connectionSample?.cancel()
     }
 
     public var latest: CapturedSnapshot? { frames.last }
@@ -633,14 +650,44 @@ public final class DashboardModel {
         let lifecycle = lifecycle
         let rows = ProcessGroups.rows(
             in: processSnapshot, matching: processFilter, sortedBy: processSort, grouping: processGrouping,
-            isNew: { lifecycle.isNew($0, at: time) }
+            isNew: { lifecycle.isNew($0, at: time) }, listening: connectionSnapshot?.listeningProcesses
         )
         guard let scopedApp else { return rows }
         return rows.filter { $0.appName == scopedApp }
     }
 
     /// Filter terms that were not applied, named for the person who typed them.
-    public var processFilterIssues: [String] { ProcessFilter.parse(processFilter).issues }
+    public var processFilterIssues: [String] {
+        let filter = ProcessFilter.parse(processFilter)
+        guard filter.usesListening else { return filter.issues }
+        guard let connections = connectionSnapshot else { return filter.issues + ["#listening is waiting for connection data"] }
+        if let reason = connections.unavailableReason { return filter.issues + ["#listening matches nothing: \(reason)"] }
+        guard connections.restrictedProcesses > 0 else { return filter.issues }
+        return filter.issues + ["#listening covers your own processes; other users' need the helper"]
+    }
+
+    /// The Connections tab's rows, by app, from displayed (possibly held) data.
+    public var appConnections: [AppConnections] {
+        guard let connectionSnapshot else { return [] }
+        return ConnectionGroups.apps(in: connectionSnapshot, processes: processSnapshot, matching: connectionFilter)
+    }
+
+    private var wantsConnections: Bool {
+        detailPane == .connections || ProcessFilter.parse(processFilter).usesListening
+    }
+
+    /// One read of every process's sockets, off the sampling loop and never
+    /// two at once; a pass covers hundreds of processes.
+    private func sampleConnections() {
+        guard let connectionMonitor, let processes = liveProcesses, connectionSample == nil else { return }
+        connectionSample = Task { [weak self] in
+            let snapshot = await connectionMonitor.sample(processes)
+            guard let self, !Task.isCancelled else { return }
+            self.connectionSample = nil
+            self.liveConnections = snapshot
+            if self.displayMode == .live { self.connectionSnapshot = snapshot }
+        }
+    }
 
     /// Processes gone within the last 30 s, newest first, matching filter and scope.
     public var exitedProcesses: [ExitedProcess] {
@@ -754,6 +801,7 @@ public final class DashboardModel {
                         let interval = self.liveLedger.record(processes, logicalCPUCount: history.last?.inventory.logicalCPUCount)
                         if let interval, let recorder = self.historyRecorder { Task { await recorder.recordLedger(interval) } }
                         self.liveLifecycle.record(processes)
+                        if self.wantsConnections { self.sampleConnections() }
                     }
                     if let network { self.liveNetworkFrames = network }
                     if let disks { self.liveDiskFrames = disks }
@@ -812,6 +860,7 @@ public final class DashboardModel {
         gpuFrames = liveGPUFrames
         powerFrames = livePowerFrames
         sensorFrames = liveSensorFrames
+        connectionSnapshot = liveConnections
     }
 
     public func reading(for metric: DashboardMetric) -> DashboardReading? {

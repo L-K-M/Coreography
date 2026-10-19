@@ -65,6 +65,7 @@ public actor DiagnosticService {
     private let gpuMonitor: GPUMonitor
     private let powerMonitor: PowerMonitor
     private let sensorMonitor: SensorMonitor
+    private let connectionMonitor = ConnectionMonitor()
 
     public init() throws {
         monitor = try SystemMonitor()
@@ -124,6 +125,11 @@ public actor DiagnosticService {
     /// SMC temperatures, fans and power rails are gauges; one read suffices.
     public func captureSensorsOnce() async throws -> CapturedSensors {
         try await sensorMonitor.sample()
+    }
+
+    /// Sockets need process identities, not rates, so one process sample suffices.
+    public func captureConnectionsOnce() async throws -> CapturedConnections {
+        await connectionMonitor.sample(try await processMonitor.sample())
     }
 
     /// Sample every monitor for a bounded window, then answer from one snapshot.

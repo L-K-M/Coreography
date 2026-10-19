@@ -16,10 +16,10 @@ final class ProcessFilterTests: XCTestCase {
     }
 
     func testUnsupportedAndUnreadableTermsAreReportedNotDropped() {
-        let filter = ProcessFilter.parse("#listening #bogus cpu:lots user:nobody")
+        let filter = ProcessFilter.parse("#not-responding #bogus cpu:lots user:nobody")
         XCTAssertTrue(filter.terms.isEmpty)
         XCTAssertEqual(filter.issues, [
-            "Ignored #listening: needs the Connections data source", "Unknown token #bogus",
+            "Ignored #not-responding: needs the helper's responsiveness check", "Unknown token #bogus",
             "Unreadable cpu:lots; try cpu:>10", "Unknown user nobody; use a UID, me or root"
         ])
     }
@@ -37,6 +37,16 @@ final class ProcessFilterTests: XCTestCase {
         XCTAssertFalse(ProcessFilter.parse("#third-party").matches(unreadable, isNew: false))
         XCTAssertTrue(ProcessFilter.parse("#new").matches(busy, isNew: true))
         XCTAssertFalse(ProcessFilter.parse("#new").matches(busy, isNew: false))
+    }
+
+    func testListeningNeedsConnectionDataAndMatchesItsProcesses() throws {
+        let server = try process(name: "nginx", cpu: 1, uid: 501, path: "/opt/nginx", pid: 80)
+        let client = try process(name: "curl", cpu: 1, uid: 501, path: "/usr/bin/curl", pid: 81)
+        let filter = ProcessFilter.parse("#listening")
+        XCTAssertTrue(filter.usesListening)
+        XCTAssertTrue(filter.matches(server, isNew: false, listening: [server.id]))
+        XCTAssertFalse(filter.matches(client, isNew: false, listening: [server.id]))
+        XCTAssertFalse(filter.matches(server, isNew: false, listening: nil), "without connection data nothing is listening")
     }
 
     func testGroupsShowAllMembersOnlyForAppNameText() throws {

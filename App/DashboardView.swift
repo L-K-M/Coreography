@@ -39,7 +39,18 @@ struct DashboardView: View {
                     RangePanel(model: model, report: report)
                 }
 
-                ProcessPane(model: model, filterFocused: $processFilterFocused)
+                Picker("Detail", selection: $model.detailPane) {
+                    Text("Processes").tag(DetailPane.processes)
+                    Text("Connections").tag(DetailPane.connections)
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .frame(width: 260)
+
+                switch model.detailPane {
+                case .processes: ProcessPane(model: model, filterFocused: $processFilterFocused)
+                case .connections: ConnectionsPane(model: model)
+                }
 
                 DisclosureGroup("Numeric readings") {
                     Table(Array(model.frames.suffix(10))) {
@@ -1275,7 +1286,7 @@ private struct ProcessPane: View {
         DisclosureGroup("Processes") {
             VStack(alignment: .leading, spacing: 10) {
                 HStack {
-                    TextField("Filter: name, cpu:>10, mem:>1GB, user:me, #apps, #new", text: $model.processFilter)
+                    TextField("Filter: name, cpu:>10, mem:>1GB, user:me, #apps, #new, #listening", text: $model.processFilter)
                         .textFieldStyle(.roundedBorder)
                         .focused(filterFocused)
                     Picker("Group", selection: $model.processGrouping) {
@@ -1420,6 +1431,89 @@ private enum ProcessText {
         case .standalone: return String(localized: "No owning app found")
         case nil: return ""
         }
+    }
+}
+
+/// Each app's internet sockets (plan: the Connections tab). Sockets are
+/// read only while this pane shows or a filter asks for `#listening`.
+private struct ConnectionsPane: View {
+    @Bindable var model: DashboardModel
+
+    var body: some View {
+        let rows = model.appConnections.flatMap { app in
+            (app.listening + app.connected).map { ConnectionRow(app: app.app, connection: $0) }
+        }
+        DisclosureGroup("Connections") {
+            VStack(alignment: .leading, spacing: 10) {
+                TextField("Filter: app, process, address or port", text: $model.connectionFilter)
+                    .textFieldStyle(.roundedBorder)
+                Text(ConnectionText.coverage(model.connectionSnapshot))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                Table(rows) {
+                    TableColumn("App") { Text($0.app) }
+                    TableColumn("Process") { Text("\($0.connection.processName) (\($0.connection.process.pid.formatted(.number.grouping(.never))))") }
+                    TableColumn("Protocol") { Text(ConnectionText.transport($0.connection.transport)) }
+                    TableColumn("State") { Text(ConnectionText.state($0.connection)) }
+                    TableColumn("Local") { Text(ConnectionText.endpoint($0.connection.local)) }
+                    TableColumn("Remote") { Text($0.connection.remote.map(ConnectionText.endpoint) ?? "–") }
+                }
+                .frame(height: 260)
+            }
+        }
+    }
+}
+
+private struct ConnectionRow: Identifiable {
+    let app: String
+    let connection: CapturedConnection
+    var id: String { connection.id }
+}
+
+private enum ConnectionText {
+    private static let wildcards: Set<String> = ["0.0.0.0", "::"]
+
+    static func transport(_ transport: CapturedTransport) -> String {
+        switch transport {
+        case .tcp: return String(localized: "TCP")
+        case .udp: return String(localized: "UDP")
+        }
+    }
+
+    static func state(_ connection: CapturedConnection) -> String {
+        if connection.isListening { return String(localized: "Listening") }
+        guard let state = connection.state else {
+            return connection.remote == nil ? String(localized: "Idle") : String(localized: "Connected")
+        }
+        switch state {
+        case .established: return String(localized: "Established")
+        case .synSent, .synReceived: return String(localized: "Opening")
+        case .closeWait, .finWait1, .finWait2, .closing, .lastAck, .timeWait: return String(localized: "Closing")
+        case .closed, .listen: return String(localized: "Closed")
+        }
+    }
+
+    /// `127.0.0.1:8080`, `[::1]:443`; any-address binds read `*:5353`.
+    static func endpoint(_ endpoint: CapturedEndpoint) -> String {
+        if wildcards.contains(endpoint.address) { return "*:\(endpoint.port)" }
+        return endpoint.address.contains(":") ? "[\(endpoint.address)]:\(endpoint.port)" : "\(endpoint.address):\(endpoint.port)"
+    }
+
+    static func coverage(_ snapshot: CapturedConnections?) -> String {
+        guard let snapshot else { return String(localized: "Reading sockets…") }
+        if let reason = snapshot.unavailableReason { return reason }
+        var parts = [String(localized: "\(snapshot.connections.count) sockets in your processes")]
+        if snapshot.restrictedProcesses > 0 {
+            parts.append(String(localized: "\(snapshot.restrictedProcesses) processes of other users need the helper"))
+        }
+        if snapshot.truncatedProcesses > 0 {
+            parts.append(String(localized: "\(snapshot.truncatedProcesses) over the per-process limit"))
+        }
+        if snapshot.failedProcesses > 0 {
+            parts.append(String(localized: "\(snapshot.failedProcesses) unreadable"))
+        }
+        return parts.joined(separator: " · ")
     }
 }
 

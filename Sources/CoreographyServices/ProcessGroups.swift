@@ -51,12 +51,12 @@ enum ProcessGroups {
     static func rows(
         in snapshot: CapturedProcesses?, matching filter: String,
         sortedBy sort: ProcessSort, grouping: ProcessGrouping,
-        isNew: (ProcessIdentity) -> Bool = { _ in false }
+        isNew: (ProcessIdentity) -> Bool = { _ in false }, listening: Set<ProcessIdentity>? = nil
     ) -> [ProcessRow] {
         if grouping == .flat {
             // A flat row still belongs to its app: scope and the ledger key on it.
             let apps = snapshot.map(appNames) ?? [:]
-            return ProcessList.rows(in: snapshot, matching: filter, sortedBy: sort, isNew: isNew)
+            return ProcessList.rows(in: snapshot, matching: filter, sortedBy: sort, isNew: isNew, listening: listening)
                 .map { leaf($0, method: nil, appName: apps[$0.id] ?? $0.name) }
         }
 
@@ -85,7 +85,9 @@ enum ProcessGroups {
             let name = names[key] ?? key
             // Free text naming the app shows all its members; predicates test each member.
             let nameMatches = parsed.isEmpty || (parsed.isTextOnly && parsed.matchesName(name))
-            let visible = group.filter { nameMatches || parsed.matches($0.0, isNew: isNew($0.0.id), appName: name) }
+            let visible = group.filter {
+                nameMatches || parsed.matches($0.0, isNew: isNew($0.0.id), appName: name, listening: listening)
+            }
             guard !visible.isEmpty else { continue }
 
             if group.count == 1, let (process, method) = group.first {
