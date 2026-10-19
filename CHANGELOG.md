@@ -31,6 +31,9 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
   after the store first exceeds it.
 
 ### Added
+- Your own alert rules in Settings: a reading above or below a threshold
+  for a while raises it, a second threshold clears it, and it can notify
+  and run a Shortcut like the shipped rules.
 - The Startup tab opens Login Items & Extensions in System Settings, and each item
   reveals its property list in Finder or copies its label.
 - The process pane groups as a parent-child tree or by user, besides by

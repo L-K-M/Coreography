@@ -457,7 +457,15 @@ Implemented:
   a marker; unknown readings pause the clocks rather than count. The
   memory, battery and startup-disk rules notify, through UserNotifications
   (so Focus applies), with a 15-minute cooldown and one banner per rule;
-  Shortcut actions are described above. User-defined rules remain.
+  Shortcut actions are described above. Settings > Your alert rules
+  adds up to 20 of the person's own: a metric (CPU, memory used, GPU,
+  hottest sensor, system power, battery, download, upload, disk read or
+  write), above or below a threshold for a wait, clearing back past a
+  second threshold for another wait, optionally notifying. They read what
+  history records (the primary interface, a lone storage device and a
+  lone GPU), ignore readings older than 10 s so a stopped sampler cannot
+  hold them raised, and an edited rule starts cleared. Rules sharing a
+  lane name themselves together in its tint.
 - Process pane change highlighting: CPU, footprint and disk cells are
   shaded in their subsystem hue by share of the column's top row; a
   process first seen within 10 s (not present at launch) tints its name;
