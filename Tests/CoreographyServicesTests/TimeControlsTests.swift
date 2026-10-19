@@ -30,6 +30,25 @@ final class TimeControlsTests: XCTestCase {
         XCTAssertFalse(model.samplingPaused)
     }
 
+    /// Plan: the range inspector's Annotate names a range where it starts and ends.
+    @MainActor
+    func testAnnotatingARangeMarksItsStartAndEnd() async throws {
+        let model = DashboardModel(monitor: try SystemMonitor(driver: Counting()), interval: .milliseconds(10))
+        model.annotateSelection(named: "Nothing selected")
+        XCTAssertTrue(model.timelineMarkers.isEmpty, "without a range there is nothing to annotate")
+
+        let start = Date(timeIntervalSince1970: 1_700_000_000)
+        model.selection = start...start.addingTimeInterval(30)
+        model.annotateSelection(named: "  Build  ")
+        XCTAssertEqual(model.timelineMarkers.map(\.label), ["Build", "End of Build"])
+        XCTAssertEqual(model.timelineMarkers.map(\.time), [start, start.addingTimeInterval(30)])
+        XCTAssertTrue(model.timelineMarkers.allSatisfy { $0.kind == .note })
+
+        model.selection = start...start
+        model.annotateSelection(named: "Instant")
+        XCTAssertEqual(model.timelineMarkers.filter { $0.label.contains("Instant") }.count, 1, "an instant is one marker")
+    }
+
     @MainActor
     func testClearingTheSelectionFromThePaletteDropsTheComparison() async throws {
         let model = DashboardModel(monitor: try SystemMonitor(driver: Counting()), interval: .milliseconds(10))

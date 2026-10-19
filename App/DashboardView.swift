@@ -246,7 +246,7 @@ struct DashboardView: View {
                 Button("Marker", systemImage: "flag") { model.markerPromptShown = true }
                     // A plain letter must not fire while any text field takes typing.
                     .keyboardShortcut(
-                        processFilterFocused || model.paletteShown || model.markerPromptShown
+                        processFilterFocused || model.paletteShown || model.markerPromptShown || model.annotationPromptShown
                             ? nil : KeyboardShortcut("m", modifiers: [])
                     )
                     .help("Drop a named marker on every lane (M)")
@@ -2405,6 +2405,7 @@ private struct RangePanel: View {
     @State private var exportFile: ExportFile?
     @State private var exportType: UTType = .json
     @State private var exportError: String?
+    @State private var annotation = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -2426,8 +2427,20 @@ private struct RangePanel: View {
                 }
                 .disabled(document == nil)
                 .help(RangeText.exportScope(document, requested: report.requested))
+                Button("Annotate…") { model.annotationPromptShown = true }
+                    .help("Name this range; the name marks where it starts and ends on every lane")
                 Button("Clear selection") { model.clearSelection() }
                     .keyboardShortcut(.cancelAction)
+            }
+            .alert("Annotate this range", isPresented: $model.annotationPromptShown) {
+                TextField("Name", text: $annotation)
+                Button("Add") {
+                    model.annotateSelection(named: annotation)
+                    annotation = ""
+                }
+                Button("Cancel", role: .cancel) { annotation = "" }
+            } message: {
+                Text("Its name marks where the range starts and ends on every lane.")
             }
             if let exportError {
                 Text(exportError).font(.caption).foregroundStyle(.red)

@@ -31,6 +31,8 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
   after the store first exceeds it.
 
 ### Added
+- Annotate in the range panel names a selected range; the name marks
+  where it starts and ends on every lane.
 - The CPU lane shows each core tier's activity as a strip under the
   graph.
 - Sampling slows to half rate while Low Power Mode is on, and the window

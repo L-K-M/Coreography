@@ -125,7 +125,9 @@ Implemented:
   selection. M (or the palette) drops a named marker, up to 120
   characters, a blank name becoming the time; the person's markers
   draw solid in the accent colour with their name, the others stay
-  dashed and unlabelled. Markers last for the session.
+  dashed and unlabelled. Markers last for the session. Annotate in the
+  range panel names the selected range: the name marks its start and
+  "End of" the name its end.
 
 - MCP access through the app: off by default (Settings > MCP access).
   When on, the app listens on a Unix socket in a 0700 Application

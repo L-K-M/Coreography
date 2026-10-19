@@ -1242,6 +1242,8 @@ public final class DashboardModel {
     public var paletteShown = false
     /// The named-marker prompt (plan: M drops a named marker).
     public var markerPromptShown = false
+    /// The range inspector asks for an annotation's name.
+    public var annotationPromptShown = false
 
     /// When the newest live sample arrived, held display or not; surfaces
     /// that always show live data (the Dock graph) redraw on it.
@@ -1700,6 +1702,15 @@ public final class DashboardModel {
         let trimmed = String(name.trimmingCharacters(in: .whitespacesAndNewlines).prefix(Self.maximumMarkerLength))
         let label = trimmed.isEmpty ? "Marker \(time.formatted(date: .omitted, time: .standard))" : trimmed
         markers.append(TimelineMarker(time: time, label: label, kind: .note))
+    }
+
+    /// Plan: Annotate a time range. Its name marks where the range starts,
+    /// and "End of" the name where it ends, on every lane.
+    public func annotateSelection(named name: String) {
+        guard let selection else { return }
+        addMarker(named: name, at: selection.lowerBound)
+        guard selection.upperBound > selection.lowerBound, let start = markers.last else { return }
+        markers.append(TimelineMarker(time: selection.upperBound, label: "End of \(start.label)", kind: .note))
     }
 
     public func stop() {
