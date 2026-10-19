@@ -2062,7 +2062,7 @@ private struct StartupPane: View {
                     .frame(width: 260)
                     Spacer()
                     // Coreography only reads startup items; System Settings changes them.
-                    Button("Open Login Items Settings…") { SMAppService.openSystemSettingsLoginItems() }
+                    Button("Open Login Items & Extensions…") { SMAppService.openSystemSettingsLoginItems() }
                         .help("Turn login and background items on or off in System Settings")
                     Button("Refresh") { model.refreshStartupItems() }
                 }
@@ -2074,6 +2074,9 @@ private struct StartupPane: View {
                     TableColumn("Item") { row in
                         Text(row.item.label)
                             .help(row.item.program ?? row.item.plistPath)
+                            // The whole cell answers a right-click, not just the label's glyphs.
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .contentShape(Rectangle())
                             .contextMenu {
                                 Button("Reveal Property List in Finder") {
                                     NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: row.item.plistPath)])

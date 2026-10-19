@@ -647,7 +647,7 @@ Implemented:
   current CPU and footprint and their apps' CPU-seconds over the last
   hour. Read on request, never polled. Login and background items need
   the helper and are named as missing. Coreography changes nothing:
-  Open Login Items Settings uses `SMAppService`'s documented link to
+  Open Login Items & Extensions uses `SMAppService`'s documented link to
   System Settings, and each item's menu reveals its property list or
   copies its label.
 - Sensors tab: every plausible SMC temperature, each fan and the system
