@@ -151,6 +151,9 @@ public struct ProcessFilter: Equatable, Sendable {
                         terms.append(.user(uid))
                     } else if value.isEmpty {
                         issues.append("Unreadable \(word); try user:root, user:me, a UID or an account name")
+                    } else if value.allSatisfy({ $0.isASCII && $0.isNumber }) {
+                        // Digits past UInt32 are a mistyped UID, not an account name that matches nothing.
+                        issues.append("Unreadable \(word); a UID is at most \(UInt32.max)")
                     } else {
                         terms.append(.userName(value))
                     }

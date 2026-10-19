@@ -16,11 +16,12 @@ final class ProcessFilterTests: XCTestCase {
     }
 
     func testUnsupportedAndUnreadableTermsAreReportedNotDropped() {
-        let filter = ProcessFilter.parse("#not-responding #bogus cpu:lots user:")
-        XCTAssertTrue(filter.terms.isEmpty)
+        let filter = ProcessFilter.parse("#not-responding #bogus cpu:lots user: user:99999999999")
+        XCTAssertTrue(filter.terms.isEmpty, "digits too large for a UID are not an account name")
         XCTAssertEqual(filter.issues, [
             "Ignored #not-responding: needs the helper's responsiveness check", "Unknown token #bogus",
-            "Unreadable cpu:lots; try cpu:>10", "Unreadable user:; try user:root, user:me, a UID or an account name"
+            "Unreadable cpu:lots; try cpu:>10", "Unreadable user:; try user:root, user:me, a UID or an account name",
+            "Unreadable user:99999999999; a UID is at most 4294967295"
         ])
     }
 
