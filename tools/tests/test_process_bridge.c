@@ -364,6 +364,8 @@ test_threads(void)
     assert(coreo_process_read(getpid(), &self) == 0);
     assert(coreo_process_threads(getpid(), self.start_seconds, self.start_microseconds, &threads) == 0);
     assert(threads >= 1);
+    /* The process sample carries the count too. */
+    assert(self.threads_error == 0 && self.threads >= 1);
     assert(coreo_process_threads(getpid(), self.start_seconds + 1, self.start_microseconds, &threads) == EAGAIN);
     assert(coreo_process_threads(0, 1, 0, &threads) == EINVAL);
     assert(coreo_process_threads(getpid(), 1, 0, NULL) == EINVAL);
@@ -404,6 +406,8 @@ test_platform(void)
     assert(sample.path[0] == '\0');
     assert(sample.responsible_error == ENOTSUP);
     assert(sample.responsible_pid == 0);
+    assert(sample.threads_error == ENOTSUP);
+    assert(sample.threads == 0);
 
     assert(coreo_process_signal(42, 1, 0, COREO_SIGNAL_TERMINATE) == ENOTSUP);
     assert(coreo_process_signal(42, 1, 0, COREO_SIGNAL_STOP) == ENOTSUP);

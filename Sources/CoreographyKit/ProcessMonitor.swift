@@ -12,6 +12,9 @@ public actor ProcessMonitor {
     private static let usageSource = MetricSource(
         provider: "processes", driver: "libproc", channel: "RUSAGE_INFO_V6"
     )
+    private static let taskSource = MetricSource(
+        provider: "processes", driver: "libproc", channel: "PROC_PIDTASKINFO"
+    )
     private static let gpuSource = MetricSource(
         provider: "processes", driver: "IOKit", channel: "IOAccelerator user clients"
     )
@@ -123,6 +126,7 @@ public actor ProcessMonitor {
                     diskReadBytesPerSecond: readings.read, diskWriteBytesPerSecond: readings.write,
                     wakeupsPerSecond: readings.wakeups, gpuMillisecondsPerSecond: gpu, cpuPowerWatts: readings.power,
                     cpuTimeSeconds: try cpuTime(process.counters, unreadable: readings.cpu),
+                    threadCount: try threadCount(process.threads),
                     executablePath: process.executablePath, responsiblePID: process.responsiblePID
                 ))
             }
@@ -171,6 +175,14 @@ public actor ProcessMonitor {
         let (total, overflow) = counters.userNanoseconds.addingReportingOverflow(counters.systemNanoseconds)
         guard !overflow else { return .gap(reason: "CPU time out of range", source: Self.usageSource) }
         return try .measured(Double(total) / Self.nanosecondsPerSecond, source: Self.usageSource)
+    }
+
+    /// A gauge, like footprint: it needs no baseline and no gap over an interruption.
+    private func threadCount(_ threads: Result<Int, ProcessDriverError>) throws -> MetricReading {
+        switch threads {
+        case .success(let count): try .measured(Double(count), source: Self.taskSource)
+        case .failure(let error): try missing(error, source: Self.taskSource)
+        }
     }
 
     private struct UsageReadings {

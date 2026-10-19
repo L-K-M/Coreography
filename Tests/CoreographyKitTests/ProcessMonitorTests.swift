@@ -43,6 +43,7 @@ final class ProcessMonitorTests: XCTestCase {
         XCTAssertEqual(first.processes.first?.cpuPercentOfMachine.availability, .collecting)
         XCTAssertEqual(first.processes.first?.wakeupsPerSecond.availability, .collecting)
         XCTAssertEqual(first.processes.first?.cpuTimeSeconds.numericValue, 1, "lifetime CPU time needs no baseline")
+        XCTAssertEqual(first.processes.first?.threadCount.numericValue, 7, "a thread count needs no baseline")
         let second = try await monitor.sample()
         let process = try XCTUnwrap(second.processes.first)
         XCTAssertEqual(process.cpuPercentOfMachine.numericValue, 25)
@@ -52,6 +53,16 @@ final class ProcessMonitorTests: XCTestCase {
         XCTAssertEqual(process.wakeupsPerSecond.numericValue, 10, "20 wakeups over 2 s")
         XCTAssertEqual(process.cpuTimeSeconds.numericValue, 3)
         XCTAssertEqual(process.cpuTimeSeconds.availability, .measured)
+    }
+
+    /// Another user's task info needs the helper; its count is restricted, not zero.
+    func testAnUnreadableThreadCountIsRestricted() async throws {
+        let monitor = try makeMonitor([fixture(time: 1, rows: [row(time: 1, threads: .failure(.restricted(code: 1)))])])
+        let sample = try await monitor.sample()
+        let process = try XCTUnwrap(sample.processes.first)
+        XCTAssertEqual(process.threadCount.availability, .restricted)
+        XCTAssertNil(process.threadCount.numericValue)
+        XCTAssertEqual(process.memoryFootprintBytes.numericValue, 4096, "the other readings stand")
     }
 
     func testPowerIsAnEstimateFromTheEnergyCounter() async throws {
@@ -344,7 +355,8 @@ final class ProcessMonitorTests: XCTestCase {
 
     private func row(
         pid: Int32 = 42, time: UInt64, start: UInt64 = 100,
-        cpu: UInt64 = 0, read: UInt64 = 0, wakeups: UInt64 = 0, energy: UInt64 = 0, failure: ProcessDriverError? = nil
+        cpu: UInt64 = 0, read: UInt64 = 0, wakeups: UInt64 = 0, energy: UInt64 = 0, failure: ProcessDriverError? = nil,
+        threads: Result<Int, ProcessDriverError> = .success(7)
     ) -> RawProcessInfo {
         RawProcessInfo(
             pid: pid, parentPID: 1, uid: 501, startSeconds: start, startMicroseconds: 123,
@@ -352,7 +364,8 @@ final class ProcessMonitorTests: XCTestCase {
             counters: failure.map { .failure($0) } ?? .success(ProcessCounters(
                 userNanoseconds: cpu, systemNanoseconds: 0, physicalFootprintBytes: 4096,
                 diskReadBytes: read, diskWriteBytes: 0, wakeups: wakeups, energyNanojoules: energy
-            ))
+            )),
+            threads: threads
         )
     }
 }

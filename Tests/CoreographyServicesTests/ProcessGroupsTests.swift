@@ -173,6 +173,24 @@ final class ProcessGroupsTests: XCTestCase {
         XCTAssertEqual(newest.map(\.name), ["com.apple.WebKit.WebContent", "Safari", "mds"], "newest first, ties by PID")
     }
 
+    /// Plan: an opt-in threads column, and the header's thread total.
+    func testGroupsSumThreadsAndUnreadCountsStayUnknown() throws {
+        let processes = try snapshot([
+            try process(pid: 100, name: "Safari", cpu: 9, path: "/Applications/Safari.app/Contents/MacOS/Safari", threads: 20),
+            try process(pid: 101, name: "helper", cpu: 1, path: "/Applications/Safari.app/Contents/MacOS/helper", threads: 5),
+            try process(pid: 200, name: "mds", cpu: 1, path: "/usr/sbin/mds", threads: 40),
+            try process(pid: 300, name: "locked", cpu: nil, path: "/usr/sbin/locked", threads: nil)
+        ])
+        let rows = ProcessGroups.rows(in: processes, matching: "", sortedBy: .threads, grouping: .app)
+        XCTAssertEqual(rows.map(\.name), ["mds", "Safari", "locked"], "most threads first, unread last")
+        XCTAssertEqual(rows[1].threadCount.numericValue, 25, "an app sums its processes")
+        XCTAssertEqual(rows[2].threadCount.availability, .restricted, "an unread count is not zero")
+
+        let total = processes.threadTotal
+        XCTAssertEqual(total.threads, 65)
+        XCTAssertEqual(total.unread, 1)
+    }
+
     /// Plan: grouping as a parent-child tree, each row with its own readings.
     func testTreeNestsChildrenUnderTheirObservedParent() throws {
         let launchd = try process(pid: 1, name: "launchd", cpu: 1, start: 1, parent: 0, uid: 0)
@@ -285,7 +303,7 @@ final class ProcessGroupsTests: XCTestCase {
     private func process(
         pid: Int32, name: String, cpu: Double?, start: UInt64 = 10,
         path: String? = nil, responsible: Int32? = nil, gpu: Double = 0, power: Double? = 0,
-        parent: UInt32 = 1, uid: UInt32 = 501
+        parent: UInt32 = 1, uid: UInt32 = 501, threads: Double? = 1
     ) throws -> ObservedProcess {
         let source = MetricSource(provider: "processes", driver: "libproc")
         return ProcessReading(
@@ -300,6 +318,7 @@ final class ProcessGroupsTests: XCTestCase {
             cpuPowerWatts: try power.map { try .estimated($0, method: "Energy model", source: source) }
                 ?? .unsupported(reason: "No energy counter for this process", source: source),
             cpuTimeSeconds: try cpu.map { try .measured($0, source: source) } ?? .restricted(reason: "EPERM", source: source),
+            threadCount: try threads.map { try .measured($0, source: source) } ?? .restricted(reason: "EPERM", source: source),
             executablePath: path, responsiblePID: responsible
         )
     }
