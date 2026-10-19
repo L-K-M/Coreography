@@ -38,11 +38,29 @@ final class AutomationRouter {
     }
 
     func open(_ url: URL) {
+        if url.isFileURL { return openRecording(url) }
         Task {
             let command = await model.open(url)
             if command == .toggleHUD { return hud.toggle() }
             // A refusal is shown in the window, so it opens too.
             showDashboard()
+        }
+    }
+
+    /// A `.coreotrace` handed to the app (Finder, the Dock or Open Recording…).
+    func openRecording(_ url: URL) {
+        Task {
+            let data = await Task.detached { () -> Data? in
+                let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+                guard size <= Recording.maximumBytes else { return nil }
+                return try? Data(contentsOf: url)
+            }.value
+            showDashboard()
+            guard let data else {
+                model.reportRecordingFailure("The recording could not be read")
+                return
+            }
+            model.openRecording(data)
         }
     }
 

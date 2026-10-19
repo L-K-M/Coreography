@@ -186,7 +186,10 @@ public final class DashboardModel {
     /// Sleep, wake, power source and pressure changes found in the displayed data.
     public private(set) var systemMarkers: [TimelineMarker] = []
     /// Everything the lanes mark: the person's actions, alerts and system events.
-    public var timelineMarkers: [TimelineMarker] { markers + systemMarkers }
+    public var timelineMarkers: [TimelineMarker] { (openRecording == nil ? markers : recordingMarkers) + systemMarkers }
+    /// The recording shown in place of live data, when one is open.
+    public private(set) var openRecording: OpenRecording?
+    @ObservationIgnored private var recordingMarkers: [TimelineMarker] = []
     /// One app scoping every view (plan P8); cleared only by its clear button.
     public var scopedApp: String?
     public private(set) var actionMessage: String?
@@ -591,6 +594,73 @@ public final class DashboardModel {
         )
         let apps = ledger.totals(in: live).apps.sorted { $0.cpuSeconds > $1.cpuSeconds }
         return RangeExport.document(range: live, model: frames, apps: apps, naming: exportNaming)
+    }
+
+    /// The selected range as a `.coreotrace` recording of displayed data;
+    /// nil without a selection inside the live hour.
+    public func recordingData(name: String) -> Data? {
+        guard let selection, let liveStart = frames.first?.stamp.wallTime else { return nil }
+        let start = max(selection.lowerBound, liveStart)
+        guard start <= selection.upperBound else { return nil }
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let document = Recording.make(
+            name: trimmed.isEmpty ? "Recording \(start.formatted(date: .abbreviated, time: .shortened))" : trimmed,
+            range: start...selection.upperBound,
+            frames: DashboardFrames(
+                host: frames, network: networkFrames, disks: diskFrames, gpu: gpuFrames, power: powerFrames, sensors: sensorFrames
+            ),
+            ledger: ledger, markers: timelineMarkers, naming: exportNaming
+        )
+        return try? Recording.encode(document)
+    }
+
+    /// A recording file the app could not read at all.
+    public func reportRecordingFailure(_ message: String) { actionMessage = message }
+
+    /// Show a recording in the held display; Return to live goes back.
+    /// Returns why it could not be opened.
+    @discardableResult
+    public func openRecording(_ data: Data) -> String? {
+        let document: Recording.Document
+        do {
+            document = try Recording.decode(data)
+        } catch {
+            actionMessage = error.message
+            return error.message
+        }
+        displayMode = .held
+        openRecording = OpenRecording(
+            name: document.name, start: document.start, end: document.end, appNames: document.appNames
+        )
+        frames = document.host
+        networkFrames = document.network
+        diskFrames = document.disks
+        gpuFrames = document.gpu
+        powerFrames = document.power
+        sensorFrames = document.sensors
+        siliconFrames = []
+        // Process detail is live state; a recording carries per-app totals only.
+        processSnapshot = nil
+        contributorHistory = []
+        connectionSnapshot = nil
+        trafficSnapshot = nil
+        openFileSnapshot = nil
+        ledger = AppLedger(stored: document.ledger.map { interval in
+            LedgerInterval(
+                start: interval.start, end: interval.end, cores: interval.cores, coversNetwork: interval.coversNetwork,
+                entries: interval.entries.map {
+                    LedgerEntry(app: $0.app, cpuSeconds: $0.cpuSeconds, diskBytes: $0.diskBytes,
+                                networkBytes: $0.networkBytes, isLowerBound: $0.isLowerBound)
+                }
+            )
+        })
+        recordingMarkers = document.markers.map { TimelineMarker(time: $0.time, label: $0.label, kind: .note) }
+        cursorTime = nil
+        clearSelection()
+        let duration = document.end.timeIntervalSince(document.start)
+        timeRange = TimeRange.allCases.first { $0.seconds >= duration && !$0.reachesStoredHistory } ?? .hour
+        refreshSystemMarkers()
+        return nil
     }
 
     /// Hand the newest live readings to the recorder, which batches writes.
@@ -1532,6 +1602,8 @@ public final class DashboardModel {
             return
         }
         displayMode = .live
+        openRecording = nil
+        recordingMarkers = []
         frames = liveFrames
         processSnapshot = liveProcesses
         contributorHistory = liveContributorHistory

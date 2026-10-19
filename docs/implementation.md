@@ -3,7 +3,7 @@
 Track actual delivery against the [product plan](plan.md). A stage is
 complete only after its relevant checks and review pass and its PR merges.
 
-## Current slice: inspector history
+## Current slice: recordings
 
 The native foundation merged in [PR #5](https://github.com/L-K-M/Coreography/pull/5)
 at `aee9494` after two GLM rounds and passing CI. Process monitoring merged
@@ -52,9 +52,23 @@ Time controls follow in [PR #65](https://github.com/L-K-M/Coreography/pull/65).
 HUD levels follow in [PR #66](https://github.com/L-K-M/Coreography/pull/66).
 Range comparison follows on `feat/range-compare`.
 Menu bar items follow on `feat/menu-bar-items`.
-This slice deepens the inspector.
+Inspector history follows on `feat/inspector-history`.
+This slice adds recordings.
 
 Implemented:
+
+- Recordings (plan: a frozen copy of a range as a portable
+  `.coreotrace` package): Save Recording… in the range panel writes the
+  selection's frames, its per-app ledger intervals and its markers as
+  versioned JSON (`ch.lkmc.coreography.trace`, conforming to JSON; the
+  schema is documented in `Recording.swift`), redacted unless names are
+  included: apps become numbered placeholders in CPU order, the same
+  placeholder for the same app throughout, and the person's marker names
+  become "Marker". Command-O, Finder or the Dock opens one into the held
+  display with its own markers and range reports, without live process
+  detail mixed in; Return to live goes back. Files over 256 MB, newer
+  schemas, unreadable files and backwards ranges are refused with the
+  reason shown. Only the live hour can be recorded so far.
 
 - Inspector history and threads: the selected process's CPU,
   footprint, disk and network readings are kept from each live sample
@@ -624,6 +638,7 @@ helper remain outstanding. The store, MCP and model features above await stack d
 | Native network MIB, wide-counter mapping and three-lane UI | Passed at `e62fac1`, including native C fixtures, live CLI and both executable architectures; integrated candidate pending |
 | Native IOKit storage counters and four-lane renderer | Passed [native CI](https://github.com/L-K-M/Coreography/actions/runs/39110306993) at `6434722`: 75 tests, 16 drivers, 32 measured rate fields, no inventory issues; owner checks pending |
 | On-disk history store and recorder | History slice: 148 Swift tests pass on Linux against the real system SQLite (round trip with gaps, duplicates, retention, reopen, permissions, WAL, batching); native CI checks the CLI and file permissions |
+| Recordings | 274 Swift tests pass on Linux (round trip, consistent redaction of apps and marker names, newer, unreadable and backwards files refused, opening into the held display and returning to live); document registration and the open and save panels compile only in native CI |
 | Inspector history and threads | 271 Swift tests and the Linux C contract pass (history only after selection, cleared on change, threads through the model); the native contract counts this process's threads and refuses a wrong start time |
 | Menu bar items | 270 Swift tests pass on Linux (one per reading, three at most, never empty, saved); the label image compiles only in native CI and its look is an owner check |
 | Range comparison | 269 Swift tests pass on Linux (rate-based changes across ranges of different lengths, the noise floor, no coverage, no shared readings); Command-drag and the bands compile only in native CI and are an owner check |

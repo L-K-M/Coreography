@@ -2285,6 +2285,8 @@ private struct RangePanel: View {
                 Group {
                     Button("Export JSON…") { export(as: .json) }
                     Button("Export CSV…") { export(as: .commaSeparatedText) }
+                    Button("Save Recording…") { saveRecording() }
+                        .help("A .coreotrace file that opens back in Coreography for replay")
                 }
                 .disabled(document == nil)
                 .help(RangeText.exportScope(document, requested: report.requested))
@@ -2337,6 +2339,16 @@ private struct RangePanel: View {
 }
 
 private extension RangePanel {
+    func saveRecording() {
+        guard let data = model.recordingData(name: "") else {
+            exportError = String(localized: "Only the live hour can be recorded")
+            return
+        }
+        exportError = nil
+        exportType = .coreographyRecording
+        exportFile = ExportFile(data: data)
+    }
+
     /// Build the file from displayed data; failures are shown, not swallowed.
     func export(as type: UTType) {
         guard let document = model.rangeExport else { return }
@@ -2352,8 +2364,13 @@ private extension RangePanel {
 }
 
 /// Already-encoded export bytes handed to the save panel.
+extension UTType {
+    /// Declared in Info.plist; JSON underneath.
+    static let coreographyRecording = UTType(exportedAs: "ch.lkmc.coreography.trace", conformingTo: .json)
+}
+
 private struct ExportFile: FileDocument {
-    static let readableContentTypes: [UTType] = [.json, .commaSeparatedText, .plainText]
+    static let readableContentTypes: [UTType] = [.json, .commaSeparatedText, .plainText, .coreographyRecording]
     let data: Data
 
     init(data: Data) { self.data = data }
@@ -2720,6 +2737,9 @@ private enum ToolbarText {
     static func status(_ model: DashboardModel) -> String {
         if model.collectionError != nil { return String(localized: "Collection stopped") }
         if model.samplingPaused { return String(localized: "Recording paused · a gap marks the pause") }
+        if let recording = model.openRecording {
+            return String(localized: "Recording “\(recording.name)” · Return to live to resume")
+        }
         if let cursor = model.cursorTime {
             return String(localized: "Cursor \(cursor.formatted(date: .omitted, time: .standard)) · values at cursor")
         }
