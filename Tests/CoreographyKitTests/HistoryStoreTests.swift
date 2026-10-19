@@ -255,7 +255,10 @@ final class HistoryStoreTests: XCTestCase {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let path = directory.appendingPathComponent("history.sqlite").path
         try SQLiteConnection(path: path).execute("PRAGMA user_version=\(HistoryStore.schemaVersion + 1)")
-        XCTAssertThrowsError(try HistoryStore(directory: directory))
+        XCTAssertThrowsError(try HistoryStore(directory: directory)) { error in
+            guard case HistoryStoreError.storage(let reason) = error else { return XCTFail("\(error)") }
+            XCTAssertTrue(reason.hasPrefix("History was written by a newer Coreography"), reason)
+        }
         let version = try SQLiteConnection(path: path).query("PRAGMA user_version").first?.first
         XCTAssertEqual(version, .integer(Int64(HistoryStore.schemaVersion + 1)), "an older build leaves the newer label alone")
     }

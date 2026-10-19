@@ -23,6 +23,8 @@ public actor ProcessMonitor {
     private var continuity: ContinuityTracker
     private var rates: [ProcessIdentity: ProcessRates] = [:]
     private var gpuLedger: GPUTimeLedger
+    /// Some process on this Mac has reported energy; until one does, zero is no counter at all.
+    private var energyCounters = EnergyCounters.absent
 
     public init() throws { try self.init(driver: ProcessStatisticsDriver(), gpuClients: GPUClientDriver()) }
 
@@ -66,6 +68,11 @@ public actor ProcessMonitor {
                 continuity: .interrupted
             )
         case .success(let enumeration):
+            if energyCounters == .absent, enumeration.processes.contains(where: {
+                if case .success(let counters) = $0.counters { counters.energyNanojoules > 0 } else { false }
+            }) {
+                energyCounters = .present
+            }
             var processes: [ProcessReading] = []
             var issues = try enumeration.failures.map {
                 ProcessCollectionIssue(
@@ -99,7 +106,7 @@ public actor ProcessMonitor {
                 case .success(let counters):
                     readings = try state.record(
                         counters, at: processStamp,
-                        logicalCPUCount: raw.logicalCPUCount, interrupted: interrupted
+                        logicalCPUCount: raw.logicalCPUCount, interrupted: interrupted, energyCounters: energyCounters
                     )
                     nextRates[identity] = state
                 case .failure(let error):
@@ -199,7 +206,7 @@ public actor ProcessMonitor {
 
         mutating func record(
             _ counters: ProcessCounters, at stamp: SampleStamp,
-            logicalCPUCount: Int, interrupted: Bool
+            logicalCPUCount: Int, interrupted: Bool, energyCounters: EnergyCounters
         ) throws -> UsageReadings {
             let total = counters.userNanoseconds.addingReportingOverflow(counters.systemNanoseconds)
             let cpuReading: MetricReading
@@ -221,8 +228,9 @@ public actor ProcessMonitor {
             let writeReading = write.record(counters.diskWriteBytes, at: stamp)
             let wakeupReading = wakeups.record(counters.wakeups, at: stamp)
             let powerReading: MetricReading
-            if counters.energyNanojoules == 0, total.partialValue > 0 {
-                // A process that ran but used no energy has no counter on this Mac, not zero watts.
+            if counters.energyNanojoules == 0, total.partialValue > 0 || energyCounters == .absent {
+                // A process that ran but used no energy has no counter, not zero watts; on a Mac
+                // where no process reports energy, an idle one has none either.
                 energy.reset()
                 powerReading = .unsupported(reason: "No energy counter for this process", source: usageSource)
             } else {
@@ -241,4 +249,9 @@ public actor ProcessMonitor {
             )
         }
     }
+}
+
+/// Whether this Mac's kernel keeps per-process energy counters at all.
+enum EnergyCounters: Sendable {
+    case present, absent
 }
