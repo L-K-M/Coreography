@@ -22,7 +22,7 @@ final class OpenFileMonitorTests: XCTestCase {
         XCTAssertEqual(complete?.paths, ["/Users/me/Notes.txt"])
         XCTAssertEqual(complete?.isComplete, true)
         let cut = await OpenFileMonitor(driver: Files()).files(of: rows[1])
-        XCTAssertEqual(cut?.isComplete, false, "a process holding more than one read keeps")
+        XCTAssertEqual(cut?.isComplete, false, "a process holding more files than one read keeps is marked incomplete")
     }
 
     private func processes(_ pids: [Int32]) throws -> ProcessSnapshot {

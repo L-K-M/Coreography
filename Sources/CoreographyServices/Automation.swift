@@ -118,7 +118,7 @@ public enum AutomationLink {
 }
 
 /// A process holding a port or file, for Shortcuts.
-public struct Holder: Equatable, Sendable {
+public struct Holder: Codable, Equatable, Sendable {
     public let pid: Int32
     public let name: String
     public let app: String
@@ -128,7 +128,7 @@ public struct Holder: Equatable, Sendable {
 }
 
 /// Who holds a port or file now, and what the answer could not cover.
-public struct HolderLookup: Equatable, Sendable {
+public struct HolderLookup: Codable, Equatable, Sendable {
     public let holders: [Holder]
     /// Why the answer may be incomplete or empty for want of data.
     public let limitations: [String]

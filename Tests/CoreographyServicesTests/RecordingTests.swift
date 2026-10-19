@@ -95,6 +95,33 @@ final class RecordingTests: XCTestCase {
         XCTAssertEqual(model.actionMessage, "The recording could not be read: not a Coreography recording")
     }
 
+    /// The later of two opens wins, even when the earlier file takes longer to read.
+    @MainActor
+    func testTheLastRecordingOpenedIsTheOneShown() async throws {
+        let model = DashboardModel(monitor: try SystemMonitor(driver: Host()), interval: .milliseconds(10))
+        let range = epoch...epoch.addingTimeInterval(10)
+        let frames = DashboardFrames(host: [], network: [], disks: [], gpu: [], power: [], sensors: [])
+        let many = (0..<60_000).map { TimelineMarker(time: epoch.addingTimeInterval(Double($0 % 10)), label: "m\($0)", kind: .note) }
+        let slow = try Recording.encode(Recording.make(
+            name: "Slow", range: range, frames: frames, ledger: AppLedger(capacity: 1), markers: many, naming: .named
+        ))
+        let quick = try Recording.encode(Recording.make(
+            name: "Quick", range: range, frames: frames, ledger: AppLedger(capacity: 1), markers: [], naming: .named
+        ))
+        let first = Task { await model.openRecording(slow, fileName: "Slow") }
+        let second = Task { await model.openRecording(quick, fileName: "Quick") }
+        _ = await (first.value, second.value)
+        XCTAssertEqual(model.openRecording?.name, "Quick")
+
+        // Returning to live while a file is still being read keeps the window live.
+        let late = Task { await model.openRecording(slow, fileName: "Late") }
+        await Task.yield()
+        model.toggleDisplayHold()
+        if model.displayMode == .held { model.toggleDisplayHold() }
+        _ = await late.value
+        XCTAssertNil(model.openRecording?.name == "Late" ? model.openRecording : nil, "a dismissed open does not land")
+    }
+
     // MARK: Fixtures
 
     private func processes(at second: TimeInterval, _ rows: [(String, Double)]) throws -> CapturedProcesses {

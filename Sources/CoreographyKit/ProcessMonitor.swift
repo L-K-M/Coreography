@@ -122,6 +122,7 @@ public actor ProcessMonitor {
                     cpuPercentOfMachine: readings.cpu, memoryFootprintBytes: readings.memory,
                     diskReadBytesPerSecond: readings.read, diskWriteBytesPerSecond: readings.write,
                     wakeupsPerSecond: readings.wakeups, gpuMillisecondsPerSecond: gpu, cpuPowerWatts: readings.power,
+                    cpuTimeSeconds: try cpuTime(process.counters, unreadable: readings.cpu),
                     executablePath: process.executablePath, responsiblePID: process.responsiblePID
                 ))
             }
@@ -162,6 +163,14 @@ public actor ProcessMonitor {
         case .unsupported(let reason): .unsupported(reason: reason, source: Self.gpuSource)
         case .millisecondsPerSecond(let times): try .measured(times[pid] ?? 0, source: Self.gpuSource)
         }
+    }
+
+    /// Lifetime CPU time is a counter, not a rate, so the first sample has it.
+    private func cpuTime(_ counters: Result<ProcessCounters, ProcessDriverError>, unreadable: MetricReading) throws -> MetricReading {
+        guard case .success(let counters) = counters else { return unreadable }
+        let (total, overflow) = counters.userNanoseconds.addingReportingOverflow(counters.systemNanoseconds)
+        guard !overflow else { return .gap(reason: "CPU time out of range", source: Self.usageSource) }
+        return try .measured(Double(total) / Self.nanosecondsPerSecond, source: Self.usageSource)
     }
 
     private struct UsageReadings {

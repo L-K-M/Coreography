@@ -24,6 +24,10 @@ final class VolumeMonitorTests: XCTestCase {
                                           isInternal: true, isLocal: true, isRoot: false))
         XCTAssertNil(VolumeDecoder.volume(path: "/x", name: "X", total: 10, important: nil, available: nil,
                                           isInternal: true, isLocal: true, isRoot: false), "unknown free space is not zero")
+
+        // The startup disk's data volume shares its space; listing it would show the disk twice.
+        XCTAssertNil(VolumeDecoder.volume(path: "/System/Volumes/Data", name: "Macintosh HD - Data", total: 1_000, important: 400,
+                                          available: 300, isInternal: true, isLocal: true, isRoot: false))
     }
 
     func testVolumesListStartupFirstThenByKindAndName() async {

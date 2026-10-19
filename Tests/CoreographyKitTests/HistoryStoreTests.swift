@@ -298,6 +298,9 @@ final class HistoryStoreTests: XCTestCase {
 
         let waiter = try SQLiteConnection(path: path)
         XCTAssertNoThrow(try waiter.execute("INSERT INTO t VALUES (1)"))
+        // COMMIT releases the lock inside execute, a moment before the flag is set.
+        let deadline = Date().addingTimeInterval(2)
+        while !committed, Date() < deadline { Thread.sleep(forTimeInterval: 0.01) }
         XCTAssertTrue(committed, "the fixture's own commit worked, so a failure above is the wait's")
     }
 

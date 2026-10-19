@@ -6,6 +6,10 @@ public typealias ObservedProcess = ProcessReading
 
 public enum ProcessSort: String, CaseIterable, Identifiable, Sendable {
     case cpu, memory, diskRead, diskWrite, network, gpu, power, name
+    /// Most lifetime CPU time first.
+    case cpuTime
+    /// Newest first.
+    case started
 
     public var id: Self { self }
 }
@@ -49,6 +53,8 @@ enum ProcessList {
         case .diskWrite: row.diskWriteBytesPerSecond.numericValue
         case .gpu: row.gpuMillisecondsPerSecond.numericValue
         case .power: row.cpuPowerWatts.numericValue
+        case .cpuTime: row.cpuTimeSeconds.numericValue
+        case .started: row.id.startTime.timeIntervalSince1970
         case .name, .network: nil
         }
     }
