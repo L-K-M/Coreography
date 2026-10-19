@@ -9,6 +9,8 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
 ### Fixed
 - A user name the account database failed to read is asked for again,
   instead of showing a bare UID until the view is chosen again.
+- A percentage between 0 and 1 reads "<1%" instead of a decimal that
+  claims more precision than the sample has; a measured zero stays 0%.
 - Lower Priority leaves a process that already runs at a lower priority
   alone instead of failing, and Hang Up and Interrupt on the window
   server or login window warn that they log you out.

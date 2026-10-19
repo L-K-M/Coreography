@@ -3165,8 +3165,11 @@ enum MetricText {
     static let percentScale = 100.0
     private static let wholePercentThreshold = 10.0
 
+    /// Plan precision: no decimals from 10, one below, and "<1%" rather
+    /// than a fake 0.3%. A measured zero stays "0%".
     static func percent(_ value: Double?) -> String {
         guard let value, value.isFinite else { return "–" }
+        if value > 0, value < 1 { return String(localized: "<1%") }
         let digits = value >= wholePercentThreshold ? 0 : 1
         return (value / percentScale).formatted(.percent.precision(.fractionLength(0...digits)))
     }
