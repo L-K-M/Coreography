@@ -67,6 +67,8 @@ struct CommandPaletteView: View {
             hud.toggle()
         case .openSettings:
             openSettings()
+        case .addMarker:
+            model.markerPromptShown = true
         case .copySelected:
             guard let process = model.selectedProcess else { return }
             NSPasteboard.general.clearContents()

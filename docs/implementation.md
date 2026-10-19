@@ -3,7 +3,7 @@
 Track actual delivery against the [product plan](plan.md). A stage is
 complete only after its relevant checks and review pass and its PR merges.
 
-## Current slice: MCP access through the app
+## Current slice: time controls
 
 The native foundation merged in [PR #5](https://github.com/L-K-M/Coreography/pull/5)
 at `aee9494` after two GLM rounds and passing CI. Process monitoring merged
@@ -47,9 +47,21 @@ Per-process network (S3) follows in [PR #59](https://github.com/L-K-M/Coreograph
 The Dock icon follows in [PR #60](https://github.com/L-K-M/Coreography/pull/60).
 Alert actions follow in [PR #61](https://github.com/L-K-M/Coreography/pull/61).
 Network in the ledger follows in [PR #62](https://github.com/L-K-M/Coreography/pull/62).
-This slice connects MCP clients to the running app (M5).
+MCP access through the app follows in [PR #64](https://github.com/L-K-M/Coreography/pull/64).
+This slice adds the plan's remaining time controls.
 
 Implemented:
+
+- Time controls: Pause Recording (toolbar, menu bar extra and palette)
+  stops sampling, so every series and the store keep a gap, marked
+  "Recording paused" and "Recording resumed"; reopening the window does
+  not resume it, and the status line and menu bar title say so. Hold
+  still only freezes the display. Command-0 returns to the live edge,
+  leaving hold and the cursor but keeping the range and selection. M (or
+  the palette) drops a named marker, up to 120 characters, a blank name
+  becoming the time; the person's markers draw solid in the accent colour
+  with their name, the others stay dashed and unlabelled. Markers last
+  for the session.
 
 - MCP access through the app: off by default (Settings > MCP access).
   When on, the app listens on a Unix socket in a 0700 Application
@@ -570,6 +582,7 @@ helper remain outstanding. The store, MCP and model features above await stack d
 | Native network MIB, wide-counter mapping and three-lane UI | Passed at `e62fac1`, including native C fixtures, live CLI and both executable architectures; integrated candidate pending |
 | Native IOKit storage counters and four-lane renderer | Passed [native CI](https://github.com/L-K-M/Coreography/actions/runs/39110306993) at `6434722`: 75 tests, 16 drivers, 32 measured rate fields, no inventory issues; owner checks pending |
 | On-disk history store and recorder | History slice: 148 Swift tests pass on Linux against the real system SQLite (round trip with gaps, duplicates, retention, reopen, permissions, WAL, batching); native CI checks the CLI and file permissions |
+| Time controls | 265 Swift tests pass on Linux (no sampling while paused even when started, pause markers, resume, return to now keeping the selection, marker names); the toolbar, menu and alert compile only in native CI |
 | MCP access through the app | 263 Swift tests pass on Linux with real Unix sockets (off by default, 0700 directory and 0600 socket, approval once per identity, refusal and denial, another user's peer refused first, revocation closing sessions, disabling removing the socket, the bridge client's refusals and a piped session, identity from signed, unsigned and app-less trees); native CI checks the bridge fails without the app; approving a real assistant is an owner check |
 | Network in the ledger | 259 Swift tests pass on Linux against the system SQLite (a schema-4 store migrated in place with its rows kept, network per interval and per day, unknown without coverage, the diagnostic ranking and its unavailable case) |
 | Alert actions | 257 Swift tests pass on Linux (the disk rule's thresholds and unknown readings, saved Shortcuts per rule, name validation, one run per raise through the model with its failure named, the listed Shortcuts); running real Shortcuts is an owner check |

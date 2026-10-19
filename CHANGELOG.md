@@ -13,6 +13,9 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
   after the store first exceeds it.
 
 ### Added
+- Pause Recording (toolbar, menu bar extra, palette) stops sampling and
+  leaves a labelled gap; Command-0 returns to now; M drops a named marker
+  shown on every lane.
 - MCP access through the running app: off by default, one approval per
   client app (identified by its signature, not by the name it sends),
   revocable in Settings, with session and call limits. `coreo mcp --stdio`

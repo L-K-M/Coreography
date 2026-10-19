@@ -30,6 +30,10 @@ struct MenuBarView: View {
             Text(topOffender).font(.caption).foregroundStyle(.secondary)
             Divider()
             HStack {
+                Button(model.samplingPaused ? "Resume" : "Pause") {
+                    model.samplingPaused ? model.resumeSampling() : model.pauseSampling()
+                }
+                .help("Pause recording; the pause stays as a labelled gap")
                 Button(model.displayMode == .live ? "Hold display" : "Return to live") { model.toggleDisplayHold() }
                 Button(hud.isShown ? "Hide HUD" : "Show HUD") { hud.toggle() }
                 Spacer()
@@ -57,7 +61,7 @@ struct MenuBarLabel: View {
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
-        Text(MetricText.percent(model.reading(for: .cpu)?.numericValue)).monospacedDigit()
+        Text(model.samplingPaused ? String(localized: "Paused") : MetricText.percent(model.reading(for: .cpu)?.numericValue)).monospacedDigit()
             // Always shown while the app runs, so links can open a closed window.
             .onAppear { automation.openDashboard = { openWindow(id: "dashboard") } }
     }

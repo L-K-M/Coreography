@@ -26,6 +26,10 @@ public enum PaletteAction: Hashable, Sendable {
     case copySelected
     case toggleHUD
     case openSettings
+    case toggleSampling
+    case returnToNow
+    /// The app asks for the name.
+    case addMarker
 }
 
 public struct PaletteEntry: Identifiable, Equatable, Sendable {

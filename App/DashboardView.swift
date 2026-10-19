@@ -12,6 +12,7 @@ struct DashboardView: View {
     @FocusState private var processFilterFocused: Bool
     /// A palette process action, confirmed once the palette has closed.
     @State private var queuedPaletteAction: ProcessActionRequest?
+    @State private var markerName = ""
     @State private var paletteAction: ProcessActionRequest?
 
     var body: some View {
@@ -186,6 +187,16 @@ struct DashboardView: View {
             CommandPaletteView(model: model, hud: hud) { queuedPaletteAction = $0 }
         }
         .modifier(ProcessActionConfirmation(model: model, pendingAction: $paletteAction))
+        .alert("Add a marker", isPresented: $model.markerPromptShown) {
+            TextField("Name", text: $markerName)
+            Button("Add") {
+                model.addMarker(named: markerName)
+                markerName = ""
+            }
+            Button("Cancel", role: .cancel) { markerName = "" }
+        } message: {
+            Text("It appears on every lane at this moment.")
+        }
         .inspector(isPresented: $model.inspectorShown) {
             InspectorView(model: model)
                 .inspectorColumnWidth(min: 260, ideal: 320, max: 480)
@@ -228,6 +239,21 @@ struct DashboardView: View {
                 }
                 .pickerStyle(.segmented)
                 .help("Visible history; up to one hour is kept in memory")
+            }
+            ToolbarItem(placement: .primaryAction) {
+                Button("Marker", systemImage: "flag") { model.markerPromptShown = true }
+                    .keyboardShortcut(processFilterFocused ? nil : KeyboardShortcut("m", modifiers: []))
+                    .help("Drop a named marker on every lane (M)")
+            }
+            ToolbarItem(placement: .primaryAction) {
+                // Pausing stops sampling; Hold only freezes what is drawn.
+                Button(
+                    model.samplingPaused ? "Resume recording" : "Pause recording",
+                    systemImage: model.samplingPaused ? "play.circle" : "pause.circle"
+                ) {
+                    model.samplingPaused ? model.resumeSampling() : model.pauseSampling()
+                }
+                .help("Stop sampling; the pause stays as a labelled gap in every series")
             }
             ToolbarItem(placement: .primaryAction) {
                 Button(
@@ -2379,9 +2405,33 @@ private struct MarkerRules: ChartContent {
     var body: some ChartContent {
         ForEach(markers.filter { range.contains($0.time) }) { marker in
             RuleMark(x: .value("Marker", marker.time))
-                .foregroundStyle(marker.kind == .system ? Color.secondary.opacity(0.5) : Color.secondary)
-                .lineStyle(StrokeStyle(lineWidth: 1, dash: marker.kind == .system ? [1, 4] : [2, 3]))
+                .foregroundStyle(MarkerStyle.color(marker.kind))
+                .lineStyle(StrokeStyle(lineWidth: 1, dash: MarkerStyle.dash(marker.kind)))
                 .accessibilityLabel(marker.label)
+                // Only the person's own markers carry a caption; the rest would crowd the lanes.
+                .annotation(position: .top, alignment: .leading) {
+                    if marker.kind == .note {
+                        Text(marker.label).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                    }
+                }
+        }
+    }
+}
+
+private enum MarkerStyle {
+    static func color(_ kind: MarkerKind) -> Color {
+        switch kind {
+        case .system: Color.secondary.opacity(0.5)
+        case .note: Color.accentColor
+        case .action, .alert: Color.secondary
+        }
+    }
+
+    static func dash(_ kind: MarkerKind) -> [CGFloat] {
+        switch kind {
+        case .system: [1, 4]
+        case .note: []
+        case .action, .alert: [2, 3]
         }
     }
 }
@@ -2597,6 +2647,7 @@ private enum ToolbarText {
     @MainActor
     static func status(_ model: DashboardModel) -> String {
         if model.collectionError != nil { return String(localized: "Collection stopped") }
+        if model.samplingPaused { return String(localized: "Recording paused · a gap marks the pause") }
         if let cursor = model.cursorTime {
             return String(localized: "Cursor \(cursor.formatted(date: .omitted, time: .standard)) · values at cursor")
         }
