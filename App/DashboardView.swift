@@ -1233,6 +1233,7 @@ private struct DiskLane: View {
         .overlay(RoundedRectangle(cornerRadius: Layout.cornerRadius).strokeBorder(
             Color(nsColor: .separatorColor), lineWidth: 0.5
         ))
+        .alertTint(model.activeAlerts[.disk])
     }
 
     private var devicePicker: some View {

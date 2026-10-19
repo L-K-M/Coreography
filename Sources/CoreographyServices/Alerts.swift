@@ -6,7 +6,7 @@ public typealias AlertNotifications = AlertDelivery
 
 /// Lanes an alert can tint.
 public enum AlertLane: String, Sendable {
-    case memory, thermal, power
+    case memory, thermal, power, disk
 }
 
 /// A rule is a condition, a duration and an action, with hysteresis
@@ -29,6 +29,8 @@ struct AlertInputs: Sendable {
     let thermalPressure: ThermalPressureLevel?
     let batteryPercent: Double?
     let onBattery: Bool?
+    /// Available share of the startup volume, 0...1.
+    var startupFreeFraction: Double? = nil
 }
 
 /// One transition, for markers and notifications.
@@ -41,9 +43,9 @@ public struct AlertEvent: Equatable, Sendable {
 
 enum AlertRules {
     private static let lowBatteryPercent = 15.0
+    private static let lowStartupFreeFraction = 0.10
 
-    /// The plan's shipped rules. Startup-disk free space waits for a volume
-    /// capacity provider, so that rule is not offered yet.
+    /// The plan's shipped rules.
     static let shipped: [AlertRule] = [
         AlertRule(id: "memory-critical", title: "Critical memory pressure", lane: .memory,
                   raiseAfter: 30, clearAfter: 30, notifies: true) { inputs in
@@ -57,6 +59,10 @@ enum AlertRules {
                   raiseAfter: 0, clearAfter: 30, notifies: true) { inputs in
             guard let percent = inputs.batteryPercent, let onBattery = inputs.onBattery else { return nil }
             return onBattery && percent < lowBatteryPercent
+        },
+        AlertRule(id: "startup-disk-low", title: "Startup disk under 10% free", lane: .disk,
+                  raiseAfter: 0, clearAfter: 60, notifies: true) { inputs in
+            inputs.startupFreeFraction.map { $0 < lowStartupFreeFraction }
         }
     ]
 }
@@ -111,5 +117,27 @@ struct AlertCooldown: Sendable {
         if let last = lastSent[ruleID], time.timeIntervalSince(last) < Self.interval { return false }
         lastSent[ruleID] = time
         return true
+    }
+}
+
+/// Which of the person's Shortcuts each rule runs when it raises (plan:
+/// alert actions); saved by rule id.
+struct AlertShortcuts {
+    private static let defaultsKey = "alertShortcuts"
+    private let defaults: UserDefaults
+
+    init(defaults: UserDefaults) { self.defaults = defaults }
+
+    var all: [String: String] {
+        defaults.dictionary(forKey: Self.defaultsKey) as? [String: String] ?? [:]
+    }
+
+    /// A blank or nil name removes the action.
+    func set(_ name: String?, for ruleID: String) -> [String: String] {
+        var current = all
+        let trimmed = name?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        current[ruleID] = trimmed.isEmpty ? nil : trimmed
+        defaults.set(current, forKey: Self.defaultsKey)
+        return current
     }
 }
