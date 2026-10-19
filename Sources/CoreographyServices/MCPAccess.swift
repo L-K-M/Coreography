@@ -49,7 +49,7 @@ public final class MCPAccess {
     static let globalCallsPerSecond = 20
     static let approvalTimeout: Duration = .seconds(120)
     private static let enabledKey = "mcpAccessEnabled"
-    private static let grantsKey = "mcpGrants"
+    static let grantsKey = "mcpGrants"
 
     public private(set) var isEnabled: Bool
     public private(set) var grants: [MCPGrant]
@@ -70,6 +70,8 @@ public final class MCPAccess {
     @ObservationIgnored private var approvals: [UUID: CheckedContinuation<Bool, Never>] = [:]
     @ObservationIgnored private var queuedApprovals: [MCPApprovalRequest] = []
     @ObservationIgnored private var recentCalls: [Date] = []
+    @ObservationIgnored private var lastUseSaved: Date?
+    private static let lastUseSaveInterval: TimeInterval = 60
 
     public convenience init(version: String, snapshot: @escaping @MainActor @Sendable () -> DiagnosticSnapshot) {
         self.init(
@@ -114,6 +116,9 @@ public final class MCPAccess {
         advanceApprovals(after: requestID)
     }
 
+    /// Clients waiting for an answer, shown or queued.
+    var approvalsWaiting: Int { approvals.count }
+
     /// Stop listening when the app quits; the socket file goes with it.
     public func shutdown() { stopListening() }
 
@@ -126,8 +131,15 @@ public final class MCPAccess {
             problem = nil
             acceptLoop = Task { [weak self] in
                 while !Task.isCancelled {
-                    guard let channel = try? await listener.accept() else { return }
-                    self?.admit(channel)
+                    do {
+                        self?.admit(try await listener.accept())
+                    } catch {
+                        // Closing ends the loop quietly; anything else would leave access looking on but deaf.
+                        if !Task.isCancelled, (error as? LocalChannelError) != .closed {
+                            self?.problem = "MCP access stopped listening: \(error). Turn it off and on again."
+                        }
+                        return
+                    }
                 }
             }
         } catch {
@@ -136,6 +148,7 @@ public final class MCPAccess {
     }
 
     private func stopListening() {
+        saveGrants()
         acceptLoop?.cancel()
         acceptLoop = nil
         listener?.close()
@@ -166,9 +179,15 @@ public final class MCPAccess {
             } else {
                 guard await askApproval(identity) else { return reject(channel, .denied) }
                 guard isEnabled else { return reject(channel, .disabled) }
-                grant = MCPGrant(id: UUID(), identity: identity, approvedAt: Date(), lastUsedAt: nil)
-                grants.append(grant)
-                saveGrants()
+                // Answers to clients that waited together: one grant, and the cap still holds.
+                guard sessions.count < Self.maximumSessions else { return reject(channel, .busy) }
+                if let approved = grants.first(where: { $0.identity.key == identity.key }) {
+                    grant = approved
+                } else {
+                    grant = MCPGrant(id: UUID(), identity: identity, approvedAt: Date(), lastUsedAt: nil)
+                    grants.append(grant)
+                    saveGrants()
+                }
             }
             serve(channel, grant: grant)
         }
@@ -182,7 +201,7 @@ public final class MCPAccess {
         let snapshot = snapshot
         let server = MCPServer(
             version: version,
-            authorize: { [weak self] in await self?.authorizes(grant.id, session: id) ?? false },
+            authorize: { [weak self] check in await self?.authorizes(grant.id, session: id, check) ?? .revoked },
             snapshot: { await MainActor.run { snapshot() } }
         )
         Task { [weak self] in
@@ -199,15 +218,17 @@ public final class MCPAccess {
         }
     }
 
-    /// The grant still stands, the session is open, and the global budget has room.
-    private func authorizes(_ grantID: UUID, session: UUID) -> Bool {
-        guard isEnabled, connections[session] != nil, grants.contains(where: { $0.id == grantID }) else { return false }
+    /// The grant still stands and the session is open; a call also needs
+    /// room in the budget all sessions share, which delivery does not spend.
+    private func authorizes(_ grantID: UUID, session: UUID, _ check: MCPCheck) -> MCPAuthorization {
+        guard isEnabled, connections[session] != nil, grants.contains(where: { $0.id == grantID }) else { return .revoked }
+        guard check == .call else { return .allowed }
         let now = Date()
         recentCalls.removeAll { now.timeIntervalSince($0) >= 1 }
-        guard recentCalls.count < Self.globalCallsPerSecond else { return false }
+        guard recentCalls.count < Self.globalCallsPerSecond else { return .throttled(callsPerSecond: Self.globalCallsPerSecond) }
         recentCalls.append(now)
         touch(grantID)
-        return true
+        return .allowed
     }
 
     private func close(_ session: UUID) {
@@ -243,9 +264,14 @@ public final class MCPAccess {
         pendingApproval = queuedApprovals.isEmpty ? nil : queuedApprovals.removeFirst()
     }
 
+    /// Last use is saved at most once a minute, not with every call.
     private func touch(_ grantID: UUID) {
         guard let index = grants.firstIndex(where: { $0.id == grantID }) else { return }
-        grants[index].lastUsedAt = Date()
+        let now = Date()
+        grants[index].lastUsedAt = now
+        guard now.timeIntervalSince(lastUseSaved ?? .distantPast) >= Self.lastUseSaveInterval else { return }
+        lastUseSaved = now
+        saveGrants()
     }
 
     private func saveGrants() {
@@ -294,9 +320,15 @@ public enum MCPBridgeClient {
         }
         switch status {
         case .ready: break
-        case .denied: return .refused("Coreography did not approve this client; allow it when asked, or check Settings > MCP access")
-        case .busy: return .refused("Coreography already serves its maximum number of MCP sessions")
-        case .disabled: return .refused("MCP access is off in Coreography's Settings")
+        case .denied:
+            channel.close()
+            return .refused("Coreography did not approve this client; allow it when asked, or check Settings > MCP access")
+        case .busy:
+            channel.close()
+            return .refused("Coreography already serves its maximum number of MCP sessions")
+        case .disabled:
+            channel.close()
+            return .refused("MCP access is off in Coreography's Settings")
         }
 
         // stdin blocks, so it reads on its own thread; its end closes the session.

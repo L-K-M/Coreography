@@ -447,8 +447,8 @@ jobs:
           if dist/Coreography.app/Contents/Helpers/coreo mcp --stdio < /dev/null 2> "$RUNNER_TEMP/bridge.err"; then
             echo "::error::coreo mcp --stdio succeeded without the app"; exit 1
           fi
-          grep -q "MCP access" "$RUNNER_TEMP/bridge.err"
           cat "$RUNNER_TEMP/bridge.err"
+          grep -q "MCP access" "$RUNNER_TEMP/bridge.err"
 
       - name: Smoke-test the on-disk history store
         run: |

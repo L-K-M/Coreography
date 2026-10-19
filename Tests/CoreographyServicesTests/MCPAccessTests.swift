@@ -29,7 +29,7 @@ final class MCPAccessTests: XCTestCase {
             30: RawPeerProcess(pid: 30, parentPID: 1, uid: 501, path: "/Applications/Claude.app/Contents/Frameworks/Helper.app/Contents/MacOS/Helper")
         ], signing: ["/Applications/Claude.app": CodeSigning(signature: .otherSigner, identifier: "com.anthropic.claude", teamID: "Q6L2SF6YDW")])
         XCTAssertEqual(
-            ClientIdentityResolver(reader: tree).identity(ofPeer: 50),
+            ClientIdentityResolver(reader: tree, ownBundle: "/Applications/Coreography.app").identity(ofPeer: 50),
             ClientIdentity(key: "team:Q6L2SF6YDW/com.anthropic.claude", displayName: "Claude", detail: "com.anthropic.claude, team Q6L2SF6YDW")
         )
 
@@ -46,6 +46,47 @@ final class MCPAccessTests: XCTestCase {
         XCTAssertEqual(ClientIdentityResolver(reader: unsigned).identity(ofPeer: 50)?.key, "path:/Users/me/Tools/Agent.app",
                        "an unsigned app is bound to its location")
         XCTAssertNil(ClientIdentityResolver(reader: Tree([:])).identity(ofPeer: 50))
+
+        // An app that speaks the socket itself is its own client; Coreography's own CLI never is.
+        let direct = Tree([
+            50: RawPeerProcess(pid: 50, parentPID: 1, uid: 501, path: "/Applications/Claude.app/Contents/MacOS/Claude")
+        ], signing: ["/Applications/Claude.app": CodeSigning(signature: .otherSigner, identifier: "com.anthropic.claude", teamID: "Q6L2SF6YDW")])
+        XCTAssertEqual(ClientIdentityResolver(reader: direct).identity(ofPeer: 50)?.key, "team:Q6L2SF6YDW/com.anthropic.claude")
+        let ownOnly = Tree([
+            50: RawPeerProcess(pid: 50, parentPID: 1, uid: 501, path: "/Applications/Coreography.app/Contents/Helpers/coreo")
+        ])
+        XCTAssertEqual(
+            ClientIdentityResolver(reader: ownOnly, ownBundle: "/Applications/Coreography.app").identity(ofPeer: 50)?.key,
+            "path:/Applications/Coreography.app/Contents/Helpers/coreo", "launched by nothing else, the CLI is all there is"
+        )
+    }
+
+    /// Approvals answered together must not open more sessions than the cap.
+    @MainActor
+    func testApprovalsWaitingTogetherStillRespectTheSessionCap() async throws {
+        let access = makeAccess()
+        access.setEnabled(true)
+        defer { access.shutdown() }
+        let clients = try (0...MCPAccess.maximumSessions).map { _ in try LocalChannelClient.connect(path: socketPath) }
+        defer { clients.forEach { $0.close() } }
+        // Every client is waiting before the first answer, so none finds a grant on arrival.
+        _ = try await eventually { access.approvalsWaiting == clients.count ? true : nil }
+        for _ in clients {
+            let request = try await eventually { access.pendingApproval }
+            access.answer(request.id, allow: true)
+        }
+        var statuses: [MCPBridgeStatus] = []
+        for client in clients {
+            let line = try await client.readLine()
+            statuses.append(try XCTUnwrap(line.flatMap(MCPBridge.status)))
+        }
+        XCTAssertEqual(statuses.filter { $0 == .ready }.count, MCPAccess.maximumSessions)
+        XCTAssertEqual(statuses.filter { $0 == .busy }.count, 1)
+        XCTAssertEqual(access.sessions.count, MCPAccess.maximumSessions)
+
+        let saved = try XCTUnwrap(defaults.data(forKey: MCPAccess.grantsKey))
+        let grants = try JSONDecoder().decode([MCPGrant].self, from: saved)
+        XCTAssertNotNil(grants.first?.lastUsedAt, "last use survives a relaunch")
     }
 
     @MainActor
@@ -115,7 +156,10 @@ final class MCPAccessTests: XCTestCase {
         let refused = try await foreign.readLine()
         XCTAssertEqual(refused.flatMap(MCPBridge.status), .denied, "a peer of another user is refused before anything else")
         XCTAssertNil(stranger.pendingApproval)
+        client.close()
+        foreign.close()
         stranger.shutdown()
+        access.shutdown()
     }
 
     @MainActor

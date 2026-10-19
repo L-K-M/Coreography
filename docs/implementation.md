@@ -131,11 +131,14 @@ Implemented:
   When on, the app listens on a Unix socket in a 0700 Application
   Support directory, the socket file 0600. A connection is checked with
   the kernel's peer credentials: another user's process is refused
-  before anything else. The client is identified by walking up from the
-  connecting process to the first ancestor inside an app bundle, whose
-  outermost bundle's signature names it (team and identifier, Apple's
-  identifier, or for unsigned code its location); without an app
+  before anything else. The client is identified from the connecting
+  process (an app that speaks the socket itself) or, for Coreography's
+  own CLI, by walking up to the first ancestor inside an app bundle,
+  whose outermost bundle's signature names it (team and identifier,
+  Apple's identifier, or for unsigned code its location); without an app
   ancestor, the top of its tree. Names a client sends are never used.
+  A lock beside the socket keeps a second copy of the app from taking
+  the endpoint over, and a file left by a crash is replaced.
   An unknown client waits for the person's answer in the window (120 s,
   one request shown at a time); approval is saved per identity, so the
   same app does not ask again, and Settings lists approved clients with
@@ -148,6 +151,14 @@ Implemented:
   to the app and fails with the reason when the app is not running, the
   switch is off or the client was refused; `--standalone` keeps sampling
   in its own process, without history.
+  What approval is and is not: a record of consent per client, not a
+  security boundary against your own account. Any program you run can
+  read the same process data through `--standalone` or the system's own
+  interfaces. Approval binds to the nearest app, so approving a terminal
+  or editor covers every program started from it (the prompt says so),
+  and a team-signed grant covers what that team ships under one
+  identifier. The process tree is read after the connection arrives, so
+  a PID reused in between could name the wrong client.
 
 - Network in the ledger: each interval integrates every app's TCP and
   UDP rates (in plus out) from the traffic sample of the same moment

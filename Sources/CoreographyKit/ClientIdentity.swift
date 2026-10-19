@@ -31,14 +31,26 @@ public struct ClientIdentityResolver: Sendable {
     private static let launchdPID: Int32 = 1
     private static let bundleSuffix = ".app"
     private let reader: any PeerProcessReading
+    /// Coreography's own bundle, whose CLI is the bridge and never the client.
+    private let ownBundle: String?
 
-    public init() { self.init(reader: PeerProcessDriver()) }
+    public init() {
+        let bundle = Bundle.main.bundlePath
+        self.init(reader: PeerProcessDriver(), ownBundle: bundle.hasSuffix(Self.bundleSuffix) ? bundle : nil)
+    }
 
-    init(reader: any PeerProcessReading) { self.reader = reader }
+    init(reader: any PeerProcessReading, ownBundle: String? = nil) {
+        self.reader = reader
+        self.ownBundle = ownBundle
+    }
 
-    /// The peer's launching app, or nil when its tree cannot be read.
+    /// The peer's launching app, or nil when its tree cannot be read. An app
+    /// that connects itself is its own client; Coreography's CLI never is.
     public func identity(ofPeer pid: Int32) -> ClientIdentity? {
         guard let peer = reader.process(pid) else { return nil }
+        if let path = peer.path, let bundle = Self.outermostBundle(path), bundle != ownBundle {
+            return appIdentity(bundle: bundle)
+        }
         var current = peer.parentPID
         var topmost: RawPeerProcess?
         for _ in 0..<Self.maximumDepth {

@@ -14,10 +14,15 @@ public enum LocalSocketError: Error, Equatable, Sendable {
     case pathTooLong
     case closed
     case lineTooLong
+    /// Another live listener holds this endpoint.
+    case inUse
 }
 
 /// One connected Unix-domain stream carrying newline-delimited UTF-8 lines.
 /// Reads wait in short polls, so `close()` from any thread ends them.
+/// `close()` only shuts the stream down; the descriptor itself is released
+/// when the last reference goes, so no read or write in flight can reach a
+/// recycled descriptor.
 public final class LocalSocketConnection: @unchecked Sendable {
     /// A line longer than this is not a protocol message.
     public static let maximumLineBytes = 1 << 20
@@ -26,6 +31,8 @@ public final class LocalSocketConnection: @unchecked Sendable {
     public let peer: PeerCredentials?
     private let descriptor: Int32
     private let lock = NSLock()
+    /// Held for a whole message, so concurrent writers never interleave.
+    private let writeLock = NSLock()
     private var buffer = Data()
     private var isClosed = false
 
@@ -34,7 +41,10 @@ public final class LocalSocketConnection: @unchecked Sendable {
         peer = Self.credentials(of: descriptor)
     }
 
-    deinit { close() }
+    deinit {
+        close()
+        _ = systemClose(descriptor)
+    }
 
     /// The next line without its newline; nil once the peer has closed.
     public func readLine() async throws -> String? {
@@ -47,6 +57,8 @@ public final class LocalSocketConnection: @unchecked Sendable {
 
     public func write(_ line: String) throws {
         let data = Data((line + "\n").utf8)
+        writeLock.lock()
+        defer { writeLock.unlock() }
         try data.withUnsafeBytes { raw in
             var offset = 0
             while offset < raw.count {
@@ -69,7 +81,6 @@ public final class LocalSocketConnection: @unchecked Sendable {
         }
         guard first else { return }
         shutdown(descriptor, Int32(SHUT_RDWR))
-        _ = systemClose(descriptor)
     }
 
     private func readLineBlocking() throws -> String? {
@@ -136,37 +147,65 @@ public final class LocalSocketConnection: @unchecked Sendable {
 }
 
 /// A listening Unix-domain socket whose file only this user can open.
+///
+/// A lock beside the socket marks the endpoint live: a second listener
+/// (another app instance) fails instead of taking the path over, and a
+/// file left by a crashed run, whose lock the kernel released, is replaced.
+/// Like a connection, the descriptors are released only with the last reference.
 public final class LocalSocketListener: @unchecked Sendable {
     private static let backlog: Int32 = 8
     private static let filePermissions: mode_t = 0o600
+    private static let lockSuffix = ".lock"
     private let descriptor: Int32
+    private let lockDescriptor: Int32
     private let path: String
+    /// The socket file this listener bound, so it never removes another's.
+    private let file: (device: dev_t, inode: ino_t)?
     private let lock = NSLock()
     private var isClosed = false
 
-    /// Replaces a stale socket file left by an earlier run.
     public init(path: String) throws {
         self.path = path
-        descriptor = try LocalSocketAddress.socketDescriptor()
+        lockDescriptor = open(path + Self.lockSuffix, O_RDWR | O_CREAT | O_CLOEXEC, Self.filePermissions)
+        guard lockDescriptor >= 0 else { throw LocalSocketError.system("open", errno) }
+        guard flock(lockDescriptor, LOCK_EX | LOCK_NB) == 0 else {
+            let code = errno
+            _ = systemClose(lockDescriptor)
+            throw code == EWOULDBLOCK ? LocalSocketError.inUse : LocalSocketError.system("flock", code)
+        }
+        let socket: Int32
+        do {
+            socket = try LocalSocketAddress.socketDescriptor()
+        } catch {
+            _ = systemClose(lockDescriptor)
+            throw error
+        }
         #if os(macOS)
         var noSignal: Int32 = 1
-        setsockopt(descriptor, SOL_SOCKET, SO_NOSIGPIPE, &noSignal, socklen_t(MemoryLayout<Int32>.size))
+        setsockopt(socket, SOL_SOCKET, SO_NOSIGPIPE, &noSignal, socklen_t(MemoryLayout<Int32>.size))
         #endif
+        // Holding the lock, whatever is at the path was left by a run that ended.
         unlink(path)
         do {
             try LocalSocketAddress.with(path) { address, length in
-                guard bind(descriptor, address, length) == 0 else { throw LocalSocketError.system("bind", errno) }
+                guard bind(socket, address, length) == 0 else { throw LocalSocketError.system("bind", errno) }
             }
             guard chmod(path, Self.filePermissions) == 0 else { throw LocalSocketError.system("chmod", errno) }
-            guard listen(descriptor, Self.backlog) == 0 else { throw LocalSocketError.system("listen", errno) }
+            guard listen(socket, Self.backlog) == 0 else { throw LocalSocketError.system("listen", errno) }
         } catch {
-            _ = systemClose(descriptor)
+            _ = systemClose(socket)
             unlink(path)
+            _ = systemClose(lockDescriptor)
             throw error
         }
+        descriptor = socket
+        file = Self.identity(of: path)
     }
 
-    deinit { close() }
+    deinit {
+        close()
+        _ = systemClose(descriptor)
+    }
 
     /// Waits for the next connection; throws `closed` once the listener closes.
     public func accept() async throws -> LocalSocketConnection {
@@ -184,8 +223,15 @@ public final class LocalSocketListener: @unchecked Sendable {
             return true
         }
         guard first else { return }
-        _ = systemClose(descriptor)
-        unlink(path)
+        // The accept loop sees `isClosed` within one poll and lets go of the descriptor.
+        if let file, let current = Self.identity(of: path), current == file { unlink(path) }
+        _ = systemClose(lockDescriptor)
+    }
+
+    private static func identity(of path: String) -> (device: dev_t, inode: ino_t)? {
+        var status = stat()
+        guard lstat(path, &status) == 0 else { return nil }
+        return (status.st_dev, status.st_ino)
     }
 
     private func acceptBlocking() throws -> LocalSocketConnection {
