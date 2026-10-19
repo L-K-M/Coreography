@@ -3,7 +3,8 @@ import CoreographyKit
 
 /// What a person's own alert rule can watch: the readings history records,
 /// so a rule sees the primary interface, the only storage device and the
-/// only GPU, as the stored lanes do.
+/// only GPU, as the stored lanes do. Raw values are the saved format, so a
+/// renamed case must keep its raw value.
 public enum AlertMetric: String, Codable, CaseIterable, Identifiable, Sendable {
     case cpu, memoryUsed, gpuBusy, hottestCelsius, systemPower, batteryCharge
     case networkReceived, networkSent, diskRead, diskWritten
@@ -111,12 +112,14 @@ public struct CustomAlertRule: Codable, Equatable, Identifiable, Sendable {
         "\(metric.name) \(direction.rawValue) \(Self.number(threshold)) \(metric.unit) for \(Self.number(raiseAfter)) s"
     }
 
-    /// Finite values, durations within an hour, and a clear threshold on
-    /// the clearing side of the raise threshold, so every rule can clear.
-    public func normalized() -> CustomAlertRule {
+    /// Durations within an hour, and a clear threshold on the clearing side
+    /// of the raise threshold, so every rule can clear. Without a finite
+    /// threshold there is no rule (only damaged saved data has none), rather
+    /// than one at 0 that would always fire.
+    public func normalized() -> CustomAlertRule? {
+        guard threshold.isFinite else { return nil }
         var rule = self
-        rule.threshold = threshold.isFinite ? threshold : 0
-        let clear = clearThreshold.isFinite ? clearThreshold : rule.threshold
+        let clear = clearThreshold.isFinite ? clearThreshold : threshold
         rule.clearThreshold = direction == .above ? min(clear, rule.threshold) : max(clear, rule.threshold)
         rule.raiseAfter = Self.seconds(raiseAfter)
         rule.clearAfter = Self.seconds(clearAfter)
@@ -129,7 +132,8 @@ public struct CustomAlertRule: Codable, Equatable, Identifiable, Sendable {
             id: "custom-\(id.uuidString)", title: title, lane: metric.lane,
             raiseAfter: raiseAfter, clearAfter: clearAfter, notifies: notifies
         ) { inputs, active in
-            guard let reading = inputs.readings[rule.metric] else { return nil }
+            // Without a recent reading a raised rule heads for clearing, so a stopped sampler cannot hold it.
+            guard let reading = inputs.readings[rule.metric] else { return active ? false : nil }
             let value = reading / rule.metric.scale
             // Raised, the rule holds until the reading passes the clear threshold.
             switch (rule.direction, active) {
@@ -173,7 +177,7 @@ struct CustomAlertRules {
     /// One rule per id, each normalized, at most `maximumCount`.
     static func cleaned(_ rules: [CustomAlertRule]) -> [CustomAlertRule] {
         var seen: Set<UUID> = []
-        let unique = rules.filter { seen.insert($0.id).inserted }.map { $0.normalized() }
+        let unique = rules.filter { seen.insert($0.id).inserted }.compactMap { $0.normalized() }
         return Array(unique.prefix(maximumCount))
     }
 }

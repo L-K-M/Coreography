@@ -945,18 +945,22 @@ public final class DashboardModel {
         refreshStartupCapacity(now: host?.stamp.wallTime ?? Date())
         let now = host?.stamp.wallTime ?? Date()
         // The person's rules read what history records, from a fresh source choice each time.
-        var sources = RecordedSources()
-        let samples = HistorySamples.latest(
-            host: host, network: liveNetworkFrames.last, disks: liveDiskFrames.last, gpu: liveGPUFrames.last,
-            power: power, sensors: liveSensorFrames.last, sources: &sources
-        )
+        var readings: [AlertMetric: Double] = [:]
+        if !customAlertRules.isEmpty {
+            var sources = RecordedSources()
+            let samples = HistorySamples.latest(
+                host: host, network: liveNetworkFrames.last, disks: liveDiskFrames.last, gpu: liveGPUFrames.last,
+                power: power, sensors: liveSensorFrames.last, sources: &sources
+            )
+            readings = AlertReadings.latest(samples, now: now)
+        }
         let inputs = AlertInputs(
             memoryPressure: host?.memory.pressureLevel,
             thermalPressure: host.flatMap { ThermalPressureLevel(reading: $0.thermalPressure) },
             batteryPercent: power?.batteryChargePercent.numericValue,
             onBattery: power?.powerSource.map { $0 == .battery },
             startupFreeFraction: startupFreeFraction,
-            readings: AlertReadings.latest(samples, now: now)
+            readings: readings
         )
         for event in alertEngine.evaluate(inputs, at: now) {
             guard event.kind == .raised, let rule = alertEngine.rules.first(where: { $0.id == event.ruleID }) else { continue }

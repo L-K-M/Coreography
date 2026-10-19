@@ -109,6 +109,7 @@ final class DashboardAlertTests: XCTestCase {
         rule.raiseAfter = 0
         model.customAlertRules = [rule]
         model.setShortcut("Focus", for: rule.alertRule.id)
+        XCTAssertEqual(model.alertShortcuts[rule.alertRule.id], "Focus")
         XCTAssertEqual(model.alertRules.last?.title, "CPU above 40 % for 0 s")
         XCTAssertEqual(CustomAlertRules(defaults: defaults).all, [rule], "saved as edited")
 
