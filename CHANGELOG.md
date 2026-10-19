@@ -31,6 +31,8 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
   after the store first exceeds it.
 
 ### Added
+- `coreo top` ranks the busiest apps, live or once as JSON, and
+  `coreo holders` says which of your processes hold a port or a file.
 - The CPU lane shows each core tier's activity as a strip under the
   graph.
 - Sampling slows to half rate while Low Power Mode is on, and the window

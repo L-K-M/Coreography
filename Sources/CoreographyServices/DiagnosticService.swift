@@ -96,6 +96,9 @@ public actor DiagnosticService {
     private let siliconMonitor: SiliconMonitor
     private let trafficMonitor: ProcessTrafficMonitor
     private let connectionMonitor = ConnectionMonitor()
+    /// Whether `top` has its rate baseline.
+    private var topPrimed = false
+    public static let maximumTopRows = DiagnosticTools.maximumRows
 
     public init() throws {
         monitor = try SystemMonitor()
@@ -176,6 +179,40 @@ public actor DiagnosticService {
         _ = try await trafficMonitor.sample()
         try await Task.sleep(for: .seconds(2))
         return try await trafficMonitor.sample()
+    }
+
+    /// The busiest apps, for `coreo top`. Rates need a baseline, so the first
+    /// call waits two seconds; later calls rate the time since the one before.
+    public func top(count: Int, sortedBy sort: ProcessSort) async throws -> TopReport {
+        guard (1...Self.maximumTopRows).contains(count) else {
+            throw DiagnosticError.invalidArgument("count must be 1-\(Self.maximumTopRows)")
+        }
+        if !topPrimed {
+            _ = try await processMonitor.sample()
+            await trafficMonitor.reset()
+            _ = try await trafficMonitor.sample()
+            try await Task.sleep(for: .seconds(2))
+            topPrimed = true
+        }
+        let processes = try await processMonitor.sample()
+        let traffic = try await trafficMonitor.sample()
+        return TopReport.make(processes: processes, traffic: traffic, sortedBy: sort, count: count)
+    }
+
+    /// Your processes with a TCP or UDP socket on `port` (plan P23: reverse lookup).
+    public func holders(ofPort port: UInt16) async throws -> HolderLookup {
+        let processes = try await processMonitor.sample()
+        return HolderLookups.port(port, in: processes, connections: await connectionMonitor.sample(processes))
+    }
+
+    /// Your processes with an open file whose path contains `text`; `~` is the home folder.
+    public func holders(ofFile text: String) async throws -> HolderLookup {
+        guard !text.trimmingCharacters(in: .whitespaces).isEmpty else {
+            throw DiagnosticError.invalidArgument("file needs part of a path or name")
+        }
+        let processes = try await processMonitor.sample()
+        let files = await OpenFileMonitor().sample(processes)
+        return HolderLookups.file(ProcessFilter.expandingHome(text), in: processes, files: files)
     }
 
     /// Sockets need process identities, not rates, so one process sample suffices.
