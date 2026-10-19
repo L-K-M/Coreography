@@ -324,6 +324,39 @@ coreo_process_renice(int32_t pid, uint64_t start_seconds, uint64_t start_microse
 }
 
 int32_t
+coreo_process_threads(int32_t pid, uint64_t start_seconds, uint64_t start_microseconds,
+                      int32_t *threads)
+{
+    struct proc_bsdinfo identity;
+    struct proc_taskinfo task;
+    int32_t err;
+    int rc;
+
+    if (pid <= 0 || threads == NULL) {
+        return EINVAL;
+    }
+    err = coreo_read_identity(pid, &identity);
+    if (err != 0) {
+        return err;
+    }
+    if (identity.pbi_start_tvsec != start_seconds || identity.pbi_start_tvusec != start_microseconds) {
+        return EAGAIN;
+    }
+    errno = 0;
+    rc = proc_pidinfo(pid, PROC_PIDTASKINFO, 0, &task, (int)sizeof(task));
+    if (rc != (int)sizeof(task)) {
+        return errno ? errno : EPERM;
+    }
+    /* The pid may have been reused while the task was read. */
+    err = coreo_read_identity(pid, &identity);
+    if (err != 0 || identity.pbi_start_tvsec != start_seconds || identity.pbi_start_tvusec != start_microseconds) {
+        return err != 0 ? err : EAGAIN;
+    }
+    *threads = task.pti_threadnum;
+    return 0;
+}
+
+int32_t
 coreo_process_arguments_capacity(void)
 {
     int mib[2] = {CTL_KERN, KERN_ARGMAX};
@@ -626,6 +659,18 @@ coreo_process_renice(int32_t pid, uint64_t start_seconds, uint64_t start_microse
     (void)start_seconds;
     (void)start_microseconds;
     if (pid <= 0 || nice_value < COREO_NICE_MIN || nice_value > COREO_NICE_MAX) {
+        return EINVAL;
+    }
+    return ENOTSUP;
+}
+
+int32_t
+coreo_process_threads(int32_t pid, uint64_t start_seconds, uint64_t start_microseconds,
+                      int32_t *threads)
+{
+    (void)start_seconds;
+    (void)start_microseconds;
+    if (pid <= 0 || threads == NULL) {
         return EINVAL;
     }
     return ENOTSUP;

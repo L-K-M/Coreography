@@ -347,6 +347,21 @@ test_arguments(void)
     free(block);
 }
 
+/* This process has at least its main thread; a wrong start time must not read. */
+static void
+test_threads(void)
+{
+    coreo_process_sample self;
+    int32_t threads = 0;
+
+    assert(coreo_process_read(getpid(), &self) == 0);
+    assert(coreo_process_threads(getpid(), self.start_seconds, self.start_microseconds, &threads) == 0);
+    assert(threads >= 1);
+    assert(coreo_process_threads(getpid(), self.start_seconds + 1, self.start_microseconds, &threads) == EAGAIN);
+    assert(coreo_process_threads(0, 1, 0, &threads) == EINVAL);
+    assert(coreo_process_threads(getpid(), 1, 0, NULL) == EINVAL);
+}
+
 #else
 
 static void
@@ -407,6 +422,14 @@ test_platform(void)
     }
 
     {
+        int32_t threads = -1;
+
+        assert(coreo_process_threads(42, 1, 0, &threads) == ENOTSUP);
+        assert(coreo_process_threads(0, 1, 0, &threads) == EINVAL);
+        assert(threads == -1);
+    }
+
+    {
         coreo_file_sample files[2];
 
         assert(coreo_process_files(42, 1, 0, files, 2, &count, &truncated) == ENOTSUP);
@@ -424,6 +447,7 @@ main(void)
 #if defined(__APPLE__)
     test_sockets();
     test_arguments();
+    test_threads();
     test_files();
 #endif
     puts("test_process_bridge: all assertions passed");

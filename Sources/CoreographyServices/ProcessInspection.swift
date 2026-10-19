@@ -35,6 +35,19 @@ public struct ProcessExplanation: Sendable {
     }
 }
 
+/// The selected process at one live sample (plan: pinned processes keep
+/// full per-process detail). Missing readings stay nil, never zero.
+public struct ProcessHistoryPoint: Identifiable, Sendable {
+    public let id: UUID
+    public let time: Date
+    public let cpuPercent: Double?
+    public let footprintBytes: Double?
+    public let diskBytesPerSecond: Double?
+    public let networkBytesPerSecond: Double?
+    /// Points in different segments are separated by a sampling gap.
+    public let segment: Int
+}
+
 /// One step up the parent chain; a parent outside the snapshot has no name.
 public struct ParentLink: Identifiable, Sendable {
     public var id: Int32 { pid }

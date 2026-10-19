@@ -13,6 +13,8 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
   after the store first exceeds it.
 
 ### Added
+- The inspector shows the selected process's thread count and its CPU
+  and footprint since it was selected.
 - Settings > Menu bar shows up to three readings (CPU, memory, GPU,
   download, upload, temperature), each a value, a one-minute graph or
   both.

@@ -75,6 +75,14 @@ int32_t coreo_process_signal(int32_t pid, uint64_t start_seconds, uint64_t start
 int32_t coreo_process_renice(int32_t pid, uint64_t start_seconds, uint64_t start_microseconds,
                              int32_t nice_value);
 
+/* pid's thread count (PROC_PIDTASKINFO) while it still has the given
+   start time, checked before and after the read. Returns EINVAL for
+   pid <= 0 or a NULL output, EPERM for another user's process, ESRCH
+   once it is gone, EAGAIN when the pid names another process, ENOTSUP
+   off macOS. */
+int32_t coreo_process_threads(int32_t pid, uint64_t start_seconds, uint64_t start_microseconds,
+                              int32_t *threads);
+
 /* The largest argument block the kernel hands out (kern.argmax), or 0
    off macOS. Size the coreo_process_arguments buffer with it. */
 int32_t coreo_process_arguments_capacity(void);
