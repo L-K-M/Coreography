@@ -386,7 +386,10 @@ Implemented:
   Architecture is opt-in as well: Apple, Intel, or Intel under Rosetta
   from the process's `P_TRANSLATED` flag, read once per process; an app
   lists each kind its members run, and `#rosetta` filters to translated
-  processes. QoS, instructions, ports and signing columns remain.
+  processes. An opt-in Signed by column names Apple, the developer team
+  or Unsigned; signatures are checked off the main actor once per
+  program, only while the column shows, and an app lists each signer.
+  QoS, instructions and ports columns remain.
 - The memory lane stacks the composition under the physical-memory line,
   draws a pressure band above it, and has a ten-column numeric table and
   per-layer chart accessibility. `coreo snapshot` exports the same detail.

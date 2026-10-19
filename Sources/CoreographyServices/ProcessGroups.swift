@@ -62,6 +62,8 @@ public struct ProcessRow: Identifiable, Sendable {
     /// The architectures its processes run; empty when none was read.
     /// Example: a native app with one Rosetta helper has both.
     public let architectures: Set<ProcessArchitecture>
+    /// Who signed its programs; empty until checked or when none could be.
+    public let signers: Set<CapturedSigner>
     /// When the process started; for a group, its first member.
     public let started: Date?
     /// Member rows for a group, or child processes in the tree; nil for a
@@ -94,7 +96,7 @@ enum ProcessGroups {
             // A flat row still belongs to its app: scope and the ledger key on it.
             let apps = snapshot.map(appNames) ?? [:]
             return ProcessList.rows(in: snapshot, matching: filter, sortedBy: sort, isNew: isNew, facts: facts, appNames: apps)
-                .map { leaf($0, method: nil, appName: apps[$0.id] ?? $0.name, traffic: facts.traffic) }
+                .map { leaf($0, method: nil, appName: apps[$0.id] ?? $0.name, facts: facts) }
         case .tree:
             return treeRows(in: snapshot, matching: filter, sortedBy: sort, isNew: isNew, facts: facts, currentUser: currentUser)
         case .user:
@@ -149,13 +151,13 @@ enum ProcessGroups {
             guard !visible.isEmpty else { continue }
 
             if group.count == 1, let (process, method) = group.first {
-                rows.append(leaf(process, method: method, appName: process.name, traffic: facts.traffic))
+                rows.append(leaf(process, method: method, appName: process.name, facts: facts))
                 continue
             }
-            let children = sorted(visible.map { leaf($0.0, method: $0.1, appName: name, traffic: facts.traffic) }, by: sort)
+            let children = sorted(visible.map { leaf($0.0, method: $0.1, appName: name, facts: facts) }, by: sort)
             rows.append(groupRow(
                 id: "group-\(key)", kind: .app, name: name, appName: name, members: group.map(\.0),
-                children: children, traffic: facts.traffic
+                children: children, facts: facts
             ))
         }
         return sorted(rows, by: sort)
@@ -218,7 +220,7 @@ enum ProcessGroups {
             let matches = parsed.isEmpty
                 || parsed.matches(process, isNew: isNew(process.id), appName: appName, facts: facts, currentUser: currentUser)
             guard matches || !kids.isEmpty else { continue }
-            built[process.id] = leaf(process, method: nil, appName: appName, traffic: facts.traffic)
+            built[process.id] = leaf(process, method: nil, appName: appName, facts: facts)
                 .replacingChildren(kids.isEmpty ? nil : sorted(kids, by: sort))
         }
         return sorted(starts.compactMap { built[$0.id] }, by: sort)
@@ -244,10 +246,10 @@ enum ProcessGroups {
                 )
             }
             guard !visible.isEmpty else { continue }
-            let children = sorted(visible.map { leaf($0, method: nil, appName: apps[$0.id] ?? $0.name, traffic: facts.traffic) }, by: sort)
+            let children = sorted(visible.map { leaf($0, method: nil, appName: apps[$0.id] ?? $0.name, facts: facts) }, by: sort)
             rows.append(groupRow(
                 id: "user-\(uid)", kind: .user(uid), name: name, appName: "", members: members,
-                children: children, traffic: facts.traffic
+                children: children, facts: facts
             ))
         }
         return sorted(rows, by: sort)
@@ -264,9 +266,9 @@ enum ProcessGroups {
     /// A group row totals every member, even those a filter hides.
     private static func groupRow(
         id: String, kind: ProcessRowKind, name: String, appName: String, members: [ObservedProcess],
-        children: [ProcessRow], traffic: CapturedTraffic?
+        children: [ProcessRow], facts: ProcessFacts
     ) -> ProcessRow {
-        let network = members.map { ProcessNetwork.rates(for: $0, in: traffic) }
+        let network = members.map { ProcessNetwork.rates(for: $0, in: facts.traffic) }
         return ProcessRow(
             id: id, kind: kind, name: name, process: nil, groupingMethod: nil, appName: appName,
             memberCount: members.count,
@@ -282,6 +284,7 @@ enum ProcessGroups {
             cpuTimeSeconds: total(members.map(\.cpuTimeSeconds), overlap: nil),
             threadCount: total(members.map(\.threadCount), overlap: nil),
             architectures: Set(members.compactMap(\.architecture)),
+            signers: Set(members.compactMap { $0.executablePath.flatMap { facts.signers[$0] } }),
             started: members.map(\.id.startTime).min(),
             children: children
         )
@@ -348,9 +351,9 @@ enum ProcessGroups {
     }
 
     private static func leaf(
-        _ process: ObservedProcess, method: ProcessGroupingMethod?, appName: String, traffic: CapturedTraffic?
+        _ process: ObservedProcess, method: ProcessGroupingMethod?, appName: String, facts: ProcessFacts
     ) -> ProcessRow {
-        let network = ProcessNetwork.rates(for: process, in: traffic)
+        let network = ProcessNetwork.rates(for: process, in: facts.traffic)
         return ProcessRow(
             id: rowID(process), kind: .process, name: process.name, process: process,
             groupingMethod: method, appName: appName, memberCount: 1,
@@ -366,6 +369,7 @@ enum ProcessGroups {
             cpuTimeSeconds: process.cpuTimeSeconds,
             threadCount: process.threadCount,
             architectures: Set([process.architecture].compactMap { $0 }),
+            signers: Set([process.executablePath.flatMap { facts.signers[$0] }].compactMap { $0 }),
             started: process.id.startTime,
             children: nil
         )
@@ -445,7 +449,7 @@ extension ProcessRow {
             wakeupsPerSecond: wakeupsPerSecond, networkReceivedBytesPerSecond: networkReceivedBytesPerSecond,
             networkSentBytesPerSecond: networkSentBytesPerSecond, gpuMillisecondsPerSecond: gpuMillisecondsPerSecond,
             cpuPowerWatts: cpuPowerWatts, cpuTimeSeconds: cpuTimeSeconds, threadCount: threadCount,
-            architectures: architectures, started: started, children: children
+            architectures: architectures, signers: signers, started: started, children: children
         )
     }
 }

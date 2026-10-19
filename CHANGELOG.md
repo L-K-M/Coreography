@@ -38,6 +38,7 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
   header's thread total. `coreo top --sort threads` ranks by them.
 - An opt-in Architecture column (Apple, Intel, or Intel under Rosetta)
   and a `#rosetta` filter.
+- An opt-in Signed by column: Apple, the developer team, or Unsigned.
 - With an app shown in the lanes, the network lane names its traffic, in
   plus out, as the CPU and disk lanes do.
 - With an app shown in the lanes, the memory and GPU lanes name its
