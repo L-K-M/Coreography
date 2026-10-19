@@ -3202,7 +3202,7 @@ private struct LaneMenu: View {
                 ForEach(LaneSize.allCases) { Text(LaneText.size($0)).tag($0) }
             }
             Divider()
-            Button("Show Facts and Sources") { model.inspectedLane = lane }
+            Button("Show Facts and Sources") { model.showLaneFacts(lane) }
             Divider()
             Button("Hide Lane") { model.laneLayout.set(lane, .hidden) }
                 .disabled(model.laneLayout.visible == [lane])

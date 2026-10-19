@@ -80,6 +80,23 @@ final class DashboardModelTests: XCTestCase {
         XCTAssertEqual(gpu.map(\.label), ["GPU 1", "GPU 2"])
         XCTAssertEqual(gpu.map(\.value), ["Integrated", "Discrete"])
         XCTAssertTrue(model.laneFacts(.thermal).filter { $0.kind == .fact }.isEmpty, "no sensors were read, so no facts are claimed")
+
+        // External disks and disk images are often all named "Untitled"; each is its own row.
+        let volumes = try JSONDecoder().decode(CapturedVolumes.self, from: Data(#"""
+            {"volumes":[
+              {"path":"/Volumes/Untitled","name":"Untitled","kind":"external","isStartup":false,"totalBytes":1000000000,"availableBytes":1},
+              {"path":"/Volumes/Untitled 1","name":"Untitled","kind":"external","isStartup":false,"totalBytes":2000000000,"availableBytes":1}
+            ]}
+            """#.utf8))
+        let disk = LaneFacts.facts(.disk, LaneFacts.Inputs(volumes: volumes))
+        XCTAssertEqual(disk.filter { $0.label.hasPrefix("Volume") }.count, 2)
+        XCTAssertEqual(Set(disk.map(\.id)).count, disk.count, "row identities never repeat")
+
+        // Asking for a lane's facts shows them even while a process is selected.
+        model.selectedProcessRow = "process-1-1-0"
+        model.showLaneFacts(.memory)
+        XCTAssertNil(model.selectedProcessRow)
+        XCTAssertEqual(model.inspectedLane, .memory)
     }
 
     /// The busiest GPU names the value, so its graph must be that GPU's too.

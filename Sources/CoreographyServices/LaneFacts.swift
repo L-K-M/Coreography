@@ -7,10 +7,18 @@ import CoreographyKit
 public struct LaneFact: Identifiable, Equatable, Sendable {
     public enum Kind: Sendable { case fact, source }
 
-    public var id: String { label }
+    /// The fact's place in its lane's list: labels can repeat, such as two volumes named "Untitled".
+    public let id: Int
     public let kind: Kind
     public let label: String
     public let value: String
+
+    init(id: Int = 0, kind: Kind, label: String, value: String) {
+        self.id = id
+        self.kind = kind
+        self.label = label
+        self.value = value
+    }
 }
 
 /// Facts from the displayed frames, so a held window describes what it shows.
@@ -33,6 +41,12 @@ enum LaneFacts {
     }
 
     static func facts(_ lane: LaneKind, _ inputs: Inputs) -> [LaneFact] {
+        unnumbered(lane, inputs).enumerated().map {
+            LaneFact(id: $0.offset, kind: $0.element.kind, label: $0.element.label, value: $0.element.value)
+        }
+    }
+
+    private static func unnumbered(_ lane: LaneKind, _ inputs: Inputs) -> [LaneFact] {
         switch lane {
         case .cpu:
             let tiers = inputs.silicon?.cpuTiers ?? []
@@ -109,6 +123,13 @@ enum LaneFacts {
 }
 
 extension DashboardModel {
+    /// The inspector shows a lane's page in place of a selected process,
+    /// so asking for one lets go of the process.
+    public func showLaneFacts(_ lane: LaneKind) {
+        selectedProcessRow = nil
+        inspectedLane = lane
+    }
+
     /// What the inspector shows for a lane: static facts and the source of each reading.
     public func laneFacts(_ lane: LaneKind) -> [LaneFact] {
         LaneFacts.facts(lane, LaneFacts.Inputs(
