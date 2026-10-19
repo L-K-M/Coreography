@@ -27,6 +27,9 @@ final class ScopedAppTests: XCTestCase {
         let idle = try XCTUnwrap(ScopedApp.readings(of: "mds", in: processes)[.gpu])
         XCTAssertEqual(idle.value.numericValue, 0)
         XCTAssertNil(idle.rank, "no GPU time is no rank, not last place")
+        let leader = try XCTUnwrap(ScopedApp.readings(of: "mds", in: processes)[.memory])
+        XCTAssertEqual(leader.rank, 1, "the largest footprint leads")
+        XCTAssertEqual(leader.rankedApps, 2)
 
         let restricted = try XCTUnwrap(ScopedApp.readings(of: "kernel_task", in: processes)[.memory])
         XCTAssertNil(restricted.value.numericValue)

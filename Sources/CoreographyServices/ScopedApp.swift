@@ -13,7 +13,7 @@ public enum ScopedMetric: Hashable, Sendable {
 /// the app's place visible (plan: selection and scope).
 ///
 /// ```text
-/// Safari: 1.2 GB footprint est. · 2nd of 41 apps
+/// Safari: 1.2 GB footprint est. · rank 2 of 41 apps
 /// ```
 public struct ScopedAppReading: Equatable, Sendable {
     public let value: MetricReading
