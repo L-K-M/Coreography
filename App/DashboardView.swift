@@ -309,10 +309,15 @@ struct DashboardView: View {
         let tiers = allTiers.filter { $0.end >= start && $0.start <= end }
         // Rows come from every recorded tier, so scrubbing never adds or drops one.
         let tierRows = Array(Set(allTiers.map(\.tier))).sorted()
+        // The lane's detail (plan: double-click expands it): every core's activity.
+        let showsCores = metric == .cpu && model.expandedLanes.contains(.cpu)
+        let cores = showsCores ? model.coreHeatCells(in: start...end, maximumColumns: Layout.coreColumns) : []
 
         return HStack(alignment: .top, spacing: 24) {
             VStack(alignment: .leading, spacing: 10) {
                 Text(title).font(.caption.weight(.medium)).foregroundStyle(.secondary)
+                    .onTapGesture(count: 2) { if metric == .cpu { model.toggleDetail(.cpu) } }
+                    .help(String(localized: "Double-click to show or hide each core"))
                 Text(metric == .cpu
                      ? MetricText.percent(reading?.numericValue)
                      : MetricText.bytes(reading?.numericValue))
@@ -422,6 +427,9 @@ struct DashboardView: View {
                     // Sheds first when the lane is compact (plan: lane sizes).
                     if laneSize != .compact, !tiers.isEmpty {
                         TierStrip(cells: tiers, tiers: tierRows, range: start...end)
+                    }
+                    if showsCores {
+                        CoreStrip(cells: cores, coreCount: model.latest?.inventory.logicalCPUCount ?? 0, range: start...end)
                     }
                 }
             }
@@ -3068,6 +3076,8 @@ private enum ToolbarText {
 }
 
 private enum Layout {
+    /// Columns per core in the CPU lane's heat strip; a long range merges neighbours to fit.
+    static let coreColumns = 240
     static let padding: CGFloat = 20
     static let cornerRadius: CGFloat = 10
     static let headerWidth: CGFloat = 180
@@ -3247,6 +3257,42 @@ private extension EnvironmentValues {
 
 /// One row per core tier, shaded by its activity (plan: the CPU lane's
 /// cluster sub-band); holes are samples without a reading.
+/// Every logical CPU's busy share over the visible range, one row per core
+/// in CPU number order (plan: the CPU lane's per-core heat strip).
+private struct CoreStrip: View {
+    private static let rowHeight: CGFloat = 6
+    let cells: [CoreHeatCell]
+    let coreCount: Int
+    let range: ClosedRange<Date>
+
+    var body: some View {
+        let rows = (0..<max(coreCount, (cells.map(\.core).max() ?? -1) + 1)).map { "\($0)" }
+        if cells.isEmpty {
+            Text("No per-core readings in this range.").font(.caption).foregroundStyle(.secondary)
+        } else {
+            Chart(cells) { cell in
+                RectangleMark(
+                    xStart: .value("Start", max(cell.start, range.lowerBound)), xEnd: .value("End", min(cell.end, range.upperBound)),
+                    y: .value("Core", "\(cell.core)")
+                )
+                .foregroundStyle(Color.blue.opacity(0.08 + 0.92 * cell.busyPercent / MetricText.percentScale))
+            }
+            .chartXScale(domain: range)
+            .chartYScale(domain: rows)
+            .chartXAxis(.hidden)
+            // Blank labels keep the main chart's trailing column, so the plots share one time axis.
+            .chartYAxis {
+                AxisMarks(position: .trailing) { _ in
+                    AxisValueLabel { Text(verbatim: "").frame(width: Layout.axisLabelWidth) }
+                }
+            }
+            .chartLegend(.hidden)
+            .frame(height: CGFloat(rows.count) * Self.rowHeight)
+            .accessibilityLabel(String(localized: "Each core's activity over the visible range"))
+        }
+    }
+}
+
 private struct TierStrip: View {
     private static let rowHeight: CGFloat = 10
     let cells: [TierBandCell]
@@ -3339,6 +3385,9 @@ private struct LaneMenu: View {
                 get: { model.laneLayout.size(of: lane) }, set: { model.laneLayout.set(lane, $0) }
             )) {
                 ForEach(LaneSize.allCases) { Text(LaneText.size($0)).tag($0) }
+            }
+            if lane == .cpu {
+                Button(model.expandedLanes.contains(.cpu) ? "Hide Cores" : "Show Cores") { model.toggleDetail(.cpu) }
             }
             Divider()
             Button("Show Facts and Sources") { model.showLaneFacts(lane) }

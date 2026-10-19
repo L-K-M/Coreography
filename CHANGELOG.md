@@ -31,6 +31,8 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
   after the store first exceeds it.
 
 ### Added
+- The CPU lane's detail, from its menu or a double-click on its title,
+  shows every core's activity as a heat strip under the graph.
 - Scrolling sideways over a lane pans back through the history held, and
   pinching steps through the ranges; Return to Now goes back to live.
 - Annotate in the range panel names a selected range; the name marks

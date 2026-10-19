@@ -6,7 +6,8 @@ import XCTest
 final class TierBandTests: XCTestCase {
     private let epoch = Date(timeIntervalSince1970: 1_700_000_000)
 
-    func testCellsReachTheNextSampleAndNeverBridgeBreaks() throws {
+    /// A reading measures the interval ending at its sample, so its cell reaches back to the previous one.
+    func testCellsCoverTheIntervalTheyMeasureAndNeverBridgeBreaks() throws {
         let frames = try [
             frame(at: 0, efficiency: 40, performance: 10),
             frame(at: 1, efficiency: 50, performance: nil),
@@ -14,10 +15,12 @@ final class TierBandTests: XCTestCase {
         ]
         let cells = TierBand.cells(frames)
         XCTAssertEqual(cells.map(\.tier), ["E", "P", "E", "E", "P"], "a tier without a reading leaves a hole")
-        XCTAssertEqual(cells[0].end, epoch.addingTimeInterval(1), "up to the next sample")
-        XCTAssertEqual(cells[2].end, epoch.addingTimeInterval(2), "not across the break to the interrupted sample")
+        XCTAssertEqual(cells[0].start, epoch.addingTimeInterval(-1), "the first sample covers one interval back")
+        XCTAssertEqual(cells[0].end, epoch)
+        XCTAssertEqual(cells[2].start, epoch, "back to the previous sample")
+        XCTAssertEqual(cells[2].end, epoch.addingTimeInterval(1))
+        XCTAssertEqual(cells[3].start, epoch.addingTimeInterval(4), "not across the break before an interrupted sample")
         XCTAssertEqual(cells[3].activePercent, 100, "activity is a share")
-        XCTAssertEqual(cells[4].end, epoch.addingTimeInterval(6), "the newest sample covers one interval")
     }
 
     private func frame(

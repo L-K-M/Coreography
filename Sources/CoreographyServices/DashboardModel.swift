@@ -459,6 +459,13 @@ public final class DashboardModel {
     public var displayedFrame: CapturedSnapshot? { atCursor(frames, tolerance: Self.cursorTolerance) { $0.stamp.wallTime } }
     public var displayedGPUFrame: CapturedGPU? { atCursor(gpuFrames, tolerance: Self.cursorTolerance) { $0.stamp.wallTime } }
     public var displayedPowerFrame: CapturedPower? { atCursor(powerFrames, tolerance: Self.cursorTolerance) { $0.stamp.wallTime } }
+    /// Lanes showing their detail in place (plan: double-click expands a lane).
+    public private(set) var expandedLanes: Set<LaneKind> = []
+
+    public func toggleDetail(_ lane: LaneKind) {
+        if expandedLanes.contains(lane) { expandedLanes.remove(lane) } else { expandedLanes.insert(lane) }
+    }
+
     /// The lane whose facts the inspector shows while no process is selected.
     public var inspectedLane: LaneKind? {
         didSet { if inspectedLane != nil { inspectorShown = true } }

@@ -155,6 +155,8 @@ public struct RawHostSnapshot: Sendable {
     public let swap: Result<SwapUsage, HostDriverError>
     public let memoryPressure: Result<KernelMemoryPressure, HostDriverError>
     public let thermalPressure: Result<KernelThermalPressure, HostDriverError>
+    /// Each logical CPU's cumulative ticks, in CPU number order.
+    public let cores: Result<[ProcessorTicks], HostDriverError>
 
     public init(
         clockID: UUID, monotonicNanoseconds: UInt64, wallTime: Date,
@@ -163,7 +165,8 @@ public struct RawHostSnapshot: Sendable {
         memory: Result<MemoryPages, HostDriverError>,
         swap: Result<SwapUsage, HostDriverError>,
         memoryPressure: Result<KernelMemoryPressure, HostDriverError>,
-        thermalPressure: Result<KernelThermalPressure, HostDriverError>
+        thermalPressure: Result<KernelThermalPressure, HostDriverError>,
+        cores: Result<[ProcessorTicks], HostDriverError> = .failure(.unsupportedPlatform)
     ) {
         self.clockID = clockID
         self.monotonicNanoseconds = monotonicNanoseconds
@@ -174,6 +177,7 @@ public struct RawHostSnapshot: Sendable {
         self.swap = swap
         self.memoryPressure = memoryPressure
         self.thermalPressure = thermalPressure
+        self.cores = cores
     }
 }
 
@@ -203,12 +207,14 @@ public actor HostStatisticsDriver: HostSampleReading {
         let swap = readSwap()
         let pressure = readPressure()
         let thermal = readThermalPressure()
+        let cores = readCores()
         #else
         let cpu: Result<ProcessorTicks, HostDriverError> = .failure(.unsupportedPlatform)
         let memory: Result<MemoryPages, HostDriverError> = .failure(.unsupportedPlatform)
         let swap: Result<SwapUsage, HostDriverError> = .failure(.unsupportedPlatform)
         let pressure: Result<KernelMemoryPressure, HostDriverError> = .failure(.unsupportedPlatform)
         let thermal: Result<KernelThermalPressure, HostDriverError> = .failure(.unsupportedPlatform)
+        let cores: Result<[ProcessorTicks], HostDriverError> = .failure(.unsupportedPlatform)
         #endif
 
         return RawHostSnapshot(
@@ -220,7 +226,8 @@ public actor HostStatisticsDriver: HostSampleReading {
             memory: memory,
             swap: swap,
             memoryPressure: pressure,
-            thermalPressure: thermal
+            thermalPressure: thermal,
+            cores: cores
         )
     }
 
@@ -249,6 +256,28 @@ public actor HostStatisticsDriver: HostSampleReading {
                 nice: UInt64(ticks[Int(CPU_STATE_NICE)])
             ))
         }
+    }
+
+    /// One `host_processor_info` call; its buffer is the caller's to free.
+    private func readCores() -> Result<[ProcessorTicks], HostDriverError> {
+        var count: natural_t = 0
+        var info: processor_info_array_t?
+        var infoCount: mach_msg_type_number_t = 0
+        let result = host_processor_info(host, PROCESSOR_CPU_LOAD_INFO, &count, &info, &infoCount)
+        guard result == KERN_SUCCESS, let info else {
+            return .failure(.systemCall(operation: "host_processor_info", code: result))
+        }
+        defer {
+            vm_deallocate(mach_task_self_, vm_address_t(bitPattern: info), vm_size_t(Int(infoCount) * MemoryLayout<integer_t>.stride))
+        }
+        let states = Int(CPU_STATE_MAX)
+        guard Int(infoCount) >= Int(count) * states else { return .failure(.malformedReply(operation: "host_processor_info")) }
+        return .success((0..<Int(count)).map { cpu in
+            func tick(_ state: Int32) -> UInt64 { UInt64(UInt32(bitPattern: info[cpu * states + Int(state)])) }
+            return ProcessorTicks(
+                user: tick(CPU_STATE_USER), system: tick(CPU_STATE_SYSTEM), idle: tick(CPU_STATE_IDLE), nice: tick(CPU_STATE_NICE)
+            )
+        })
     }
 
     private func readMemory() -> Result<MemoryPages, HostDriverError> {
