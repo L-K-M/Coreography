@@ -22,6 +22,8 @@ public struct DiagnosisReport: Codable, Sendable {
     public let summary: SystemSummary
     public let topCPUApps: TopAppsPage
     public let topDiskApps: TopAppsPage
+    /// Absent when per-process network could not be read.
+    public let topNetworkApps: TopAppsPage?
     public let dataSources: [DataSourceStatus]
 }
 
@@ -56,6 +58,7 @@ public struct StoredAppDaysReport: Codable, Sendable {
         public let app: String
         public let cpuSeconds: Double
         public let diskBytes: Double
+        public let networkBytes: Double
         /// Some interval counted only readable members.
         public let isLowerBound: Bool
     }
@@ -193,7 +196,8 @@ public actor DiagnosticService {
             if second.isMultiple(of: Self.processEverySeconds) {
                 let sample = try await processMonitor.sample()
                 processes = sample
-                ledger.record(sample, logicalCPUCount: await monitor.history().last?.inventory.logicalCPUCount)
+                let traffic = try await trafficMonitor.sample()
+                ledger.record(sample, traffic: traffic, logicalCPUCount: await monitor.history().last?.inventory.logicalCPUCount)
             }
             if second < bounded { try await Task.sleep(for: Self.warmupInterval) }
         }
@@ -207,6 +211,7 @@ public actor DiagnosticService {
             summary: DiagnosticTools.summary(snapshot),
             topCPUApps: try DiagnosticTools.topApps(snapshot, metric: .cpu),
             topDiskApps: try DiagnosticTools.topApps(snapshot, metric: .disk),
+            topNetworkApps: try? DiagnosticTools.topApps(snapshot, metric: .network),
             dataSources: DiagnosticTools.dataSources(snapshot)
         )
     }
@@ -269,7 +274,10 @@ public actor DiagnosticService {
                 StoredAppDaysReport.Day(day: day, apps: (byDay[day] ?? [])
                     .sorted { $0.cpuSeconds > $1.cpuSeconds }
                     .prefix(Self.maximumStoredApps)
-                    .map { .init(app: $0.app, cpuSeconds: $0.cpuSeconds, diskBytes: $0.diskBytes, isLowerBound: $0.isLowerBound) })
+                    .map { .init(
+                        app: $0.app, cpuSeconds: $0.cpuSeconds, diskBytes: $0.diskBytes, networkBytes: $0.networkBytes,
+                        isLowerBound: $0.isLowerBound
+                    ) })
             }
         )
     }

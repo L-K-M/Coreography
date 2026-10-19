@@ -333,7 +333,8 @@ jobs:
           assert summary["windowStart"] <= summary["windowEnd"]
           for signal in summary["signals"]:
               assert signal["evidence"] and signal["detail"]
-          for page in (report["topCPUApps"], report["topDiskApps"]):
+          pages = [report["topCPUApps"], report["topDiskApps"]] + ([report["topNetworkApps"]] if "topNetworkApps" in report else [])
+          for page in pages:
               assert len(page["rows"]) <= 10 and page["coverageNote"]
           assert any(source["metric"] == "cpu" for source in report["dataSources"])
           assert "/Users/" not in json.dumps(report), "diagnostics must not expose paths"

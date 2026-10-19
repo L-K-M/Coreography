@@ -10,6 +10,8 @@ public struct RangeReport: Sendable {
     public let covered: ClosedRange<Date>?
     public let topCPUApps: [AppRangeTotal]
     public let topDiskApps: [AppRangeTotal]
+    /// Apps by bytes moved over the network; nil when no interval read network.
+    public let topNetworkApps: [AppRangeTotal]?
     public let activeAppCount: Int
     public let cpuMeanPercent: Double?
     public let cpuPeakPercent: Double?
@@ -55,6 +57,9 @@ public struct RangeReport: Sendable {
             requested: range, covered: covered,
             topCPUApps: Array(apps.filter { $0.cpuSeconds > 0 }.sorted { $0.cpuSeconds > $1.cpuSeconds }.prefix(appLimit)),
             topDiskApps: Array(apps.filter { $0.diskBytes > 0 }.sorted { $0.diskBytes > $1.diskBytes }.prefix(appLimit)),
+            topNetworkApps: apps.contains { $0.networkBytes != nil }
+                ? Array(apps.filter { ($0.networkBytes ?? 0) > 0 }.sorted { ($0.networkBytes ?? 0) > ($1.networkBytes ?? 0) }.prefix(appLimit))
+                : nil,
             activeAppCount: apps.count,
             cpuMeanPercent: cpuCount == 0 ? nil : cpuTotal / Double(cpuCount),
             cpuPeakPercent: (storedCPU.map(\.maximum) + liveCPU).max(),

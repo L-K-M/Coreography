@@ -1,5 +1,6 @@
 import Foundation
 import XCTest
+import CoreographyDrivers
 @testable import CoreographyKit
 
 final class HistoryStoreTests: XCTestCase {
@@ -200,6 +201,44 @@ final class HistoryStoreTests: XCTestCase {
         XCTAssertTrue(names.isEmpty, "no identifier outlives its retention")
     }
 
+    func testAStoreFromBeforeNetworkGainsItsColumnsAndKeepsItsRows() async throws {
+        // A schema-4 store: the ledger and app days without network columns.
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        do {
+            let old = try SQLiteConnection(path: directory.appendingPathComponent("history.sqlite").path)
+            try old.execute("""
+                CREATE TABLE apps(id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE);
+                CREATE TABLE ledger_intervals(t_end REAL PRIMARY KEY, t_start REAL NOT NULL, cores REAL NOT NULL) WITHOUT ROWID;
+                CREATE TABLE ledger_entries(
+                    t_end REAL NOT NULL, app INTEGER NOT NULL, cpu_seconds REAL NOT NULL,
+                    disk_bytes REAL NOT NULL, lower_bound INTEGER NOT NULL, PRIMARY KEY(t_end, app)
+                ) WITHOUT ROWID;
+                CREATE TABLE app_days(
+                    day REAL NOT NULL, app INTEGER NOT NULL, cpu_seconds REAL NOT NULL,
+                    disk_bytes REAL NOT NULL, lower_bound INTEGER NOT NULL, PRIMARY KEY(day, app)
+                ) WITHOUT ROWID;
+                INSERT INTO apps(id, name) VALUES (1, 'Old App');
+                INSERT INTO ledger_intervals VALUES (\(now.timeIntervalSince1970), \(now.timeIntervalSince1970 - 2), 8);
+                INSERT INTO ledger_entries VALUES (\(now.timeIntervalSince1970), 1, 3, 4, 0);
+                PRAGMA user_version=4;
+                """)
+        }
+
+        let store = try HistoryStore(directory: directory)
+        let old = try await store.ledger(from: .distantPast, to: .distantFuture)
+        XCTAssertEqual(old, [LedgerInterval(
+            start: now.addingTimeInterval(-2), end: now, cores: 8, coversNetwork: false,
+            entries: [LedgerEntry(app: "Old App", cpuSeconds: 3, diskBytes: 4, networkBytes: 0, isLowerBound: false)]
+        )], "earlier rows read as not covering network")
+
+        let covered = interval(2, 4, [entry("New App", 1, 0, network: 500)], coversNetwork: true)
+        try await store.append([], ledger: [covered], now: now.addingTimeInterval(4))
+        let both = try await store.ledger(from: .distantPast, to: .distantFuture)
+        XCTAssertEqual(both.last, covered)
+        let days = try await store.appDays(from: .distantPast, to: .distantFuture)
+        XCTAssertEqual(days.first { $0.app == "New App" }?.networkBytes, 500)
+    }
+
     func testARetentionPlanAppliesFromTheNextWrite() async throws {
         let store = try HistoryStore(directory: directory)
         await store.setRetention(RetentionPlan(recent: 3600, day: 86_400))
@@ -241,12 +280,17 @@ final class HistoryStoreTests: XCTestCase {
         XCTAssertEqual(count, 0)
     }
 
-    private func interval(_ start: TimeInterval, _ end: TimeInterval, _ entries: [LedgerEntry]) -> LedgerInterval {
-        LedgerInterval(start: now.addingTimeInterval(start), end: now.addingTimeInterval(end), cores: 8, entries: entries)
+    private func interval(
+        _ start: TimeInterval, _ end: TimeInterval, _ entries: [LedgerEntry], coversNetwork: Bool = false
+    ) -> LedgerInterval {
+        LedgerInterval(
+            start: now.addingTimeInterval(start), end: now.addingTimeInterval(end), cores: 8,
+            coversNetwork: coversNetwork, entries: entries
+        )
     }
 
-    private func entry(_ app: String, _ cpu: Double, _ disk: Double, lowerBound: Bool = false) -> LedgerEntry {
-        LedgerEntry(app: app, cpuSeconds: cpu, diskBytes: disk, isLowerBound: lowerBound)
+    private func entry(_ app: String, _ cpu: Double, _ disk: Double, network: Double = 0, lowerBound: Bool = false) -> LedgerEntry {
+        LedgerEntry(app: app, cpuSeconds: cpu, diskBytes: disk, networkBytes: network, isLowerBound: lowerBound)
     }
 
     private func sample(
