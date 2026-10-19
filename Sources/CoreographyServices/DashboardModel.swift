@@ -448,6 +448,12 @@ public final class DashboardModel {
     public var displayedFrame: CapturedSnapshot? { atCursor(frames, tolerance: Self.cursorTolerance) { $0.stamp.wallTime } }
     public var displayedGPUFrame: CapturedGPU? { atCursor(gpuFrames, tolerance: Self.cursorTolerance) { $0.stamp.wallTime } }
     public var displayedPowerFrame: CapturedPower? { atCursor(powerFrames, tolerance: Self.cursorTolerance) { $0.stamp.wallTime } }
+    /// The lane whose facts the inspector shows while no process is selected.
+    public var inspectedLane: LaneKind? {
+        didSet { if inspectedLane != nil { inspectorShown = true } }
+    }
+    public var displayedNetworkFrame: CapturedNetwork? { atCursor(networkFrames, tolerance: Self.cursorTolerance) { $0.stamp.wallTime } }
+    public var displayedDiskFrame: CapturedDisks? { atCursor(diskFrames, tolerance: Self.cursorTolerance) { $0.stamp.wallTime } }
     public var displayedSensorFrame: CapturedSensors? {
         atCursor(sensorFrames, tolerance: Self.cursorTolerance) { $0.stamp.wallTime }
     }

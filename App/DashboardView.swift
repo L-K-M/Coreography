@@ -1768,6 +1768,8 @@ private struct InspectorView: View {
                 } else if model.selectedProcessRow != nil {
                     Text("Select a single process to inspect it; it may also have exited.")
                         .foregroundStyle(.secondary)
+                } else if let lane = model.inspectedLane {
+                    laneFacts(lane)
                 } else {
                     summary(model.systemFacts())
                 }
@@ -1776,6 +1778,30 @@ private struct InspectorView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .modifier(ProcessActionConfirmation(model: model, pendingAction: $pendingAction))
+    }
+
+    /// A lane's static facts and the source behind each of its readings (plan: lane or device).
+    @ViewBuilder
+    private func laneFacts(_ lane: LaneKind) -> some View {
+        let facts = model.laneFacts(lane)
+        HStack {
+            Text(LaneText.title(lane)).font(.title3.weight(.semibold))
+            Spacer()
+            Button("System Summary") { model.inspectedLane = nil }
+        }
+        InspectorSection("Facts") {
+            let known = facts.filter { $0.kind == .fact }
+            if known.isEmpty { Text("Nothing read yet").foregroundStyle(.secondary) }
+            ForEach(known) { LabeledContent($0.label, value: $0.value) }
+        }
+        InspectorSection("Sources") {
+            ForEach(facts.filter { $0.kind == .source }) { source in
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(source.label)
+                    Text(source.value).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+                }
+            }
+        }
     }
 
     @ViewBuilder
@@ -3175,6 +3201,8 @@ private struct LaneMenu: View {
             )) {
                 ForEach(LaneSize.allCases) { Text(LaneText.size($0)).tag($0) }
             }
+            Divider()
+            Button("Show Facts and Sources") { model.inspectedLane = lane }
             Divider()
             Button("Hide Lane") { model.laneLayout.set(lane, .hidden) }
                 .disabled(model.laneLayout.visible == [lane])

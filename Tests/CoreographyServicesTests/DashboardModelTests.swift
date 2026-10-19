@@ -57,6 +57,31 @@ final class DashboardModelTests: XCTestCase {
         XCTAssertTrue(spans.contains { $0.level == .warning })
     }
 
+    /// Plan: a lane's inspector names its static facts and each reading's source.
+    func testLaneFactsDescribeTheDisplayedHardwareAndSources() async throws {
+        let model = DashboardModel(
+            monitor: try SystemMonitor(driver: IncreasingHostDriver()), interval: .milliseconds(10),
+            gpuMonitor: try GPUMonitor(driver: CyclingGPUDriver())
+        )
+        model.start()
+        defer { model.stop() }
+        try await eventually { model.frames.count >= 3 && model.displayedGPUFrame?.devices.count == 2 }
+        model.toggleDisplayHold()
+
+        let cpu = model.laneFacts(.cpu)
+        let logical = try XCTUnwrap(cpu.first { $0.label == "Logical CPUs" })
+        XCTAssertEqual(logical.kind, .fact)
+        XCTAssertEqual(logical.value, "\(try XCTUnwrap(model.displayedFrame?.inventory.logicalCPUCount))")
+        let source = try XCTUnwrap(cpu.first { $0.label == "CPU" })
+        XCTAssertEqual(source.kind, .source)
+        XCTAssertTrue(source.value.hasPrefix("measured"), source.value)
+
+        let gpu = model.laneFacts(.gpu).filter { $0.kind == .fact }
+        XCTAssertEqual(gpu.map(\.label), ["GPU 1", "GPU 2"])
+        XCTAssertEqual(gpu.map(\.value), ["Integrated", "Discrete"])
+        XCTAssertTrue(model.laneFacts(.thermal).filter { $0.kind == .fact }.isEmpty, "no sensors were read, so no facts are claimed")
+    }
+
     /// The busiest GPU names the value, so its graph must be that GPU's too.
     func testTheMenuBarGPUValueAndGraphDescribeOneDevice() async throws {
         let model = DashboardModel(

@@ -31,6 +31,9 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
   after the store first exceeds it.
 
 ### Added
+- Each lane's menu shows its facts and sources in the inspector: chip,
+  core tiers, memory, GPUs, storage devices and volumes, interfaces,
+  adapter and battery, sensors and fans, and where each reading comes from.
 - The CPU lane shows each core tier's activity as a strip under the
   graph.
 - Sampling slows to half rate while Low Power Mode is on, and the window
