@@ -30,6 +30,19 @@ final class AutomaticMarkersTests: XCTestCase {
         XCTAssertEqual(longer.first?.label, "Sleep", "the stored range reaches the earlier sleep")
     }
 
+    /// Plan: observed process starts and exits drop markers.
+    func testAppStartsAndExitsAreSystemMarkers() {
+        let events = [
+            AppLifecycleEvent(app: "Mail", change: .started, time: epoch),
+            AppLifecycleEvent(app: "Safari", change: .exited, time: epoch.addingTimeInterval(2))
+        ]
+        let markers = AutomaticMarkers.derive(host: [], power: [], sleepEvents: [], appEvents: events, since: .distantPast)
+        XCTAssertEqual(markers.map(\.label), ["Mail started", "Safari exited"])
+        XCTAssertTrue(markers.allSatisfy { $0.kind == .system })
+        let later = AutomaticMarkers.derive(host: [], power: [], sleepEvents: [], appEvents: events, since: epoch.addingTimeInterval(1))
+        XCTAssertEqual(later.map(\.label), ["Safari exited"], "events before the shown range are left out")
+    }
+
     func testSameTimeMarkersKeepOneOrderAndOneIdentity() {
         let wake = PowerEvent(time: epoch, kind: .wake, reason: "Lid Open", powerSource: nil, batteryPercent: nil)
         let darkWake = PowerEvent(time: epoch, kind: .darkWake, reason: nil, powerSource: nil, batteryPercent: nil)
