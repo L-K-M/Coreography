@@ -459,6 +459,8 @@ private struct MemoryLane: View {
         HStack(alignment: .top, spacing: 24) {
             VStack(alignment: .leading, spacing: 6) {
                 Text("Memory").font(.caption.weight(.medium)).foregroundStyle(.secondary)
+                    .onTapGesture(count: 2) { model.toggleDetail(.memory) }
+                    .help(String(localized: "Double-click to show or hide swap and page-ins over time"))
                 Text(MetricText.bytes(used?.numericValue))
                     .font(.system(size: 30, weight: .semibold))
                 Text("of \(MetricText.bytes(capacity)) used, estimated").font(.caption)
@@ -479,12 +481,21 @@ private struct MemoryLane: View {
             .monospacedDigit()
             .frame(width: Layout.headerWidth, alignment: .leading)
 
-            if stack.isEmpty {
-                Text(used?.reason ?? String(localized: "Collecting samples…"))
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, minHeight: graphHeight)
-            } else {
-                chart(stack: stack, pressure: pressure, capacity: capacity, start: start, end: end)
+            VStack(alignment: .leading, spacing: 8) {
+                if stack.isEmpty {
+                    Text(used?.reason ?? String(localized: "Collecting samples…"))
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, minHeight: graphHeight)
+                } else {
+                    chart(stack: stack, pressure: pressure, capacity: capacity, start: start, end: end)
+                }
+                // The lane's detail (plan: swap rate and page-ins over time).
+                if model.expandedLanes.contains(.memory) {
+                    TransferMultiples(
+                        series: model.pagingSeries(in: start...end), range: start...end,
+                        idleNote: String(localized: "No swapping or page-ins in this range")
+                    )
+                }
             }
         }
         .padding(Layout.padding)
@@ -3667,6 +3678,9 @@ private struct LaneMenu: View {
             }
             if lane == .cpu {
                 Button(model.expandedLanes.contains(.cpu) ? "Hide Cores" : "Show Cores") { model.toggleDetail(.cpu) }
+            }
+            if lane == .memory {
+                Button(model.expandedLanes.contains(.memory) ? "Hide Paging" : "Show Paging") { model.toggleDetail(.memory) }
             }
             if lane == .network {
                 Button(model.expandedLanes.contains(.network) ? "Hide Interfaces" : "Show Interfaces") { model.toggleDetail(.network) }

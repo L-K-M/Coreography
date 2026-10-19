@@ -2442,6 +2442,25 @@ public final class DashboardModel {
         })
     }
 
+    /// Swap in and out, and page-ins from files, in the shown range, for the
+    /// memory lane's detail (plan: swap rate and page-ins).
+    public func pagingSeries(in range: ClosedRange<Date>) -> [TransferSeries] {
+        TransferSeriesBuilder.series(frames.filter { range.contains($0.stamp.wallTime) }.map { frame in
+            TransferSeriesBuilder.Frame(
+                id: frame.id, time: frame.stamp.wallTime, interrupted: frame.continuity == .interrupted,
+                samples: [
+                    TransferSeriesBuilder.Sample(
+                        key: "swap", name: "Swap", above: frame.memory.swapInBytesPerSecond.numericValue,
+                        below: frame.memory.swapOutBytesPerSecond.numericValue
+                    ),
+                    TransferSeriesBuilder.Sample(
+                        key: "page-ins", name: "Page-ins", above: frame.memory.pageInBytesPerSecond.numericValue, below: nil
+                    )
+                ]
+            )
+        })
+    }
+
     /// Every storage device's read and write rates in the shown range, for
     /// the disk lane's detail. Devices are never summed: they can overlap.
     public func deviceSeries(in range: ClosedRange<Date>) -> [TransferSeries] {

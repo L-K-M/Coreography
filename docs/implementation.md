@@ -732,8 +732,10 @@ Implemented:
   chart per interface or device that moved data in the shown range,
   busiest first and at most six, with the rest counted. A device absent
   from a sample, an unreadable direction or an interruption breaks its
-  line; devices are never summed. Per-app traffic, capacity, cumulative
-  writes and SMART, and the GPU, power, memory and thermal details remain.
+  line; devices are never summed. The memory lane expands the same way
+  (Show Paging) into swap in above and out below, and page-ins from
+  files. Per-app traffic, capacity, cumulative writes and SMART, and the
+  GPU, power and thermal details remain.
 - Lane inspector: a lane's menu shows its static facts (chip, model,
   logical CPUs and core tiers; physical memory; each GPU; storage devices
   and volume sizes; primary and observed interfaces; adapter rating,
