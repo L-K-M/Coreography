@@ -571,7 +571,8 @@ Implemented:
   counted per client so a closed client never pulls its process back.
   It reads for every process, other users' included, and a process with
   no client reads as zero; it is labelled ms/s, not busy %. CPU power is
-  the estimate from `ri_energy_nj` (`RUSAGE_INFO_V6`); a process that ran
+  the estimate from `ri_energy_nj` (`RUSAGE_INFO_V6`, which every
+  supported macOS has; the app needs macOS 26); a process that ran
   with a zero counter has no energy model on that Mac and reads as
   unsupported. Both sum per app and sort the table.
 - More process actions: Suspend and Resume, Send Signal (hang-up,
