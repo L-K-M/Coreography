@@ -7,21 +7,22 @@ final class AccountDirectoryTests: XCTestCase {
     func testNamesAreReadOnceAndMissingAccountsStayUnnamed() {
         let reader = Reader(["0": "root", "501": "alice"])
         let directory = AccountDirectory(reader: reader)
-        XCTAssertEqual(directory.names(for: [0, 501, 777]), [0: "root", 501: "alice"])
-        XCTAssertEqual(directory.names(for: [501, 777]), [501: "alice"])
+        XCTAssertEqual(directory.lookup([0, 501, 777]).names, [0: "root", 501: "alice"])
+        XCTAssertEqual(directory.lookup([501, 777]), AccountLookup(names: [501: "alice"], unanswered: []))
         XCTAssertEqual(reader.lookups, 3, "each UID is read once, found or not")
     }
 
-    /// A directory service that fails once must be asked again, not remembered as "no account".
+    /// A directory service that fails once must be asked again, not remembered
+    /// as "no account", and the caller learns which UIDs to ask about again.
     func testAFailedLookupIsTriedAgain() {
         let reader = Reader(["501": "alice"], failuresFirst: 1)
         let directory = AccountDirectory(reader: reader)
-        XCTAssertEqual(directory.names(for: [501]), [:])
-        XCTAssertEqual(directory.names(for: [501]), [501: "alice"])
+        XCTAssertEqual(directory.lookup([501]), AccountLookup(names: [:], unanswered: [501]))
+        XCTAssertEqual(directory.lookup([501]), AccountLookup(names: [501: "alice"], unanswered: []))
     }
 
     func testTheRealDirectoryNamesRoot() {
-        XCTAssertEqual(AccountDirectory().names(for: [0])[0], "root")
+        XCTAssertEqual(AccountDirectory().lookup([0]).names[0], "root")
     }
 }
 

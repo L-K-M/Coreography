@@ -7,6 +7,8 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
 ## [Unreleased]
 
 ### Fixed
+- A user name the account database failed to read is asked for again,
+  instead of showing a bare UID until the view is chosen again.
 - Lower Priority leaves a process that already runs at a lower priority
   alone instead of failing, and Hang Up and Interrupt on the window
   server or login window warn that they log you out.

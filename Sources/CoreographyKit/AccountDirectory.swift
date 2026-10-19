@@ -14,18 +14,24 @@ public final class AccountDirectory: @unchecked Sendable {
 
     init(reader: any AccountNameReading) { self.reader = reader }
 
-    /// The names of the UIDs that have one.
-    public func names(for uids: Set<UInt32>) -> [UInt32: String] {
+    /// The names of the UIDs that have one, and the UIDs to ask about again.
+    public func lookup(_ uids: Set<UInt32>) -> AccountLookup {
         lock.withLock {
-            var names: [UInt32: String] = [:]
+            var lookup = AccountLookup(names: [:], unanswered: [])
             for uid in uids {
                 // An answer, account or none, is kept; a failure is not.
                 if cache[uid] == nil {
-                    do { cache[uid] = .some(try reader.name(of: uid)) } catch {}
+                    do { cache[uid] = .some(try reader.name(of: uid)) } catch { lookup.unanswered.insert(uid) }
                 }
-                if let name = cache[uid] ?? nil { names[uid] = name }
+                if let name = cache[uid] ?? nil { lookup.names[uid] = name }
             }
-            return names
+            return lookup
         }
     }
+}
+
+public struct AccountLookup: Equatable, Sendable {
+    public var names: [UInt32: String]
+    /// UIDs the user database failed to answer for, as opposed to UIDs without an account.
+    public var unanswered: Set<UInt32>
 }
