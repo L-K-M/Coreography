@@ -651,7 +651,10 @@ Implemented:
   hidden by default. Each row is joined to its running processes'
   current CPU and footprint and their apps' CPU-seconds over the last
   hour. Read on request, never polled. Login and background items need
-  the helper and are named as missing.
+  the helper and are named as missing. Coreography changes nothing:
+  Open Login Items & Extensions uses `SMAppService`'s documented link to
+  System Settings, and each item's menu reveals its property list or
+  copies its label.
 - Sensors tab: every plausible SMC temperature, each fan and the system
   power rail with current, minimum, maximum and mean since a reset,
   grouped by region (plan P15). Statistics accumulate on live samples

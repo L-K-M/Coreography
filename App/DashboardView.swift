@@ -3,6 +3,7 @@ import AppKit
 import Charts
 import Accessibility
 import UniformTypeIdentifiers
+import ServiceManagement
 import CoreographyServices
 
 @MainActor
@@ -2076,6 +2077,9 @@ private struct StartupPane: View {
                     }
                     .frame(width: 260)
                     Spacer()
+                    // Coreography only reads startup items; System Settings changes them.
+                    Button("Open Login Items & Extensions…") { SMAppService.openSystemSettingsLoginItems() }
+                        .help("Turn login and background items on or off in System Settings")
                     Button("Refresh") { model.refreshStartupItems() }
                 }
                 ForEach(StartupText.coverage(model.startupInventory), id: \.self) { note in
@@ -2083,7 +2087,22 @@ private struct StartupPane: View {
                 }
 
                 Table(model.startupRows) {
-                    TableColumn("Item") { Text($0.item.label).help($0.item.program ?? $0.item.plistPath) }
+                    TableColumn("Item") { row in
+                        Text(row.item.label)
+                            .help(row.item.program ?? row.item.plistPath)
+                            // The whole cell answers a right-click, not just the label's glyphs.
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .contentShape(Rectangle())
+                            .contextMenu {
+                                Button("Reveal Property List in Finder") {
+                                    NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: row.item.plistPath)])
+                                }
+                                Button("Copy Label") {
+                                    NSPasteboard.general.clearContents()
+                                    NSPasteboard.general.setString(row.item.label, forType: .string)
+                                }
+                            }
+                    }
                     TableColumn("Kind") { Text(StartupText.kind($0.item.kind)) }
                     TableColumn("State") { Text(StartupText.state($0.item)) }
                     TableColumn("Running") { Text($0.processCount == 0 ? "–" : "\($0.processCount)") }
