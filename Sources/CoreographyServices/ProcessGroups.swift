@@ -59,6 +59,9 @@ public struct ProcessRow: Identifiable, Sendable {
     public let cpuTimeSeconds: MetricReading
     /// Threads now; an app sums its processes.
     public let threadCount: MetricReading
+    /// The architectures its processes run; empty when none was read.
+    /// Example: a native app with one Rosetta helper has both.
+    public let architectures: Set<ProcessArchitecture>
     /// When the process started; for a group, its first member.
     public let started: Date?
     /// Member rows for a group, or child processes in the tree; nil for a
@@ -278,6 +281,7 @@ enum ProcessGroups {
             cpuPowerWatts: total(members.map(\.cpuPowerWatts), overlap: nil),
             cpuTimeSeconds: total(members.map(\.cpuTimeSeconds), overlap: nil),
             threadCount: total(members.map(\.threadCount), overlap: nil),
+            architectures: Set(members.compactMap(\.architecture)),
             started: members.map(\.id.startTime).min(),
             children: children
         )
@@ -361,6 +365,7 @@ enum ProcessGroups {
             cpuPowerWatts: process.cpuPowerWatts,
             cpuTimeSeconds: process.cpuTimeSeconds,
             threadCount: process.threadCount,
+            architectures: Set([process.architecture].compactMap { $0 }),
             started: process.id.startTime,
             children: nil
         )
@@ -439,8 +444,8 @@ extension ProcessRow {
             diskReadBytesPerSecond: diskReadBytesPerSecond, diskWriteBytesPerSecond: diskWriteBytesPerSecond,
             wakeupsPerSecond: wakeupsPerSecond, networkReceivedBytesPerSecond: networkReceivedBytesPerSecond,
             networkSentBytesPerSecond: networkSentBytesPerSecond, gpuMillisecondsPerSecond: gpuMillisecondsPerSecond,
-            cpuPowerWatts: cpuPowerWatts, cpuTimeSeconds: cpuTimeSeconds, threadCount: threadCount, started: started,
-            children: children
+            cpuPowerWatts: cpuPowerWatts, cpuTimeSeconds: cpuTimeSeconds, threadCount: threadCount,
+            architectures: architectures, started: started, children: children
         )
     }
 }

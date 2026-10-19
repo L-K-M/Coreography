@@ -2,7 +2,8 @@ import Foundation
 import CoreographyKit
 
 /// Markers derived from the data itself (plan: sleep and wake, power
-/// source changes, thermal and memory pressure transitions). Rebuilt from
+/// source changes, thermal and memory pressure transitions, app starts and
+/// exits). Rebuilt from
 /// displayed frames, so a held display keeps its markers.
 ///
 /// ```text
@@ -11,7 +12,8 @@ import CoreographyKit
 /// ```
 enum AutomaticMarkers {
     static func derive(
-        host: [CapturedSnapshot], power: [CapturedPower], sleepEvents: [PowerEvent], since start: Date?
+        host: [CapturedSnapshot], power: [CapturedPower], sleepEvents: [PowerEvent],
+        appEvents: [AppLifecycleEvent] = [], since start: Date?
     ) -> [TimelineMarker] {
         var markers: [TimelineMarker] = []
         markers += transitions(host, time: \.stamp.wallTime, level: \.memory.pressureLevel) { "Memory pressure \(name($0))" }
@@ -24,6 +26,9 @@ enum AutomaticMarkers {
         let earliest = start ?? host.first?.stamp.wallTime ?? .distantFuture
         markers += sleepEvents.filter { $0.time >= earliest }.map { event in
             system(at: event.time, label: sleepLabel(event))
+        }
+        markers += appEvents.filter { $0.time >= earliest }.map { event in
+            system(at: event.time, label: event.change == .started ? "\(event.app) started" : "\(event.app) exited")
         }
         // Rebuilt every sample: a repeated record is one marker, and ties keep one order.
         var seen: Set<UUID> = []

@@ -53,12 +53,54 @@ final class ProcessLifecycleTests: XCTestCase {
         XCTAssertEqual(lifecycle.exited.map(\.identity.pid), [2], "one ghost per identity")
     }
 
+    /// Plan: markers for observed starts and exits. Apps only: daemons and
+    /// helpers come and go every few seconds.
+    func testAnAppsFirstAndLastProcessMarkItsStartAndExit() throws {
+        let paths: [Int32: String] = [
+            1: "/usr/sbin/daemon", 2: "/Applications/Safari.app/Contents/MacOS/Safari",
+            3: "/System/Applications/Mail.app/Contents/MacOS/Mail", 4: "/usr/libexec/helper",
+            5: "/Applications/Safari.app/Contents/MacOS/SafariHelper"
+        ]
+        var lifecycle = ProcessLifecycle()
+        lifecycle.record(try snapshot(at: 0, pids: [1, 2, 5], paths: paths))
+        XCTAssertTrue(lifecycle.appEvents.isEmpty, "apps running at launch did not start then")
+
+        lifecycle.record(try snapshot(at: 2, pids: [1, 2, 3, 4], paths: paths))
+        lifecycle.record(try snapshot(at: 4, pids: [1, 3], paths: paths))
+        XCTAssertEqual(lifecycle.appEvents, [
+            AppLifecycleEvent(app: "Mail", change: .started, time: epoch.addingTimeInterval(2)),
+            AppLifecycleEvent(app: "Safari", change: .exited, time: epoch.addingTimeInterval(2))
+        ], "an exit is marked at the last sample that saw the app; a helper leaving is not")
+
+        lifecycle.record(try snapshot(at: 3600, pids: [1], paths: paths, continuity: .interrupted))
+        lifecycle.record(try snapshot(at: 3602, pids: [1, 3], paths: paths, truncated: true))
+        XCTAssertEqual(lifecycle.appEvents.count, 2, "sleep and a truncated list neither start nor end apps")
+
+        lifecycle.record(try snapshot(at: 3604 + ProcessLifecycle.eventWindow, pids: [1, 3], paths: paths))
+        XCTAssertTrue(lifecycle.appEvents.isEmpty, "events older than the live hour are dropped")
+    }
+
+    /// An app left out of a truncated list is still running; a bundle's
+    /// extension can have any case on a case-insensitive volume.
+    func testATruncatedListNeitherEndsNorRestartsAnApp() throws {
+        let paths: [Int32: String] = [1: "/Applications/Mail.app/Contents/MacOS/Mail", 2: "/Applications/Old.APP/Contents/MacOS/Old"]
+        var lifecycle = ProcessLifecycle()
+        lifecycle.record(try snapshot(at: 0, pids: [1], paths: paths))
+        lifecycle.record(try snapshot(at: 2, pids: [1, 2], paths: paths))
+        XCTAssertEqual(lifecycle.appEvents.map(\.app), ["Old"])
+
+        lifecycle.record(try snapshot(at: 4, pids: [2], paths: paths, truncated: true))
+        lifecycle.record(try snapshot(at: 6, pids: [1, 2], paths: paths))
+        XCTAssertEqual(lifecycle.appEvents.map(\.app), ["Old"], "Mail was only left out, so it neither exited nor started")
+    }
+
     private func identity(_ pid: Int32) throws -> ProcessIdentity {
         try ProcessIdentity(pid: pid, startSeconds: 1, startMicroseconds: 0)
     }
 
     private func snapshot(
-        at second: TimeInterval, pids: [Int32], continuity: SamplingContinuity = .continuous, truncated: Bool = false
+        at second: TimeInterval, pids: [Int32], paths: [Int32: String] = [:],
+        continuity: SamplingContinuity = .continuous, truncated: Bool = false
     ) throws -> CapturedProcesses {
         let stamp = SampleStamp(clockID: UUID(), monotonicNanoseconds: 1, wallTime: epoch.addingTimeInterval(second))
         let processes = try pids.map { pid in
@@ -66,7 +108,7 @@ final class ProcessLifecycleTests: XCTestCase {
                 id: try identity(pid), parentPID: 1, uid: 501, name: "P\(pid)", stamp: stamp,
                 cpuPercentOfMachine: .collecting(), memoryFootprintBytes: .collecting(),
                 diskReadBytesPerSecond: .collecting(), diskWriteBytesPerSecond: .collecting(),
-                executablePath: nil, responsiblePID: nil
+                executablePath: paths[pid], responsiblePID: nil
             )
         }
         return ProcessSnapshot(

@@ -1496,7 +1496,7 @@ private struct ProcessPane: View {
         DisclosureGroup("Processes") {
             VStack(alignment: .leading, spacing: 10) {
                 HStack {
-                    TextField("Filter: name, cpu:>10, mem:>1GB, user:me, port:443, file:~/Downloads, #apps, #new, #listening, #preventing-sleep", text: $model.processFilter)
+                    TextField("Filter: name, cpu:>10, mem:>1GB, user:me, port:443, file:~/Downloads, #apps, #new, #listening, #preventing-sleep, #rosetta", text: $model.processFilter)
                         .textFieldStyle(.roundedBorder)
                         .focused(filterFocused)
                     Picker("Group", selection: $model.processGrouping) {
@@ -1641,6 +1641,14 @@ private struct ProcessPane: View {
                         }
                         .customizationID("threads")
                         .defaultVisibility(.hidden)
+                        TableColumn("Architecture") { (row: ProcessRow) in
+                            Text(ProcessText.architectures(row.architectures))
+                                .help(row.architectures.isEmpty
+                                    ? String(localized: "macOS did not report this process's architecture")
+                                    : String(localized: "The code it runs; Rosetta translates Intel code on Apple silicon"))
+                        }
+                        .customizationID("architecture")
+                        .defaultVisibility(.hidden)
                     }
                 }
                 .frame(height: 260)
@@ -1661,7 +1669,7 @@ private struct ProcessPane: View {
                         .help("Exit status is not available without the helper")
                 }
 
-                Text("\(ProcessText.cpuScaleNote(model.processCPUScaleInEffect)) App totals sum their members; footprint sums can count shared memory twice. Process sampling: 2 s; short-lived processes can be missed. Right-click a column header for wakeups, CPU time, start time and threads.")
+                Text("\(ProcessText.cpuScaleNote(model.processCPUScaleInEffect)) App totals sum their members; footprint sums can count shared memory twice. Process sampling: 2 s; short-lived processes can be missed. Right-click a column header for wakeups, CPU time, start time, threads and architecture.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -2113,6 +2121,21 @@ private enum ProcessText {
         total.unread == 0
             ? String(localized: "\(total.threads) threads")
             : String(localized: "at least \(total.threads) threads")
+    }
+
+    /// An app with mixed members lists each. Example: "Apple, Intel (Rosetta)".
+    static func architectures(_ kinds: Set<ObservedArchitecture>) -> String {
+        guard !kinds.isEmpty else { return "–" }
+        let order: [ObservedArchitecture] = [.appleSilicon, .intel, .intelTranslated]
+        return order.filter(kinds.contains).map(architecture).joined(separator: ", ")
+    }
+
+    private static func architecture(_ kind: ObservedArchitecture) -> String {
+        switch kind {
+        case .appleSilicon: String(localized: "Apple")
+        case .intel: String(localized: "Intel")
+        case .intelTranslated: String(localized: "Intel (Rosetta)")
+        }
     }
 
     /// Example: "Oct 19, 9:14:03 AM" in English.

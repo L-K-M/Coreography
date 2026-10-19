@@ -127,6 +127,7 @@ public actor ProcessMonitor {
                     wakeupsPerSecond: readings.wakeups, gpuMillisecondsPerSecond: gpu, cpuPowerWatts: readings.power,
                     cpuTimeSeconds: try cpuTime(process.counters, unreadable: readings.cpu),
                     threadCount: try threadCount(process.threads),
+                    architecture: architecture(process.cpuType),
                     executablePath: process.executablePath, responsiblePID: process.responsiblePID
                 ))
             }
@@ -182,6 +183,15 @@ public actor ProcessMonitor {
         switch threads {
         case .success(let count): try .measured(Double(count), source: Self.taskSource)
         case .failure(let error): try missing(error, source: Self.taskSource)
+        }
+    }
+
+    private func architecture(_ cpuType: Result<ProcessCPUType, ProcessDriverError>) -> ProcessArchitecture? {
+        switch cpuType {
+        case .success(.arm64): .appleSilicon
+        case .success(.x86_64): .intel
+        case .success(.x86_64Translated): .intelTranslated
+        case .failure: nil
         }
     }
 

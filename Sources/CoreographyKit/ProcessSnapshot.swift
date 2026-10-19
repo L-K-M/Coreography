@@ -33,6 +33,14 @@ public struct ProcessIdentity: Hashable, Codable, Sendable {
 
 enum ProcessIdentityError: Error { case invalidIdentity }
 
+/// The code a process runs (plan: opt-in architecture column).
+public enum ProcessArchitecture: String, Codable, Sendable {
+    case appleSilicon
+    case intel
+    /// Intel code that Rosetta translates on Apple silicon.
+    case intelTranslated
+}
+
 public struct ProcessReading: Identifiable, Codable, Sendable {
     public let id: ProcessIdentity
     public let parentPID: UInt32
@@ -53,6 +61,8 @@ public struct ProcessReading: Identifiable, Codable, Sendable {
     public let cpuTimeSeconds: MetricReading
     /// Threads the process has now (plan: opt-in threads column).
     public let threadCount: MetricReading
+    /// Nil when the OS did not say; it never changes while the process runs.
+    public let architecture: ProcessArchitecture?
     public let executablePath: String?
     /// PID the OS holds responsible (e.g. Safari for a WebContent helper).
     /// A bare PID; consumers must check it against a live identity.
@@ -68,6 +78,7 @@ public struct ProcessReading: Identifiable, Codable, Sendable {
         cpuPowerWatts: MetricReading = .unsupported(reason: "Energy was not collected"),
         cpuTimeSeconds: MetricReading = .unsupported(reason: "CPU time was not collected"),
         threadCount: MetricReading = .unsupported(reason: "Threads were not collected"),
+        architecture: ProcessArchitecture? = nil,
         executablePath: String?, responsiblePID: Int32?
     ) {
         self.id = id
@@ -84,6 +95,7 @@ public struct ProcessReading: Identifiable, Codable, Sendable {
         self.cpuPowerWatts = cpuPowerWatts
         self.cpuTimeSeconds = cpuTimeSeconds
         self.threadCount = threadCount
+        self.architecture = architecture
         self.executablePath = executablePath
         self.responsiblePID = responsiblePID
     }

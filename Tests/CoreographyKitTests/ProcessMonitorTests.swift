@@ -65,6 +65,15 @@ final class ProcessMonitorTests: XCTestCase {
         XCTAssertEqual(process.memoryFootprintBytes.numericValue, 4096, "the other readings stand")
     }
 
+    func testTheCPUTypeNamesTheArchitectureAndAFailureNamesNone() async throws {
+        let monitor = try makeMonitor([fixture(time: 1, rows: [
+            row(pid: 1, time: 1), row(pid: 2, time: 1, cpuType: .success(.x86_64Translated)),
+            row(pid: 3, time: 1, cpuType: .success(.x86_64)), row(pid: 4, time: 1, cpuType: .failure(.disappeared))
+        ])])
+        let sample = try await monitor.sample()
+        XCTAssertEqual(sample.processes.map(\.architecture), [.appleSilicon, .intelTranslated, .intel, nil])
+    }
+
     func testPowerIsAnEstimateFromTheEnergyCounter() async throws {
         let monitor = try makeMonitor([
             fixture(time: 1, rows: [row(time: 1, cpu: 1_000_000_000, energy: 1_000_000_000)]),
@@ -356,7 +365,8 @@ final class ProcessMonitorTests: XCTestCase {
     private func row(
         pid: Int32 = 42, time: UInt64, start: UInt64 = 100,
         cpu: UInt64 = 0, read: UInt64 = 0, wakeups: UInt64 = 0, energy: UInt64 = 0, failure: ProcessDriverError? = nil,
-        threads: Result<Int, ProcessDriverError> = .success(7)
+        threads: Result<Int, ProcessDriverError> = .success(7),
+        cpuType: Result<ProcessCPUType, ProcessDriverError> = .success(.arm64)
     ) -> RawProcessInfo {
         RawProcessInfo(
             pid: pid, parentPID: 1, uid: 501, startSeconds: start, startMicroseconds: 123,
@@ -365,7 +375,7 @@ final class ProcessMonitorTests: XCTestCase {
                 userNanoseconds: cpu, systemNanoseconds: 0, physicalFootprintBytes: 4096,
                 diskReadBytes: read, diskWriteBytes: 0, wakeups: wakeups, energyNanojoules: energy
             )),
-            threads: threads
+            threads: threads, cpuType: cpuType
         )
     }
 }

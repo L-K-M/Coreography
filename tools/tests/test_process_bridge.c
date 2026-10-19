@@ -371,6 +371,25 @@ test_threads(void)
     assert(coreo_process_threads(getpid(), 1, 0, NULL) == EINVAL);
 }
 
+/* This test runs native on the CI Mac; a wrong start time must not read. */
+static void
+test_translation(void)
+{
+    coreo_process_sample self;
+    int32_t translated = -1;
+    int32_t is_arm64 = -1;
+
+    assert(coreo_process_read(getpid(), &self) == 0);
+    assert(coreo_process_translated(getpid(), self.start_seconds, self.start_microseconds, &translated) == 0);
+    assert(translated == 0);
+    assert(coreo_process_translated(getpid(), self.start_seconds + 1, self.start_microseconds, &translated) == EAGAIN);
+    assert(coreo_process_translated(-1, 1, 0, &translated) == EINVAL);
+    assert(coreo_process_translated(getpid(), self.start_seconds, self.start_microseconds, NULL) == EINVAL);
+    assert(coreo_host_is_arm64(&is_arm64) == 0);
+    assert(is_arm64 == 0 || is_arm64 == 1);
+    assert(coreo_host_is_arm64(NULL) == EINVAL);
+}
+
 #else
 
 static void
@@ -437,6 +456,8 @@ test_platform(void)
         int32_t threads = -1;
 
         assert(coreo_process_threads(42, 1, 0, &threads) == ENOTSUP);
+        assert(coreo_process_translated(42, 1, 0, &threads) == ENOTSUP);
+        assert(coreo_host_is_arm64(&threads) == ENOTSUP);
         assert(coreo_process_threads(0, 1, 0, &threads) == EINVAL);
         assert(threads == -1);
     }
@@ -460,6 +481,7 @@ main(void)
     test_sockets();
     test_arguments();
     test_threads();
+    test_translation();
     test_files();
 #endif
     puts("test_process_bridge: all assertions passed");

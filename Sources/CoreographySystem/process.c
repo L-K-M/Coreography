@@ -35,6 +35,7 @@
 #include <pthread.h>
 #include <signal.h>
 #include <mach/mach_time.h>
+#include <sys/proc.h>
 #include <sys/proc_info.h>
 #include <sys/resource.h>
 
@@ -386,6 +387,53 @@ coreo_process_threads(int32_t pid, uint64_t start_seconds, uint64_t start_micros
 }
 
 int32_t
+coreo_process_translated(int32_t pid, uint64_t start_seconds, uint64_t start_microseconds,
+                         int32_t *translated)
+{
+    int mib[4] = { CTL_KERN, KERN_PROC, KERN_PROC_PID, pid };
+    struct kinfo_proc info;
+    size_t size = sizeof(info);
+
+    if (pid < 0 || translated == NULL) {
+        return EINVAL;
+    }
+    memset(&info, 0, sizeof(info));
+    if (sysctl(mib, 4, &info, &size, NULL, 0) != 0) {
+        return errno ? errno : EIO;
+    }
+    /* An empty answer means no such process. */
+    if (size == 0) {
+        return ESRCH;
+    }
+    if ((uint64_t)info.kp_proc.p_starttime.tv_sec != start_seconds ||
+        (uint64_t)info.kp_proc.p_starttime.tv_usec != start_microseconds) {
+        return EAGAIN;
+    }
+    *translated = (info.kp_proc.p_flag & P_TRANSLATED) ? 1 : 0;
+    return 0;
+}
+
+int32_t
+coreo_host_is_arm64(int32_t *is_arm64)
+{
+    int value = 0;
+    size_t size = sizeof(value);
+
+    if (is_arm64 == NULL) {
+        return EINVAL;
+    }
+    /* Intel Macs have no such key: that is an answer, not a failure. */
+    if (sysctlbyname("hw.optional.arm64", &value, &size, NULL, 0) != 0) {
+        if (errno != ENOENT) {
+            return errno ? errno : EIO;
+        }
+        value = 0;
+    }
+    *is_arm64 = value ? 1 : 0;
+    return 0;
+}
+
+int32_t
 coreo_process_arguments_capacity(void)
 {
     int mib[2] = {CTL_KERN, KERN_ARGMAX};
@@ -701,6 +749,27 @@ coreo_process_threads(int32_t pid, uint64_t start_seconds, uint64_t start_micros
     (void)start_seconds;
     (void)start_microseconds;
     if (pid <= 0 || threads == NULL) {
+        return EINVAL;
+    }
+    return ENOTSUP;
+}
+
+int32_t
+coreo_process_translated(int32_t pid, uint64_t start_seconds, uint64_t start_microseconds,
+                         int32_t *translated)
+{
+    (void)start_seconds;
+    (void)start_microseconds;
+    if (pid < 0 || translated == NULL) {
+        return EINVAL;
+    }
+    return ENOTSUP;
+}
+
+int32_t
+coreo_host_is_arm64(int32_t *is_arm64)
+{
+    if (is_arm64 == NULL) {
         return EINVAL;
     }
     return ENOTSUP;

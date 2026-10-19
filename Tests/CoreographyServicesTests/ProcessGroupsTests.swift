@@ -203,6 +203,23 @@ final class ProcessGroupsTests: XCTestCase {
         XCTAssertEqual(total.unread, 1)
     }
 
+    /// Plan: an opt-in architecture column. An app lists what its members run.
+    func testAnAppListsItsMembersArchitecturesAndRosettaFindsTranslatedOnes() throws {
+        let processes = try snapshot([
+            try process(pid: 100, name: "Safari", cpu: 9, path: "/Applications/Safari.app/Contents/MacOS/Safari",
+                        architecture: .appleSilicon),
+            try process(pid: 101, name: "plugin", cpu: 1, path: "/Applications/Safari.app/Contents/MacOS/plugin",
+                        architecture: .intelTranslated),
+            try process(pid: 200, name: "mds", cpu: 1, path: "/usr/sbin/mds")
+        ])
+        let rows = ProcessGroups.rows(in: processes, matching: "", sortedBy: .cpu, grouping: .app)
+        XCTAssertEqual(rows.first { $0.name == "Safari" }?.architectures, [.appleSilicon, .intelTranslated])
+        XCTAssertEqual(rows.first { $0.name == "mds" }?.architectures, [], "an unread architecture is not guessed")
+
+        let translated = ProcessGroups.rows(in: processes, matching: "#rosetta", sortedBy: .cpu, grouping: .flat)
+        XCTAssertEqual(translated.map(\.name), ["plugin"])
+    }
+
     /// Plan: grouping as a parent-child tree, each row with its own readings.
     func testTreeNestsChildrenUnderTheirObservedParent() throws {
         let launchd = try process(pid: 1, name: "launchd", cpu: 1, start: 1, parent: 0, uid: 0)
@@ -315,7 +332,7 @@ final class ProcessGroupsTests: XCTestCase {
     private func process(
         pid: Int32, name: String, cpu: Double?, start: UInt64 = 10,
         path: String? = nil, responsible: Int32? = nil, gpu: Double = 0, power: Double? = 0,
-        parent: UInt32 = 1, uid: UInt32 = 501, threads: Double? = 1
+        parent: UInt32 = 1, uid: UInt32 = 501, threads: Double? = 1, architecture: ProcessArchitecture? = nil
     ) throws -> ObservedProcess {
         let source = MetricSource(provider: "processes", driver: "libproc")
         return ProcessReading(
@@ -331,6 +348,7 @@ final class ProcessGroupsTests: XCTestCase {
                 ?? .unsupported(reason: "No energy counter for this process", source: source),
             cpuTimeSeconds: try cpu.map { try .measured($0, source: source) } ?? .restricted(reason: "EPERM", source: source),
             threadCount: try threads.map { try .measured($0, source: source) } ?? .restricted(reason: "EPERM", source: source),
+            architecture: architecture,
             executablePath: path, responsiblePID: responsible
         )
     }
