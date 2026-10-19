@@ -7,6 +7,8 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
 ## [Unreleased]
 
 ### Added
+- A 6 h range: lanes show recorded history behind the live hour, with
+  gaps kept.
 - Sleep and wake history from the power-management log: sleep periods
   with dark wakes and battery change, for `get_sleep_history`, Ask and
   `coreo sleep`.

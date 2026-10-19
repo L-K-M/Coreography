@@ -33,7 +33,10 @@ final class HistoryRecorderTests: XCTestCase {
     func testLatestReadingsKeepUnavailableStatesAndSkipAmbiguousDisks() async throws {
         let monitor = try SystemMonitor(driver: HostOnce(epoch: epoch))
         let host = try await monitor.sample()
-        let samples = HistorySamples.latest(host: host, network: nil, disks: nil, gpu: nil, power: nil, sensors: nil)
+        var sources = RecordedSources()
+        let samples = HistorySamples.latest(
+            host: host, network: nil, disks: nil, gpu: nil, power: nil, sensors: nil, sources: &sources
+        )
         XCTAssertEqual(Set(samples.map(\.metric)), [
             .cpu, .memoryUsed, .memoryApp, .memoryWired, .memoryCompressed, .memoryCached,
             .memoryPressure, .swapUsed, .thermalPressure
@@ -42,6 +45,14 @@ final class HistoryRecorderTests: XCTestCase {
         XCTAssertNil(cpu.value, "the first CPU sample is still collecting")
         XCTAssertEqual(cpu.availability, .collecting)
         XCTAssertEqual(samples.first { $0.metric == .thermalPressure }?.availability, .unavailable)
+    }
+
+    func testASourceChangeIsRecordedAsAGapSoStoredLinesBreak() {
+        var sources = RecordedSources()
+        XCTAssertFalse(sources.changed(\.sensor, to: "Tp01"), "the first source is not a change")
+        XCTAssertFalse(sources.changed(\.sensor, to: "Tp01"))
+        XCTAssertTrue(sources.changed(\.sensor, to: "Tg05"))
+        XCTAssertFalse(sources.changed(\.sensor, to: "Tg05"))
     }
 
     private func sample(_ second: Int) -> HistorySample {

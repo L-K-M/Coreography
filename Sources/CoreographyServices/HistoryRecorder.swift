@@ -66,18 +66,38 @@ public actor HistoryRecorder {
     }
 }
 
+/// The source behind each stored series at the last recording. Samples
+/// carry no source, so a change is stored as a gap: the stored line then
+/// breaks where the live one does (a new primary interface, storage
+/// device, GPU or hottest sensor), at the cost of that one reading.
+struct RecordedSources: Equatable, Sendable {
+    var interface: CapturedInterfaceID?
+    var storage: CapturedStorageID?
+    var gpu: GPUDeviceID?
+    var sensor: String?
+
+    /// Note the current source; true when it replaces a different one.
+    mutating func changed<ID: Equatable>(_ source: WritableKeyPath<RecordedSources, ID?>, to id: ID) -> Bool {
+        defer { self[keyPath: source] = id }
+        return self[keyPath: source].map { $0 != id } ?? false
+    }
+}
+
 /// Turn the newest frames into stored readings, using the same source
 /// choices as the window: the primary interface, an automatic storage
-/// device, the first GPU and the qualified system-power source.
+/// device, the only GPU and the qualified system-power source.
 enum HistorySamples {
     static func latest(
         host: CapturedSnapshot?, network: CapturedNetwork?, disks: CapturedDisks?, gpu: CapturedGPU?,
-        power: CapturedPower?, sensors: CapturedSensors?
+        power: CapturedPower?, sensors: CapturedSensors?, sources: inout RecordedSources
     ) -> [HistorySample] {
         var samples: [HistorySample] = []
         func add(_ metric: HistoryMetric, _ reading: MetricReading?, at time: Date?) {
             guard let reading, let time else { return }
             samples.append(HistorySample(metric: metric, time: time, value: reading.numericValue, availability: reading.availability))
+        }
+        func gap(_ metrics: HistoryMetric..., at time: Date) {
+            samples += metrics.map { HistorySample(metric: $0, time: time, value: nil, availability: .gap) }
         }
         if let host {
             let time = host.stamp.wallTime
@@ -92,17 +112,36 @@ enum HistorySamples {
             add(.thermalPressure, host.thermalPressure, at: time)
         }
         if let network, let primary = network.interfaces.first(where: { $0.id == network.primaryInterface }) {
-            add(.networkReceived, primary.receivedBytesPerSecond, at: primary.stamp.wallTime)
-            add(.networkSent, primary.sentBytesPerSecond, at: primary.stamp.wallTime)
+            if sources.changed(\.interface, to: primary.id) {
+                gap(.networkReceived, .networkSent, at: primary.stamp.wallTime)
+            } else {
+                add(.networkReceived, primary.receivedBytesPerSecond, at: primary.stamp.wallTime)
+                add(.networkSent, primary.sentBytesPerSecond, at: primary.stamp.wallTime)
+            }
         }
         if let disks, disks.devices.count == 1, disks.issues.isEmpty, !disks.enumerationTruncated, let device = disks.devices.first {
-            add(.diskRead, device.readBytesPerSecond, at: device.stamp.wallTime)
-            add(.diskWritten, device.writtenBytesPerSecond, at: device.stamp.wallTime)
+            if sources.changed(\.storage, to: device.id) {
+                gap(.diskRead, .diskWritten, at: device.stamp.wallTime)
+            } else {
+                add(.diskRead, device.readBytesPerSecond, at: device.stamp.wallTime)
+                add(.diskWritten, device.writtenBytesPerSecond, at: device.stamp.wallTime)
+            }
         }
-        if let gpu { add(.gpuBusy, gpu.devices.first?.utilizationPercent, at: gpu.stamp.wallTime) }
+        // With two GPUs the first one can change from sample to sample, so only a lone GPU is recorded.
+        if let gpu, gpu.devices.count == 1, let device = gpu.devices.first {
+            if sources.changed(\.gpu, to: device.id) {
+                gap(.gpuBusy, at: gpu.stamp.wallTime)
+            } else {
+                add(.gpuBusy, device.utilizationPercent, at: gpu.stamp.wallTime)
+            }
+        }
         if let power { add(.batteryCharge, power.batteryChargePercent, at: power.stamp.wallTime) }
         if let sensors {
-            add(.hottestCelsius, sensors.hottest?.celsius, at: sensors.stamp.wallTime)
+            if let hottest = sensors.hottest, sources.changed(\.sensor, to: hottest.key) {
+                gap(.hottestCelsius, at: sensors.stamp.wallTime)
+            } else {
+                add(.hottestCelsius, sensors.hottest?.celsius, at: sensors.stamp.wallTime)
+            }
             let rail = sensors.systemPowerWatts
             add(.systemPower, rail.numericValue != nil ? rail : (power?.systemPowerWatts ?? rail), at: sensors.stamp.wallTime)
         }

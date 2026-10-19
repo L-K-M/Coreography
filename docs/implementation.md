@@ -202,8 +202,21 @@ Implemented:
   Writes batch into one transaction every 30 s; each batch also enforces
   the 6-hour time cap and a 256 MB size cap. Settings deletes history in
   one click; `coreo history --json METRIC` reads it, and the CLI never
-  records samples. Replaying stored history in the window, rollups, the app ledger
-  on disk remain (S7, M4).
+  records samples. Rollups and the app ledger on disk remain (S7, M4).
+- The 6 h range: lanes draw stored history behind the live hour. Each
+  minute while that range is shown (not while the display is held), the
+  model reads the store off the main actor and reduces every series once
+  to bucket minimum and maximum, so redraws never touch the disk. CPU,
+  memory composition and used, both pressure bands, battery, the hottest
+  sensor and, on a single-GPU Mac, GPU utilization are extended; network
+  and disk only for the primary interface and the automatic storage
+  device, as recorded. Silences over 3 s and unreadable samples stay gaps,
+  the recorder stores a gap where the primary interface, storage device,
+  GPU or hottest sensor changes, and no line joins stored and live
+  points. Deleting history clears the stored part at once. Without a store the toolbar
+  says older history is unavailable. Cursor readouts, contributors, range
+  reports and scoped apps over the stored part, and the 24 h range (the
+  Day tier), remain.
 - Sleep and wake history, first part: `pmset -g log` runs with a fixed
   path and arguments, a 20-second limit and an 8 MB tail cap, off the
   sampling path: once at launch and 10 s after each wake (an interrupted
@@ -238,6 +251,7 @@ time, helper, MCP or model integration in this slice.
 | Native network MIB, wide-counter mapping and three-lane UI | Passed at `e62fac1`, including native C fixtures, live CLI and both executable architectures; integrated candidate pending |
 | Native IOKit storage counters and four-lane renderer | Passed [native CI](https://github.com/L-K-M/Coreography/actions/runs/39110306993) at `6434722`: 75 tests, 16 drivers, 32 measured rate fields, no inventory issues; owner checks pending |
 | On-disk history store and recorder | History slice: 148 Swift tests pass on Linux against the real system SQLite (round trip with gaps, duplicates, retention, reopen, permissions, WAL, batching); native CI checks the CLI and file permissions |
+| 6 h replay | Replay slice: 162 Swift tests pass on Linux (reduction keeps peaks, gaps and silences; stack alignment; bands do not bridge silences; the model puts stored points behind live without joining them and drops them for short ranges or on deletion; source changes recorded as gaps; a missing store is named); native compile and the owner's look at a long range are pending |
 | Sleep and wake import | Sleep slice: 156 Swift tests pass on Linux (record parsing with tab or space columns, cut lines, periods across dark wakes, caps as partial coverage, the tool's window and record cap, a runner that stops a child at its limit); native CI compares parsed records with an independent count of the real `pmset -g log` |
 | Process filter grammar | Filter slice: 143 Swift tests pass on Linux (predicates, units, tokens, reported issues, unknown-is-not-zero, group visibility) |
 | Process heat, new and exited rows | Lifecycle slice: 139 Swift tests pass on Linux (new-row window, ghost expiry, sleep not read as exits); UI compile pending |

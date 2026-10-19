@@ -111,7 +111,9 @@ public final class DashboardModel {
     public var processGrouping: ProcessGrouping = .app
     /// The shared hover time across all lanes; nil follows the live edge.
     public var cursorTime: Date?
-    public var timeRange: TimeRange = .minute
+    public var timeRange: TimeRange = .minute {
+        didSet { refreshStoredHistory() }
+    }
     /// A dragged time range; cleared only explicitly (plan: Esc or clear).
     public var selection: ClosedRange<Date>?
     /// The range while a drag is in progress; reports wait for the drag to end.
@@ -124,6 +126,8 @@ public final class DashboardModel {
     /// Why history is not being recorded, when it is not.
     public private(set) var historyProblem: String?
     public var recordsHistory: Bool { historyRecorder != nil }
+    /// Why the stored part of a long range is missing, when it is.
+    public private(set) var storedHistoryProblem: String?
     /// Rules currently raised, by id; lanes tint while their rule is active.
     public private(set) var activeAlerts: [AlertLane: String] = [:]
     public private(set) var hasProviderKey = false
@@ -135,6 +139,11 @@ public final class DashboardModel {
     @ObservationIgnored private let notifier: AlertDelivery?
     @ObservationIgnored private let historyRecorder: HistoryRecorder?
     @ObservationIgnored private let sleepProvider: SleepHistoryProvider?
+    /// The on-disk part of a range longer than live history; nil otherwise.
+    private var storedHistory: StoredHistory?
+    @ObservationIgnored private var storedLoad: Task<Void, Never>?
+    @ObservationIgnored private var storedLoadedAt: Date?
+    @ObservationIgnored private var recordedSources = RecordedSources()
     @ObservationIgnored private var sleepState: SleepHistoryState = .notImported
     @ObservationIgnored private var sleepImport: Task<Void, Never>?
     @ObservationIgnored private var alertEngine = AlertEngine(rules: AlertRules.shipped)
@@ -231,6 +240,7 @@ public final class DashboardModel {
         worker?.cancel()
         askTask?.cancel()
         sleepImport?.cancel()
+        storedLoad?.cancel()
     }
 
     public var latest: CapturedSnapshot? { frames.last }
@@ -239,6 +249,8 @@ public final class DashboardModel {
     private static let cursorTolerance: TimeInterval = 1.5
     private static let contributorTolerance: TimeInterval = 2.5
     private static let wakeSettleDelay: Duration = .seconds(10)
+    /// The recorder flushes every 30 s; rereading the store more often finds nothing new.
+    private static let storedReloadInterval: TimeInterval = 60
     /// One hour of two-second process samples, matching live history.
     private static let contributorCapacity = 1800
 
@@ -382,7 +394,8 @@ public final class DashboardModel {
         guard let historyRecorder else { return }
         let samples = HistorySamples.latest(
             host: liveFrames.last, network: liveNetworkFrames.last, disks: liveDiskFrames.last,
-            gpu: liveGPUFrames.last, power: livePowerFrames.last, sensors: liveSensorFrames.last
+            gpu: liveGPUFrames.last, power: livePowerFrames.last, sensors: liveSensorFrames.last,
+            sources: &recordedSources
         )
         let now = Date()
         Task { [weak self] in
@@ -392,11 +405,68 @@ public final class DashboardModel {
         }
     }
 
+    /// Load the stored part of a long range, or drop it for a short one. A
+    /// held display keeps the prefix it has; a failed read retries at the
+    /// reload interval rather than every sample.
+    private func refreshStoredHistory(now: Date = Date()) {
+        guard timeRange.reachesStoredHistory, let historyRecorder else {
+            storedLoad?.cancel()
+            storedLoad = nil
+            storedLoadedAt = nil
+            storedHistory = nil
+            storedHistoryProblem = timeRange.reachesStoredHistory
+                ? (historyProblem ?? "History is not being recorded.") : nil
+            return
+        }
+        guard storedLoad == nil else { return }
+        if let storedLoadedAt {
+            if displayMode == .held && storedHistory != nil { return }
+            if now.timeIntervalSince(storedLoadedAt) < Self.storedReloadInterval { return }
+        }
+
+        storedLoadedAt = now
+        let start = now.addingTimeInterval(-timeRange.seconds)
+        storedLoad = Task { [weak self] in
+            let result: Result<StoredHistory, any Error>
+            do {
+                result = .success(try await StoredHistory.load(from: historyRecorder, start: start, end: now))
+            } catch {
+                result = .failure(error)
+            }
+            guard let self, !Task.isCancelled else { return }
+            self.storedLoad = nil
+            switch result {
+            case .success(let loaded):
+                self.storedHistory = loaded
+                self.storedHistoryProblem = nil
+            case .failure(HistoryStoreError.storage(let reason)):
+                self.storedHistoryProblem = "Stored history could not be read: \(reason)"
+            case .failure(let error):
+                self.storedHistoryProblem = "Stored history could not be read: \(error)"
+            }
+        }
+    }
+
+    /// Stored points older than live history, then the live points renumbered
+    /// so no line bridges the seam. Without a stored prefix, live is unchanged.
+    private func prefixed(_ live: [DashboardPoint], stored: [DashboardPoint]?, liveStart: Date?) -> [DashboardPoint] {
+        guard let stored, !stored.isEmpty else { return live }
+        let older = stored.filter { $0.time < liveStart ?? .distantFuture }
+        let offset = (older.last?.segment ?? -1) + 1
+        return older + live.map { DashboardPoint(id: $0.id, time: $0.time, value: $0.value, segment: $0.segment + offset) }
+    }
+
     /// One-click deletion of everything recorded on disk.
     public func deleteHistory() async -> String? {
         guard let historyRecorder else { return "History is not being recorded." }
         do {
             try await historyRecorder.deleteAll()
+            // Deleted history leaves the screen now, even while the display is held.
+            storedLoad?.cancel()
+            storedLoad = nil
+            storedLoadedAt = nil
+            storedHistory = nil
+            if timeRange.reachesStoredHistory { refreshStoredHistory() }
             return nil
         } catch HistoryStoreError.storage(let reason) {
             return reason
@@ -657,6 +727,7 @@ public final class DashboardModel {
                     if let sensors { self.liveSensorFrames = sensors }
                     self.evaluateAlerts()
                     self.recordHistory()
+                    if self.timeRange.reachesStoredHistory, self.recordsHistory { self.refreshStoredHistory() }
                     if self.displayMode == .live {
                         self.frames = history
                         if let processes {
@@ -726,7 +797,28 @@ public final class DashboardModel {
         }
     }
 
+    /// Live points, behind stored ones for a long range. Stored rates follow
+    /// the recorder's choices, so they appear only for the primary interface
+    /// and the automatic storage device.
     public func points(for metric: DashboardMetric) -> [DashboardPoint] {
+        let live = livePoints(for: metric)
+        switch metric {
+        case .cpu:
+            return prefixed(live, stored: storedHistory?.lines[.cpu], liveStart: frames.first?.stamp.wallTime)
+        case .memory:
+            return prefixed(live, stored: storedHistory?.lines[.memoryUsed], liveStart: frames.first?.stamp.wallTime)
+        case .networkReceived, .networkSent:
+            guard networkScope == .primary else { return live }
+            let stored: HistoryMetric = metric == .networkReceived ? .networkReceived : .networkSent
+            return prefixed(live, stored: storedHistory?.lines[stored], liveStart: networkFrames.first?.stamp.wallTime)
+        case .diskRead, .diskWritten:
+            guard case .automatic = storageScope else { return live }
+            let stored: HistoryMetric = metric == .diskRead ? .diskRead : .diskWritten
+            return prefixed(live, stored: storedHistory?.lines[stored], liveStart: diskFrames.first?.stamp.wallTime)
+        }
+    }
+
+    private func livePoints(for metric: DashboardMetric) -> [DashboardPoint] {
         if metric == .networkReceived || metric == .networkSent { return networkPoints(for: metric) }
         if metric == .diskRead || metric == .diskWritten { return diskPoints(for: metric) }
         var result: [DashboardPoint] = []
@@ -745,8 +837,21 @@ public final class DashboardModel {
         return result
     }
 
-    /// Stack only frames with every layer known; any missing layer is a gap.
     public func memoryStack() -> [MemoryStackPoint] {
+        let live = liveMemoryStack()
+        guard let stored = storedHistory?.memoryStack, !stored.isEmpty else { return live }
+        let older = stored.filter { $0.time < frames.first?.stamp.wallTime ?? .distantFuture }
+        let offset = (older.last?.segment ?? -1) + 1
+        return older + live.map {
+            MemoryStackPoint(
+                id: $0.id, time: $0.time, category: $0.category, lower: $0.lower, upper: $0.upper,
+                segment: $0.segment + offset
+            )
+        }
+    }
+
+    /// Stack only frames with every layer known; any missing layer is a gap.
+    private func liveMemoryStack() -> [MemoryStackPoint] {
         var result: [MemoryStackPoint] = []
         var segment = 0
         for frame in frames {
@@ -774,14 +879,23 @@ public final class DashboardModel {
         return result
     }
 
+    /// Stored bands end where live history starts.
     public func memoryPressureSpans() -> [MemoryPressureSpan] {
-        levelSpans { $0.memory.pressureLevel }.map {
+        let liveStart = frames.first?.stamp.wallTime ?? .distantFuture
+        let older = (storedHistory?.memoryPressure ?? []).filter { $0.start < liveStart }.map {
+            MemoryPressureSpan(id: $0.id, start: $0.start, end: min($0.end, liveStart), level: $0.level)
+        }
+        return older + levelSpans { $0.memory.pressureLevel }.map {
             MemoryPressureSpan(id: $0.id, start: $0.start, end: $0.end, level: $0.level)
         }
     }
 
     public func thermalPressureSpans() -> [ThermalPressureSpan] {
-        levelSpans { ThermalPressureLevel(reading: $0.thermalPressure) }.map {
+        let liveStart = frames.first?.stamp.wallTime ?? .distantFuture
+        let older = (storedHistory?.thermalPressure ?? []).filter { $0.start < liveStart }.map {
+            ThermalPressureSpan(id: $0.id, start: $0.start, end: min($0.end, liveStart), level: $0.level)
+        }
+        return older + levelSpans { ThermalPressureLevel(reading: $0.thermalPressure) }.map {
             ThermalPressureSpan(id: $0.id, start: $0.start, end: $0.end, level: $0.level)
         }
     }
@@ -811,9 +925,14 @@ public final class DashboardModel {
         return result
     }
 
+    /// The recorder stores a gap where the hottest sensor changed, so both parts break there.
+    public func hottestTemperaturePoints() -> [DashboardPoint] {
+        prefixed(liveHottestPoints(), stored: storedHistory?.lines[.hottestCelsius], liveStart: sensorFrames.first?.stamp.wallTime)
+    }
+
     /// Hottest-sensor history; a new hottest key starts a new segment, so a
     /// change of sensor never reads as a temperature trend.
-    public func hottestTemperaturePoints() -> [DashboardPoint] {
+    private func liveHottestPoints() -> [DashboardPoint] {
         var result: [DashboardPoint] = []
         var segment = 0
         var previousKey: String?
@@ -831,8 +950,12 @@ public final class DashboardModel {
         return result
     }
 
-    /// Battery charge history; a missing reading or interruption splits the line.
     public func batteryChargePoints() -> [DashboardPoint] {
+        prefixed(liveBatteryPoints(), stored: storedHistory?.lines[.batteryCharge], liveStart: powerFrames.first?.stamp.wallTime)
+    }
+
+    /// Battery charge history; a missing reading or interruption splits the line.
+    private func liveBatteryPoints() -> [DashboardPoint] {
         var result: [DashboardPoint] = []
         var segment = 0
         for frame in powerFrames {
@@ -868,8 +991,16 @@ public final class DashboardModel {
         return result
     }
 
-    /// One series per observed GPU, in first-seen order.
+    /// Only a lone GPU is recorded, so stored utilization extends a lone series only.
     public func gpuSeries() -> [GPUSeries] {
+        let live = liveGPUSeries()
+        guard live.count == 1, let only = live.first else { return live }
+        let points = prefixed(only.points, stored: storedHistory?.lines[.gpuBusy], liveStart: gpuFrames.first?.stamp.wallTime)
+        return [GPUSeries(id: only.id, name: only.name, points: points)]
+    }
+
+    /// One series per observed GPU, in first-seen order.
+    private func liveGPUSeries() -> [GPUSeries] {
         var order: [GPUDeviceID] = []
         var names: [GPUDeviceID: String] = [:]
         var points: [GPUDeviceID: [DashboardPoint]] = [:]
