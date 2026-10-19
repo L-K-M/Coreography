@@ -64,3 +64,14 @@ private actor Steady: HostSampleReading {
         )
     }
 }
+
+final class WakeImportSpacingTests: XCTestCase {
+    func testOneReimportPerMinuteHoweverOftenSamplingStalls() {
+        var spacing = WakeImportSpacing()
+        let start = Date(timeIntervalSince1970: 1_700_000_000)
+        XCTAssertTrue(spacing.admit(at: start))
+        XCTAssertFalse(spacing.admit(at: start.addingTimeInterval(5)))
+        XCTAssertFalse(spacing.admit(at: start.addingTimeInterval(59)))
+        XCTAssertTrue(spacing.admit(at: start.addingTimeInterval(60)))
+    }
+}
