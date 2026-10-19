@@ -13,6 +13,9 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
   after the store first exceeds it.
 
 ### Added
+- Command-drag a second range to compare it with the selection: CPU
+  and memory, and the apps that changed most. With a selection, sorting
+  by CPU ranks apps by their use inside it.
 - The HUD has four levels of detail (Option-Command-J cycles them),
   corner presets, dragging with a remembered position per display,
   opacity, text size, an optional dark backing and click-through.

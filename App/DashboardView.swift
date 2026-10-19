@@ -340,6 +340,7 @@ struct DashboardView: View {
                     }
                     CursorRule(time: model.cursorTime, range: start...end)
                     SelectionBand(selection: model.draftSelection ?? model.selection, range: start...end)
+                    SelectionBand(selection: model.draftComparison ?? model.comparison, range: start...end, tint: .orange)
                     MarkerRules(markers: model.timelineMarkers, range: start...end)
                 }
                 .chartCursor(model)
@@ -455,6 +456,7 @@ private struct MemoryLane: View {
             }
             CursorRule(time: model.cursorTime, range: start...end)
             SelectionBand(selection: model.draftSelection ?? model.selection, range: start...end)
+            SelectionBand(selection: model.draftComparison ?? model.comparison, range: start...end, tint: .orange)
             MarkerRules(markers: model.timelineMarkers, range: start...end)
         }
         .chartCursor(model)
@@ -625,6 +627,7 @@ private struct GPULane: View {
             }
             CursorRule(time: model.cursorTime, range: start...end)
             SelectionBand(selection: model.draftSelection ?? model.selection, range: start...end)
+            SelectionBand(selection: model.draftComparison ?? model.comparison, range: start...end, tint: .orange)
             MarkerRules(markers: model.timelineMarkers, range: start...end)
         }
         .chartCursor(model)
@@ -766,6 +769,7 @@ private struct PowerLane: View {
             }
             CursorRule(time: model.cursorTime, range: start...end)
             SelectionBand(selection: model.draftSelection ?? model.selection, range: start...end)
+            SelectionBand(selection: model.draftComparison ?? model.comparison, range: start...end, tint: .orange)
             MarkerRules(markers: model.timelineMarkers, range: start...end)
         }
         .chartCursor(model)
@@ -957,6 +961,7 @@ private struct ThermalLane: View {
                     }
                     CursorRule(time: model.cursorTime, range: start...end)
                     SelectionBand(selection: model.draftSelection ?? model.selection, range: start...end)
+                    SelectionBand(selection: model.draftComparison ?? model.comparison, range: start...end, tint: .orange)
                     MarkerRules(markers: model.timelineMarkers, range: start...end)
                 }
                 .chartCursor(model)
@@ -1005,6 +1010,7 @@ private extension ThermalLane {
             }
             CursorRule(time: model.cursorTime, range: start...end)
             SelectionBand(selection: model.draftSelection ?? model.selection, range: start...end)
+            SelectionBand(selection: model.draftComparison ?? model.comparison, range: start...end, tint: .orange)
             MarkerRules(markers: model.timelineMarkers, range: start...end)
         }
         .chartCursor(model)
@@ -1309,6 +1315,7 @@ private struct TransferChart: View {
             }
             CursorRule(time: model.cursorTime, range: start...end)
             SelectionBand(selection: model.draftSelection ?? model.selection, range: start...end)
+            SelectionBand(selection: model.draftComparison ?? model.comparison, range: start...end, tint: .orange)
             MarkerRules(markers: model.timelineMarkers, range: start...end)
         }
         .chartCursor(model)
@@ -1420,6 +1427,10 @@ private struct ProcessPane: View {
                 }
 
                 SavedFilterChips(model: model)
+
+                if model.ranksBySelection {
+                    Text("Apps ranked by CPU inside the selected range").font(.caption).foregroundStyle(.secondary)
+                }
 
                 // The same mistake typed twice is two issues; identity is the position.
                 ForEach(Array(model.processFilterIssues.enumerated()), id: \.offset) { _, issue in
@@ -2284,6 +2295,18 @@ private struct RangePanel: View {
                     .font(.callout)
             }
             Text(RangeText.coverage(report)).font(.caption).foregroundStyle(.secondary)
+            if let comparison = model.rangeComparison {
+                Divider()
+                HStack {
+                    Text("Compared with \(RangeText.span(comparison.second.requested))").font(.headline).foregroundStyle(.orange)
+                    Spacer()
+                    Button("Clear comparison") { model.clearComparison() }
+                }
+                Text(RangeText.comparisonLanes(comparison)).font(.callout)
+                Text(RangeText.changes(comparison)).font(.callout)
+            } else {
+                Text("Command-drag across a lane to compare another range.").font(.caption).foregroundStyle(.secondary)
+            }
             let inside = model.timelineMarkers.filter { report.requested.contains($0.time) }
             if !inside.isEmpty {
                 Text(RangeText.markers(inside)).font(.caption)
@@ -2355,6 +2378,29 @@ private enum RangeText {
         String(localized: "Markers: ") + markers.map {
             "\($0.time.formatted(date: .omitted, time: .shortened)) \($0.label)"
         }.joined(separator: " · ")
+    }
+
+    /// "CPU mean 12% → 38%, memory peak 9.1 GB → 11.4 GB".
+    static func comparisonLanes(_ comparison: RangeComparison) -> String {
+        var parts: [String] = []
+        if let first = comparison.first.cpuMeanPercent, let second = comparison.second.cpuMeanPercent {
+            parts.append(String(localized: "CPU mean \(MetricText.percent(first)) → \(MetricText.percent(second))"))
+        }
+        if let first = comparison.first.memoryPeakBytes, let second = comparison.second.memoryPeakBytes {
+            parts.append(String(localized: "memory peak \(MetricText.bytes(first)) → \(MetricText.bytes(second))"))
+        }
+        return parts.isEmpty ? String(localized: "No shared lane readings") : parts.joined(separator: ", ")
+    }
+
+    /// "Safari 0.20 → 1.05 cores · Xcode 0.9 → 0.1 cores".
+    static func changes(_ comparison: RangeComparison) -> String {
+        guard !comparison.changes.isEmpty else { return String(localized: "No app changed by a hundredth of a core or more.") }
+        let cores = FloatingPointFormatStyle<Double>.number.precision(.fractionLength(2))
+        let items = comparison.changes.map { change in
+            let estimate = change.isLowerBound ? String(localized: " est.") : ""
+            return String(localized: "\(change.app) \(change.firstCores.formatted(cores)) → \(change.secondCores.formatted(cores)) cores\(estimate)")
+        }
+        return String(localized: "Biggest changes: ") + items.joined(separator: " · ")
     }
 
     static func lanes(_ report: RangeReport) -> String {
@@ -2440,6 +2486,8 @@ private enum MarkerStyle {
 private struct SelectionBand: ChartContent {
     let selection: ClosedRange<Date>?
     let range: ClosedRange<Date>
+    /// The comparison range is orange, so the two never read as one.
+    var tint: Color = .accentColor
 
     var body: some ChartContent {
         if let selection, selection.overlaps(range) {
@@ -2447,7 +2495,7 @@ private struct SelectionBand: ChartContent {
                 xStart: .value("Selection start", max(selection.lowerBound, range.lowerBound)),
                 xEnd: .value("Selection end", min(selection.upperBound, range.upperBound))
             )
-            .foregroundStyle(Color.accentColor.opacity(0.15))
+            .foregroundStyle(tint.opacity(0.15))
         }
     }
 }
@@ -2505,6 +2553,8 @@ private struct ChartInteraction: View {
     let proxy: ChartProxy
     let geometry: GeometryProxy
     @GestureState private var dragging = false
+    /// Decided when a drag starts: Command makes it the comparison range.
+    @State private var dragsComparison: Bool?
 
     var body: some View {
         Rectangle()
@@ -2529,14 +2579,27 @@ private struct ChartInteraction: View {
                 let origin = geometry[plot].origin.x
                 guard let first = proxy.value(atX: drag.startLocation.x - origin, as: Date.self),
                       let second = proxy.value(atX: drag.location.x - origin, as: Date.self) else { return }
-                model.draftSelection = min(first, second)...max(first, second)
+                let comparing = dragsComparison ?? (NSEvent.modifierFlags.contains(.command) && model.selection != nil)
+                dragsComparison = comparing
+                let range = min(first, second)...max(first, second)
+                if comparing { model.draftComparison = range } else { model.draftSelection = range }
             }.onEnded { _ in
                 // Commit once, so the range report is computed per drag, not per frame.
-                if let draft = model.draftSelection { model.selection = draft }
+                if dragsComparison == true {
+                    if let draft = model.draftComparison { model.comparison = draft }
+                } else if let draft = model.draftSelection {
+                    model.selection = draft
+                    model.clearComparison()
+                }
                 model.draftSelection = nil
+                model.draftComparison = nil
+                dragsComparison = nil
             })
             .onChange(of: dragging) { _, active in
-                if !active { model.draftSelection = nil }
+                guard !active else { return }
+                model.draftSelection = nil
+                model.draftComparison = nil
+                dragsComparison = nil
             }
     }
 }

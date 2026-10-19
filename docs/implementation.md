@@ -3,7 +3,7 @@
 Track actual delivery against the [product plan](plan.md). A stage is
 complete only after its relevant checks and review pass and its PR merges.
 
-## Current slice: HUD levels
+## Current slice: range comparison
 
 The native foundation merged in [PR #5](https://github.com/L-K-M/Coreography/pull/5)
 at `aee9494` after two GLM rounds and passing CI. Process monitoring merged
@@ -49,9 +49,21 @@ Alert actions follow in [PR #61](https://github.com/L-K-M/Coreography/pull/61).
 Network in the ledger follows in [PR #62](https://github.com/L-K-M/Coreography/pull/62).
 MCP access through the app follows in [PR #64](https://github.com/L-K-M/Coreography/pull/64).
 Time controls follow in [PR #65](https://github.com/L-K-M/Coreography/pull/65).
-This slice gives the HUD the plan's density control.
+HUD levels follow in [PR #66](https://github.com/L-K-M/Coreography/pull/66).
+This slice compares two ranges.
 
 Implemented:
+
+- Range comparison (plan P7): with a range selected, Command-drag
+  across any lane selects a second range, shaded orange on every lane.
+  The range panel compares CPU mean and memory peak and lists the apps
+  whose average cores changed most (at least a hundredth of a core),
+  as rates over each range's covered time, so ranges of different
+  lengths compare fairly; lower bounds are marked. A new plain drag
+  replaces the selection and drops the comparison. With a selection,
+  sorting the grouped table by CPU ranks apps by CPU-seconds inside it,
+  and the table says so; the flat table keeps live order, since the
+  ledger counts apps, not single processes.
 
 - HUD levels (plan P16): one value (frame rate when available, else
   CPU), one line (CPU, GPU, power, temperature), a block (adding the top
@@ -594,6 +606,7 @@ helper remain outstanding. The store, MCP and model features above await stack d
 | Native network MIB, wide-counter mapping and three-lane UI | Passed at `e62fac1`, including native C fixtures, live CLI and both executable architectures; integrated candidate pending |
 | Native IOKit storage counters and four-lane renderer | Passed [native CI](https://github.com/L-K-M/Coreography/actions/runs/39110306993) at `6434722`: 75 tests, 16 drivers, 32 measured rate fields, no inventory issues; owner checks pending |
 | On-disk history store and recorder | History slice: 148 Swift tests pass on Linux against the real system SQLite (round trip with gaps, duplicates, retention, reopen, permissions, WAL, batching); native CI checks the CLI and file permissions |
+| Range comparison | 269 Swift tests pass on Linux (rate-based changes across ranges of different lengths, the noise floor, no coverage, no shared readings); Command-drag and the bands compile only in native CI and are an owner check |
 | HUD levels | 267 Swift tests pass on Linux (items per level, no empty frame-rate slot, the cycle wrapping, saved and clamped settings); the panel compiles only in native CI; staying above full-screen games remains an owner check (S6) |
 | Time controls | 265 Swift tests pass on Linux (no sampling while paused even when started, pause markers, resume, return to now keeping the selection, marker names); the toolbar, menu and alert compile only in native CI |
 | MCP access through the app | 263 Swift tests pass on Linux with real Unix sockets (off by default, 0700 directory and 0600 socket, approval once per identity, refusal and denial, another user's peer refused first, revocation closing sessions, disabling removing the socket, the bridge client's refusals and a piped session, identity from signed, unsigned and app-less trees); native CI checks the bridge fails without the app; approving a real assistant is an owner check |
