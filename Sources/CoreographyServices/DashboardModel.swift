@@ -273,6 +273,7 @@ public final class DashboardModel {
     @ObservationIgnored private var sleepImport: Task<Void, Never>?
     @ObservationIgnored private var wakeImports = WakeImportSpacing()
     @ObservationIgnored private var alertEngine = AlertEngine(rules: AlertRules.shipped)
+    @ObservationIgnored private var customAlertStore = CustomAlertRules(defaults: .standard)
     @ObservationIgnored private var alertCooldown = AlertCooldown()
     /// Shortcut runs have their own cooldown, so a flapping rule cannot loop one.
     @ObservationIgnored private var shortcutCooldown = AlertCooldown()
@@ -369,6 +370,8 @@ public final class DashboardModel {
         applyRetention()
         savedFilters = filterStore.all
         alertShortcuts = shortcutStore.all
+        customAlertRules = customAlertStore.all
+        alertEngine = AlertEngine(rules: AlertRules.shipped + customAlertRules.map(\.alertRule))
     }
 
     init(
@@ -830,8 +833,46 @@ public final class DashboardModel {
         }
     }
 
-    /// The shipped rules, for Settings.
+    /// Every rule, shipped first, for Settings.
     public var alertRules: [AlertRule] { alertEngine.rules }
+
+    /// The person's own rules; saved, and in effect as soon as edited. An
+    /// edited rule starts cleared; the others keep their state.
+    public var customAlertRules: [CustomAlertRule] = [] {
+        didSet {
+            let cleaned = CustomAlertRules.cleaned(customAlertRules)
+            if cleaned != customAlertRules {
+                customAlertRules = cleaned
+                return
+            }
+            guard customAlertRules != oldValue else { return }
+            customAlertStore.save(customAlertRules)
+            applyCustomAlertRules(replacing: oldValue)
+        }
+    }
+
+    private func applyCustomAlertRules(replacing previous: [CustomAlertRule]) {
+        let unchanged = customAlertRules.filter { previous.contains($0) }.map(\.alertRule.id)
+        alertEngine = alertEngine.replacingRules(
+            AlertRules.shipped + customAlertRules.map(\.alertRule),
+            keeping: Set(AlertRules.shipped.map(\.id) + unchanged)
+        )
+        // A deleted rule's Shortcut goes with it.
+        let removed = Set(previous.map(\.alertRule.id)).subtracting(customAlertRules.map(\.alertRule.id))
+        for id in removed where alertShortcuts[id] != nil { setShortcut(nil, for: id) }
+        refreshActiveAlerts()
+    }
+
+    private func refreshActiveAlerts() {
+        let titles = AlertRules.activeTitles(alertEngine.rules, active: alertEngine.activeRuleIDs)
+        if titles != activeAlerts { activeAlerts = titles }
+    }
+
+    /// Tests keep their rules out of the person's preferences.
+    func useCustomAlertStore(_ defaults: UserDefaults) {
+        customAlertStore = CustomAlertRules(defaults: defaults)
+        customAlertRules = customAlertStore.all
+    }
     /// Each rule's Shortcut, by rule id; saved.
     public private(set) var alertShortcuts: [String: String] = [:]
     /// The person's Shortcuts, read on request; nil until read or when the tool failed.
@@ -902,27 +943,29 @@ public final class DashboardModel {
         let host = liveFrames.last
         let power = livePowerFrames.last
         refreshStartupCapacity(now: host?.stamp.wallTime ?? Date())
+        let now = host?.stamp.wallTime ?? Date()
+        // The person's rules read what history records, from a fresh source choice each time.
+        var sources = RecordedSources()
+        let samples = HistorySamples.latest(
+            host: host, network: liveNetworkFrames.last, disks: liveDiskFrames.last, gpu: liveGPUFrames.last,
+            power: power, sensors: liveSensorFrames.last, sources: &sources
+        )
         let inputs = AlertInputs(
             memoryPressure: host?.memory.pressureLevel,
             thermalPressure: host.flatMap { ThermalPressureLevel(reading: $0.thermalPressure) },
             batteryPercent: power?.batteryChargePercent.numericValue,
             onBattery: power?.powerSource.map { $0 == .battery },
-            startupFreeFraction: startupFreeFraction
+            startupFreeFraction: startupFreeFraction,
+            readings: AlertReadings.latest(samples, now: now)
         )
-        let now = host?.stamp.wallTime ?? Date()
         for event in alertEngine.evaluate(inputs, at: now) {
-            guard let rule = alertEngine.rules.first(where: { $0.id == event.ruleID }) else { continue }
-            switch event.kind {
-            case .raised:
-                activeAlerts[rule.lane] = rule.title
-                markers.append(TimelineMarker(time: event.time, label: rule.title, kind: .alert))
-                runShortcut(for: rule, at: event.time)
-                guard rule.notifies, let notifier, alertCooldown.admit(rule.id, at: event.time) else { continue }
-                Task { await notifier.deliver(ruleID: rule.id, title: rule.title, body: "Open Coreography to see what is using it.") }
-            case .cleared:
-                activeAlerts[rule.lane] = nil
-            }
+            guard event.kind == .raised, let rule = alertEngine.rules.first(where: { $0.id == event.ruleID }) else { continue }
+            markers.append(TimelineMarker(time: event.time, label: rule.title, kind: .alert))
+            runShortcut(for: rule, at: event.time)
+            guard rule.notifies, let notifier, alertCooldown.admit(rule.id, at: event.time) else { continue }
+            Task { await notifier.deliver(ruleID: rule.id, title: rule.title, body: "Open Coreography to see what is using it.") }
         }
+        refreshActiveAlerts()
     }
 
     /// Freeze the displayed data for one diagnostic question.

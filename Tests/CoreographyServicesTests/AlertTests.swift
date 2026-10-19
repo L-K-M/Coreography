@@ -94,6 +94,37 @@ final class DashboardAlertTests: XCTestCase {
         }
         XCTAssertEqual(posts, ["coreography.alert.memory-critical"])
     }
+
+    /// The fixture's CPU runs at 50 %; a rule above 40 % raises on the CPU lane.
+    func testACustomRuleTintsItsLaneAndGoesWhenDeleted() async throws {
+        let model = DashboardModel(monitor: try SystemMonitor(driver: HalfBusyDriver()), interval: .milliseconds(5))
+        let suite = "DashboardAlertTests.\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        model.useCustomAlertStore(defaults)
+        model.useShortcutStore(defaults)
+        var rule = CustomAlertRule.starter
+        rule.threshold = 40
+        rule.clearThreshold = 30
+        rule.raiseAfter = 0
+        model.customAlertRules = [rule]
+        model.setShortcut("Focus", for: rule.alertRule.id)
+        XCTAssertEqual(model.alertRules.last?.title, "CPU above 40 % for 0 s")
+        XCTAssertEqual(CustomAlertRules(defaults: defaults).all, [rule], "saved as edited")
+
+        model.start()
+        defer { model.stop() }
+        let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+        while model.activeAlerts[.cpu] == nil, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertEqual(model.activeAlerts[.cpu], "CPU above 40 % for 0 s")
+        XCTAssertTrue(model.markers.contains { $0.label == "CPU above 40 % for 0 s" })
+
+        model.customAlertRules = []
+        XCTAssertNil(model.activeAlerts[.cpu])
+        XCTAssertNil(model.alertShortcuts[rule.alertRule.id], "its Shortcut goes with it")
+    }
 }
 
 private actor RecordingPoster: NotificationPosting {
@@ -129,6 +160,28 @@ private actor CriticalPressureDriver: HostSampleReading {
             )),
             swap: .success(SwapUsage(totalBytes: 0, usedBytes: 0)),
             memoryPressure: .success(.critical), thermalPressure: .success(.nominal)
+        )
+    }
+}
+
+/// Half the CPU busy, one second per read on both clocks.
+private actor HalfBusyDriver: HostSampleReading {
+    private let clock = UUID()
+    private var step: UInt64 = 0
+
+    func read() async -> RawHostSnapshot {
+        step += 1
+        return RawHostSnapshot(
+            clockID: clock, monotonicNanoseconds: step * 1_000_000_000,
+            wallTime: Date(timeIntervalSince1970: 1_700_000_000 + Double(step)),
+            inventory: HostInventory(operatingSystem: "Fixture", architecture: "fixture", logicalCPUCount: 1, physicalMemoryBytes: 1 << 20),
+            cpu: .success(ProcessorTicks(user: step, system: 0, idle: step, nice: 0)),
+            memory: .success(MemoryPages(
+                active: 10, inactive: 0, speculative: 0, wired: 1, compressed: 0, compressorContents: 0,
+                purgeable: 0, fileBacked: 0, pageIns: 0, swapIns: 0, swapOuts: 0, pageSizeBytes: 4096
+            )),
+            swap: .success(SwapUsage(totalBytes: 0, usedBytes: 0)),
+            memoryPressure: .success(.normal), thermalPressure: .success(.nominal)
         )
     }
 }

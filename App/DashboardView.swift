@@ -279,12 +279,12 @@ struct DashboardView: View {
 
     @ViewBuilder private func laneView(_ kind: LaneKind) -> some View {
         switch kind {
-        case .cpu: lane(.cpu)
+        case .cpu: lane(.cpu).alertTint(model.activeAlerts[.cpu])
         case .memory: MemoryLane(model: model)
-        case .gpu: GPULane(model: model)
+        case .gpu: GPULane(model: model).alertTint(model.activeAlerts[.gpu])
         case .power: PowerLane(model: model)
         case .disk: DiskLane(model: model)
-        case .network: NetworkLane(model: model)
+        case .network: NetworkLane(model: model).alertTint(model.activeAlerts[.network])
         case .thermal: ThermalLane(model: model)
         }
     }

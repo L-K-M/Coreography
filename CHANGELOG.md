@@ -31,6 +31,9 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
   after the store first exceeds it.
 
 ### Added
+- Your own alert rules in Settings: a reading above or below a threshold
+  for a while raises it, a second threshold clears it, and it can notify
+  and run a Shortcut like the shipped rules.
 - The CPU lane shows each core tier's activity as a strip under the
   graph.
 - Sampling slows to half rate while Low Power Mode is on, and the window

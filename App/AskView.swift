@@ -123,6 +123,15 @@ struct SettingsView: View {
                      : "A rule runs its Shortcut when it is raised, at most once every 15 minutes.")
                     .font(.caption).foregroundStyle(.secondary)
             }
+            Section("Your alert rules") {
+                ForEach($model.customAlertRules) { $rule in
+                    CustomAlertEditor(rule: $rule) { model.customAlertRules.removeAll { $0.id == rule.id } }
+                }
+                Button("Add rule") { model.customAlertRules.append(.starter) }
+                    .disabled(model.customAlertRules.count >= CustomAlertRule.maximumCount)
+                Text("A rule tints its lane and marks the timeline once the reading stays past its threshold, and clears once it stays back past the clear value. It reads what history records: the primary interface, and the storage device and GPU when there is only one.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             Section("Processes") {
                 Picker("CPU per process", selection: $model.processCPUScale) {
                     Text("Share of the whole machine").tag(ProcessCPUScale.machine)
@@ -217,6 +226,45 @@ struct SettingsView: View {
             await model.refreshShortcuts()
             await model.refreshProviderKey()
             await model.refreshHistorySize()
+        }
+    }
+}
+
+/// One of the person's rules: what it watches, when it raises and clears, and whether it notifies.
+private struct CustomAlertEditor: View {
+    @Binding var rule: CustomAlertRule
+    let delete: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Picker("Watch", selection: $rule.metric) {
+                    ForEach(AlertMetric.allCases) { metric in Text(verbatim: metric.name).tag(metric) }
+                }
+                Picker("Direction", selection: $rule.direction) {
+                    Text("above").tag(CustomAlertRule.Direction.above)
+                    Text("below").tag(CustomAlertRule.Direction.below)
+                }
+                .labelsHidden()
+                .frame(width: 90)
+            }
+            HStack {
+                TextField("Raise past", value: $rule.threshold, format: .number)
+                Text(verbatim: rule.metric.unit)
+                TextField("for", value: $rule.raiseAfter, format: .number)
+                Text("s")
+            }
+            HStack {
+                TextField("Clear past", value: $rule.clearThreshold, format: .number)
+                Text(verbatim: rule.metric.unit)
+                TextField("for", value: $rule.clearAfter, format: .number)
+                Text("s")
+            }
+            HStack {
+                Toggle("Notify", isOn: $rule.notifies)
+                Spacer()
+                Button("Delete", role: .destructive, action: delete)
+            }
         }
     }
 }
