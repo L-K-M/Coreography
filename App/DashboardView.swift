@@ -864,7 +864,7 @@ private enum PowerText {
         case .preventsSystemSleep: String(localized: "Prevents system sleep") + ": " + detail(assertion)
         case .preventsDisplaySleep: String(localized: "Keeps the display on") + ": " + detail(assertion)
         // The detail already falls back to the type; naming it twice says nothing.
-        case .other: assertion.name.map { assertion.type + ": " + detail(assertion) } ?? detail(assertion)
+        case .other: assertion.name == nil ? detail(assertion) : assertion.type + ": " + detail(assertion)
         }
     }
 
