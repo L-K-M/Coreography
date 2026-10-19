@@ -31,6 +31,15 @@ final class TimeControlsTests: XCTestCase {
     }
 
     @MainActor
+    func testClearingTheSelectionFromThePaletteDropsTheComparison() async throws {
+        let model = DashboardModel(monitor: try SystemMonitor(driver: Counting()), interval: .milliseconds(10))
+        model.selection = Date(timeIntervalSince1970: 0)...Date(timeIntervalSince1970: 10)
+        model.comparison = Date(timeIntervalSince1970: 20)...Date(timeIntervalSince1970: 30)
+        await model.run(.clearSelection)
+        XCTAssertNil(model.comparison, "a later selection must not revive it")
+    }
+
+    @MainActor
     func testReturnToNowLeavesHoldAndCursorAndMarkersAreNamed() async throws {
         let model = DashboardModel(monitor: try SystemMonitor(driver: Counting()), interval: .milliseconds(10))
         model.toggleDisplayHold()

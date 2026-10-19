@@ -2562,6 +2562,7 @@ private enum RangeText {
 
     /// "Safari 0.20 → 1.05 cores · Xcode 0.9 → 0.1 cores".
     static func changes(_ comparison: RangeComparison) -> String {
+        guard comparison.coversBoth else { return String(localized: "No process samples fall in one of the ranges, so apps cannot be compared.") }
         guard !comparison.changes.isEmpty else { return String(localized: "No app changed by a hundredth of a core or more.") }
         let cores = FloatingPointFormatStyle<Double>.number.precision(.fractionLength(2))
         let items = comparison.changes.map { change in

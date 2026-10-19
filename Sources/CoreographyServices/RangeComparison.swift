@@ -28,6 +28,9 @@ public struct RangeComparison: Sendable {
     /// Largest CPU changes first, at most `changeLimit`; empty when a range has no coverage.
     public let changes: [AppChange]
 
+    /// Both ranges hold process samples, so an empty `changes` means stable apps.
+    public var coversBoth: Bool { first.covered != nil && second.covered != nil }
+
     public var cpuMeanChange: Double? {
         guard let first = first.cpuMeanPercent, let second = second.cpuMeanPercent else { return nil }
         return second - first

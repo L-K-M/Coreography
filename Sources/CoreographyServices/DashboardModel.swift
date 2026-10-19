@@ -186,7 +186,14 @@ public final class DashboardModel {
         }
     }
     /// A dragged time range; cleared only explicitly (plan: Esc or clear).
-    public var selection: ClosedRange<Date>?
+    /// A comparison needs it, so clearing it in any way drops the comparison.
+    public var selection: ClosedRange<Date>? {
+        didSet {
+            guard selection == nil else { return }
+            comparison = nil
+            draftComparison = nil
+        }
+    }
     /// The range while a drag is in progress; reports wait for the drag to end.
     public var draftSelection: ClosedRange<Date>?
     public private(set) var markers: [TimelineMarker] = []
@@ -1377,7 +1384,7 @@ public final class DashboardModel {
         case .clearFilter: processFilter = ""
         case .saveFilter: saveProcessFilter()
         case .clearScope: scopedApp = nil
-        case .clearSelection: selection = nil
+        case .clearSelection: clearSelection()
         case .resetSensorStats: resetSensorStats()
         case .refreshStartup: refreshStartupItems()
         case .sampleSelected:
