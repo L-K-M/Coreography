@@ -230,6 +230,23 @@ final class ProcessGroupsTests: XCTestCase {
         XCTAssertEqual(mine.children?.map(\.appName), ["Safari", "Safari"])
         XCTAssertEqual(rows.last?.children?.count, 1, "one process is still its user's group")
 
+        // With account names, groups read as people do; a UID without one keeps its number.
+        let named = ProcessGroups.rows(
+            in: processes, matching: "", sortedBy: .cpu, grouping: .user,
+            facts: ProcessFacts(accountNames: [0: "root", 501: "alice"]), currentUser: 501
+        )
+        XCTAssertEqual(named.map(\.name), ["You, alice", "root", "UID 502"])
+        let byName = ProcessGroups.rows(
+            in: processes, matching: "alice", sortedBy: .cpu, grouping: .user,
+            facts: ProcessFacts(accountNames: [501: "alice"]), currentUser: 501
+        )
+        XCTAssertEqual(byName.map(\.name), ["You, alice"], "free text finds a group by its account name")
+        let byNumber = ProcessGroups.rows(
+            in: processes, matching: "501", sortedBy: .cpu, grouping: .user,
+            facts: ProcessFacts(accountNames: [501: "alice"]), currentUser: 501
+        )
+        XCTAssertEqual(byNumber.map(\.name), ["You, alice"], "and still by its UID")
+
         let filtered = ProcessGroups.rows(in: processes, matching: "root", sortedBy: .cpu, grouping: .user, currentUser: 501)
         XCTAssertEqual(filtered.map(\.name), ["root"])
         XCTAssertEqual(filtered.first?.children?.map(\.name), ["configd"])
