@@ -8,7 +8,6 @@ import CoreographyServices
 /// is chosen; the app icon needs no drawing.
 @MainActor
 final class DockTileController {
-    private static let size = NSSize(width: 128, height: 128)
     private let model: DashboardModel
 
     init(model: DashboardModel) {
@@ -27,7 +26,8 @@ final class DockTileController {
                     hosting.rootView = view
                 } else {
                     let hosting = NSHostingView(rootView: view)
-                    hosting.frame = NSRect(origin: .zero, size: Self.size)
+                    // The Dock reports the tile's own size; the graph fills it.
+                    hosting.frame = NSRect(origin: .zero, size: tile.size)
                     tile.contentView = hosting
                 }
             } else {
@@ -66,13 +66,16 @@ struct DockGraph: View {
                 }
             }
             .padding(EdgeInsets(top: 48, leading: 12, bottom: 12, trailing: 12))
+            // "128.0 GB" is wider than the tile at full size; it shrinks rather than wraps into the graph.
             Text(value)
                 .font(.system(size: 30, weight: .semibold))
                 .monospacedDigit()
+                .lineLimit(1)
+                .minimumScaleFactor(0.5)
                 .foregroundStyle(.white)
                 .padding(12)
         }
-        .frame(width: 128, height: 128)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var value: String {

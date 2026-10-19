@@ -177,7 +177,7 @@ struct SettingsView: View {
                     Text("CPU graph").tag(DockIconStyle.cpu)
                     Text("Memory graph").tag(DockIconStyle.memory)
                 }
-                Text("A graph redraws the Dock icon once a second.").font(.caption).foregroundStyle(.secondary)
+                Text("A graph redraws the Dock icon with every sample.").font(.caption).foregroundStyle(.secondary)
             }
             Section("Data sources") {
                 ForEach(model.dataSources, id: \.metric) { source in
