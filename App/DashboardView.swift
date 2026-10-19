@@ -860,13 +860,12 @@ private enum PowerText {
 
     /// "Prevents system sleep: Playing audio, 12 min".
     static func assertion(_ assertion: CapturedAssertion) -> String {
-        let effect: String
         switch assertion.effect {
-        case .preventsSystemSleep: effect = String(localized: "Prevents system sleep")
-        case .preventsDisplaySleep: effect = String(localized: "Keeps the display on")
-        case .other: effect = assertion.type
+        case .preventsSystemSleep: String(localized: "Prevents system sleep") + ": " + detail(assertion)
+        case .preventsDisplaySleep: String(localized: "Keeps the display on") + ": " + detail(assertion)
+        // The detail already falls back to the type; naming it twice says nothing.
+        case .other: assertion.name.map { assertion.type + ": " + detail(assertion) } ?? detail(assertion)
         }
-        return effect + ": " + detail(assertion)
     }
 
     private static func detail(_ assertion: CapturedAssertion) -> String {
@@ -1841,8 +1840,10 @@ private struct InspectorView: View {
         }
 
         if !model.selectedAssertions.isEmpty {
-            InspectorSection("Sleep assertions") {
-                ForEach(model.selectedAssertions) { assertion in
+            // Assertions are only ever read now, so a held display says so.
+            InspectorSection(model.displayMode == .live ? "Sleep assertions" : "Sleep assertions now") {
+                // One process can hold two alike assertions; position keeps the rows apart.
+                ForEach(Array(model.selectedAssertions.enumerated()), id: \.offset) { _, assertion in
                     Text(PowerText.assertion(assertion))
                 }
             }
