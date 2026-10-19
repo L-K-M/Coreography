@@ -97,14 +97,15 @@ public actor MCPServer {
     private func call(_ params: [String: Any], id: Any) async -> String {
         guard let name = params["name"] as? String else { return encode(error: .invalidParams("Missing tool name"), id: id) }
         let arguments = params["arguments"] as? [String: Any] ?? [:]
+        // The session's own limit first, so a session over it cannot spend the budget others share.
+        guard admit() else {
+            return encode(result: toolError("Rate limit: at most \(Self.callsPerSecond) tool calls per second"), id: id)
+        }
         switch await authorize(.call) {
         case .allowed: break
         case .revoked: return encode(error: .accessRevoked, id: id)
         case .throttled(let limit):
             return encode(result: toolError("Rate limit: Coreography serves at most \(limit) tool calls per second across its clients"), id: id)
-        }
-        guard admit() else {
-            return encode(result: toolError("Rate limit: at most \(Self.callsPerSecond) tool calls per second"), id: id)
         }
         do {
             let snapshot = try await resolveSnapshot(arguments)
