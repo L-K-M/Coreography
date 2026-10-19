@@ -201,7 +201,11 @@ private struct Coreo {
         switch outcome {
         case .finished:
             return
-        case .unavailable(let reason), .refused(let reason):
+        case .unavailable(let reason):
+            // Earlier versions sampled in-process; say how to get that back.
+            FileHandle.standardError.write(Data("coreo: \(reason); coreo mcp --stdio --standalone samples without the app\n".utf8))
+            exit(EXIT_FAILURE)
+        case .refused(let reason):
             FileHandle.standardError.write(Data("coreo: \(reason)\n".utf8))
             exit(EXIT_FAILURE)
         }

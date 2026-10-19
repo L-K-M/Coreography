@@ -49,7 +49,7 @@ struct MCPApprovalAlert: ViewModifier {
             Button("Allow") { access.answer(request.id, allow: true) }
             Button("Don't Allow", role: .cancel) { access.answer(request.id, allow: false) }
         } message: { request in
-            Text("\(request.identity.detail)\n\nIt can read resource use, app and process names and history through MCP. It cannot see paths or arguments, quit processes or change settings. Revoke it in Settings > MCP access.")
+            Text("\(request.identity.detail)\n\nIt can read resource use, app and process names and history through MCP. It cannot see paths or arguments, quit processes or change settings. Every program started from \(request.identity.displayName), such as a terminal's commands, shares this approval. Revoke it in Settings > MCP access.")
         }
     }
 }

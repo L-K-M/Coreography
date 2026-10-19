@@ -186,13 +186,19 @@ test_platform(void)
                                 COREO_SIGNAL_CONTINUE) == 0);
     assert(waitpid(child, &stop_status, WCONTINUED) == child && WIFCONTINUED(stop_status));
 
-    /* Renice lowers priority; raising it back needs root. */
+    /* Renice only lowers priority: a process already at or below the target
+       keeps its own nice value, and a raise is never attempted. */
     assert(coreo_process_renice((int32_t)child, target.start_seconds + 1, target.start_microseconds, 10) == EAGAIN);
     assert(coreo_process_renice((int32_t)child, target.start_seconds, target.start_microseconds, 10) == 0);
     errno = 0;
     assert(getpriority(PRIO_PROCESS, (id_t)child) == 10 && errno == 0);
-    assert(coreo_process_renice((int32_t)child, target.start_seconds, target.start_microseconds, 0)
-           == (getuid() == 0 ? 0 : EACCES));
+    assert(coreo_process_renice((int32_t)child, target.start_seconds, target.start_microseconds, 0) == 0);
+    errno = 0;
+    assert(getpriority(PRIO_PROCESS, (id_t)child) == 10 && errno == 0);
+    assert(setpriority(PRIO_PROCESS, (id_t)child, 15) == 0);
+    assert(coreo_process_renice((int32_t)child, target.start_seconds, target.start_microseconds, 10) == 0);
+    errno = 0;
+    assert(getpriority(PRIO_PROCESS, (id_t)child) == 15 && errno == 0);
 
     assert(coreo_process_signal((int32_t)child, target.start_seconds, target.start_microseconds,
                                 COREO_SIGNAL_TERMINATE) == 0);
@@ -257,7 +263,8 @@ test_sockets(void)
     assert(coreo_process_sockets(getpid(), self.start_seconds, self.start_microseconds,
                                  sockets, 64, &count, &truncated) == 0);
     for (int32_t i = 0; i < count; i++) {
-        if (sockets[i].kind == COREO_SOCKET_TCP && sockets[i].local_port == tcp_port) {
+        /* 127.0.0.1 and ::1 can be given the same ephemeral port; the family tells them apart. */
+        if (sockets[i].kind == COREO_SOCKET_TCP && sockets[i].ip_version == 4 && sockets[i].local_port == tcp_port) {
             assert(sockets[i].tcp_state == COREO_TCP_STATE_LISTEN);
             assert(sockets[i].ip_version == 4);
             assert(sockets[i].local_address[0] == 127 && sockets[i].remote_port == 0);
@@ -267,7 +274,7 @@ test_sockets(void)
             assert(sockets[i].tcp_state == COREO_TCP_STATE_NONE);
             found_udp = 1;
         }
-        if (sockets[i].kind == COREO_SOCKET_TCP && sockets[i].local_port == tcp6_port) {
+        if (sockets[i].kind == COREO_SOCKET_TCP && sockets[i].ip_version == 6 && sockets[i].local_port == tcp6_port) {
             assert(sockets[i].tcp_state == COREO_TCP_STATE_LISTEN);
             assert(sockets[i].ip_version == 6);
             assert(memcmp(sockets[i].local_address, &in6addr_loopback, 16) == 0);
@@ -278,7 +285,7 @@ test_sockets(void)
 
     assert(coreo_process_sockets(getpid(), self.start_seconds + 1, self.start_microseconds,
                                  sockets, 64, &count, &truncated) == EAGAIN);
-    assert(count == 0);
+    assert(count == 0 && truncated == 0);
     assert(coreo_process_sockets(getpid(), self.start_seconds, self.start_microseconds,
                                  sockets, 1, &count, &truncated) == 0);
     assert(count == 1 && truncated == 1);

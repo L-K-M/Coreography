@@ -332,8 +332,8 @@ public enum DiagnosticTools {
             switch metric {
             case .cpu: AppActivity(app: app.name, value: app.cpuSeconds, unit: unit, isLowerBound: app.isLowerBound)
             case .disk: AppActivity(app: app.name, value: app.diskBytes, unit: unit, isLowerBound: app.isLowerBound)
-            // NetworkStatistics sees every user's sockets, so readable membership does not bound it.
-            case .network: AppActivity(app: app.name, value: app.networkBytes ?? 0, unit: unit, isLowerBound: false)
+            // NetworkStatistics sees every user's sockets, so only unread intervals bound it.
+            case .network: AppActivity(app: app.name, value: app.networkBytes ?? 0, unit: unit, isLowerBound: app.networkIsLowerBound)
             }
         }
         let ranked = activity.filter { $0.value > 0 }.sorted { lhs, rhs in
@@ -347,7 +347,7 @@ public enum DiagnosticTools {
             nextCursor: next < ranked.count ? makeCursor(snapshot: snapshot, metric: metric, range: window, offset: next) : nil,
             coveredStart: covered?.lowerBound, coveredEnd: covered?.upperBound,
             coverageNote: metric == .network
-                ? "TCP and UDP bytes in and out per app, every user's processes; a process's first interval with traffic is not counted."
+                ? "TCP and UDP bytes in and out per app, every user's processes; a process's first interval with traffic is not counted, and intervals that did not read network make totals lower bounds."
                 : "Own-user processes grouped by app; other users' processes are not readable without the helper."
         )
     }

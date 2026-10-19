@@ -11,7 +11,16 @@ struct SavedFilters {
 
     init(defaults: UserDefaults) { self.defaults = defaults }
 
-    var all: [String] { defaults.stringArray(forKey: Self.defaultsKey) ?? [] }
+    /// Chips are keyed by their text, so whatever was stored, each appears once and none is blank.
+    var all: [String] {
+        var seen: Set<String> = []
+        return (defaults.stringArray(forKey: Self.defaultsKey) ?? []).filter {
+            !Self.isBlank($0) && seen.insert($0).inserted
+        }
+    }
+
+    /// The same test the Save button uses.
+    static func isBlank(_ filter: String) -> Bool { filter.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
 
     /// Blank filters are not saved; saving one again moves it to the front.
     @discardableResult
@@ -25,7 +34,9 @@ struct SavedFilters {
 
     @discardableResult
     func remove(_ filter: String) -> [String] {
-        let updated = all.filter { $0 != filter }
+        let current = all
+        guard current.contains(filter) else { return current }
+        let updated = current.filter { $0 != filter }
         defaults.set(updated, forKey: Self.defaultsKey)
         return updated
     }

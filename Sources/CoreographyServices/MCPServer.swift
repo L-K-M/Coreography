@@ -1,5 +1,18 @@
 import Foundation
 
+/// When a session's grant is checked: before a call runs, which spends the
+/// shared budget, or before its result goes out, which only rechecks the grant.
+public enum MCPCheck: Sendable { case call, delivery }
+
+/// Whether a session may go on.
+public enum MCPAuthorization: Sendable {
+    case allowed
+    /// Access is off, the grant was revoked or the session closed.
+    case revoked
+    /// The budget shared by every client is spent for this second.
+    case throttled(callsPerSecond: Int)
+}
+
 /// A read-only Model Context Protocol server over the diagnostic contract.
 ///
 /// ```text
@@ -18,23 +31,25 @@ public actor MCPServer {
     private static let serverName = "coreography"
 
     private let snapshot: @Sendable () async -> DiagnosticSnapshot
-    /// Checked when a call is dispatched and again before its result is
-    /// delivered, so a grant revoked mid-query returns nothing.
-    private let authorize: @Sendable () async -> Bool
+    /// Checked when a call is dispatched, which spends the shared budget,
+    /// and again before its result is delivered, so a grant revoked
+    /// mid-query returns nothing.
+    private let authorize: @Sendable (MCPCheck) async -> MCPAuthorization
     private let version: String
     private var snapshots: [DiagnosticSnapshot] = []
     private var recentCalls: [Date] = []
     private let now: @Sendable () -> Date
 
     public init(
-        version: String, authorize: @escaping @Sendable () async -> Bool = { true },
+        version: String, authorize: @escaping @Sendable (MCPCheck) async -> MCPAuthorization = { _ in .allowed },
         snapshot: @escaping @Sendable () async -> DiagnosticSnapshot
     ) {
         self.init(version: version, now: { Date() }, authorize: authorize, snapshot: snapshot)
     }
 
     init(
-        version: String, now: @escaping @Sendable () -> Date, authorize: @escaping @Sendable () async -> Bool = { true },
+        version: String, now: @escaping @Sendable () -> Date,
+        authorize: @escaping @Sendable (MCPCheck) async -> MCPAuthorization = { _ in .allowed },
         snapshot: @escaping @Sendable () async -> DiagnosticSnapshot
     ) {
         self.version = version
@@ -82,14 +97,20 @@ public actor MCPServer {
     private func call(_ params: [String: Any], id: Any) async -> String {
         guard let name = params["name"] as? String else { return encode(error: .invalidParams("Missing tool name"), id: id) }
         let arguments = params["arguments"] as? [String: Any] ?? [:]
-        guard await authorize() else { return encode(error: .accessRevoked, id: id) }
+        // The session's own limit first, so a session over it cannot spend the budget others share.
         guard admit() else {
             return encode(result: toolError("Rate limit: at most \(Self.callsPerSecond) tool calls per second"), id: id)
+        }
+        switch await authorize(.call) {
+        case .allowed: break
+        case .revoked: return encode(error: .accessRevoked, id: id)
+        case .throttled(let limit):
+            return encode(result: toolError("Rate limit: Coreography serves at most \(limit) tool calls per second across its clients"), id: id)
         }
         do {
             let snapshot = try await resolveSnapshot(arguments)
             let body = try DiagnosticToolCatalog.run(name, arguments: arguments, snapshot: snapshot)
-            guard await authorize() else { return encode(error: .accessRevoked, id: id) }
+            if case .revoked = await authorize(.delivery) { return encode(error: .accessRevoked, id: id) }
             return encode(result: [
                 "content": [["type": "text", "text": body]],
                 "isError": false,

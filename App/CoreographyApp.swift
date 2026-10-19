@@ -12,7 +12,6 @@ private struct CoreographyApp: App {
     private let dockTile: DockTileController
     private let mcpAccess: MCPAccess
     private let mcpApproval: MCPApprovalPresenter
-    @State private var openingRecording = false
 
     /// One sampler for every surface, running from launch, so the menu bar
     /// extra stays live while the window is closed.
@@ -37,19 +36,23 @@ private struct CoreographyApp: App {
         Window("Coreography", id: "dashboard") {
             DashboardView(model: dashboard, hud: hud)
                 .modifier(MCPApprovalAlert(access: mcpAccess))
-                .fileImporter(isPresented: $openingRecording, allowedContentTypes: [.coreographyRecording]) { result in
-                    // The app is not sandboxed, so a picked file is readable as is.
-                    if case .success(let url) = result { automation.openRecording(url) }
-                }
         }
         .defaultSize(width: 1120, height: 900)
         .commands {
             CommandGroup(after: .toolbar) {
                 Button(hud.isShown ? "Hide HUD" : "Show HUD") { hud.toggle() }
-                    .keyboardShortcut("h", modifiers: [.command, .option])
+                    .keyboardShortcut("h", modifiers: [.command, .control])
                 Button("Change HUD Detail") { hud.cycleDensity() }
-                    .keyboardShortcut("j", modifiers: [.command, .option])
-                Button("Open Recording…") { openingRecording = true }
+                    .keyboardShortcut("j", modifiers: [.command, .control])
+                // A panel of its own, so it works while the window is closed too.
+                Button("Open Recording…") {
+                    let panel = NSOpenPanel()
+                    panel.allowedContentTypes = [.coreographyRecording]
+                    panel.allowsMultipleSelection = false
+                    // The app is not sandboxed, so a picked file is readable as is.
+                    guard panel.runModal() == .OK, let url = panel.url else { return }
+                    automation.openRecording(url)
+                }
                     .keyboardShortcut("o", modifiers: .command)
                 Button("Return to Now") {
                     automation.showDashboard()

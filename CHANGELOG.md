@@ -7,6 +7,13 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
 ## [Unreleased]
 
 ### Fixed
+- Lower Priority leaves a process that already runs at a lower priority
+  alone instead of failing, and Hang Up and Interrupt on the window
+  server or login window warn that they log you out.
+- The Sensors tab no longer shows the last good readings as current
+  after a sample in which no sensor could be read.
+- Startup items take launchd's enable state from their own domain, so an
+  agent and a daemon with the same label no longer share it.
 - Quitting writes the history recorded since the last write instead of
   dropping up to 30 seconds of it.
 - History retention deletes seek each table's key instead of scanning
@@ -51,7 +58,7 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
 - Command-drag a second range to compare it with the selection: CPU
   and memory, and the apps that changed most. With a selection, sorting
   by CPU ranks apps by their use inside it.
-- The HUD has four levels of detail (Option-Command-J cycles them),
+- The HUD has four levels of detail (Control-Command-J cycles them),
   corner presets, dragging with a remembered position per display,
   opacity, text size, an optional dark backing and click-through.
 - Pause Recording (toolbar, menu bar extra, palette) stops sampling and
@@ -63,6 +70,8 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
   now bridges to the app; `--standalone` keeps in-process sampling.
 - Network bytes per app in the ledger, stored history, range reports
   ("Top network"), daily totals, `get_top_processes` and `coreo diagnose`.
+  A range that read network in only some intervals marks its totals as
+  lower bounds.
 - An alert for a startup disk under 10% free, and Settings > Alerts to
   run one of your Shortcuts when a rule is raised.
 - The Dock icon can show a live CPU or memory graph (Settings > Dock).
@@ -75,9 +84,10 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
 - Bottleneck hints in the CPU lane and HUD: "Looks GPU-bound", "Looks
   CPU-bound" and "Possibly throttling", each with the readings that
   tripped it.
-- Apple Silicon CPU, GPU, ANE and DRAM power from IOReport's energy
-  model, and each CPU tier's activity and frequency, in the CPU and
-  Power lanes, the HUD, diagnostics and `coreo silicon`. All are
+- Apple Silicon CPU, GPU and ANE power from IOReport's energy model,
+  and each CPU tier's activity and frequency, in the CPU and Power
+  lanes, the HUD, diagnostics and `coreo silicon` (which also reports
+  DRAM power). All are
   estimates; a virtual machine or a stalled counter says so.
 - Command-Shift-P opens a command palette listing every window action
   by name, with the reason any of them cannot run now.
@@ -93,7 +103,7 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
   names stay out of diagnostic results.
 - Sample a process's call stacks for 3 seconds and read or save the report.
 - A HUD with CPU, GPU, temperature and power over full-screen apps
-  (Option-Command-H or the menu bar extra).
+  (Control-Command-H or the menu bar extra).
 - Command-R records a session; its report shows minimum, mean, 95th
   percentile and maximum per metric and the top apps. Two sessions
   compare overlaid; sessions export as JSON or CSV and can be renamed.
@@ -113,7 +123,8 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
 - Lanes mark sleep and wake, power source changes and pressure
   transitions; range reports list the markers inside them.
 - Range exports redact app names by default; names can be included.
-- `port:443` in the process filter finds which process holds a port.
+- `port:443` in the process filter finds processes with a socket on that
+  local or remote port.
 - An inspector for the selected process: identity, parent chain,
   signature, launchd job, arguments, sockets, a plain-language note for
   known system processes and Quit; with nothing selected, this Mac.

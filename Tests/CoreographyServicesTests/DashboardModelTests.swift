@@ -57,6 +57,22 @@ final class DashboardModelTests: XCTestCase {
         XCTAssertTrue(spans.contains { $0.level == .warning })
     }
 
+    /// The busiest GPU names the value, so its graph must be that GPU's too.
+    func testTheMenuBarGPUValueAndGraphDescribeOneDevice() async throws {
+        let model = DashboardModel(
+            monitor: try SystemMonitor(driver: IncreasingHostDriver()), interval: .milliseconds(10),
+            gpuMonitor: try GPUMonitor(driver: CyclingGPUDriver())
+        )
+        model.start()
+        defer { model.stop() }
+        try await eventually { model.gpuFrames.count >= 4 && model.displayedGPUFrame?.devices.count == 2 }
+        model.toggleDisplayHold()
+
+        let value = try XCTUnwrap(model.menuBarValue(.gpu)?.numericValue)
+        let graphed = Set(model.menuBarPoints(.gpu).map(\.value))
+        XCTAssertEqual(graphed, [value], "each fixture GPU holds one utilization")
+    }
+
     func testGPUSeriesSplitWhereADeviceIsMissingAndThermalSpansFollowSamples() async throws {
         let gpu = try GPUMonitor(driver: CyclingGPUDriver())
         let model = DashboardModel(
@@ -141,6 +157,33 @@ final class DashboardModelTests: XCTestCase {
 
         model.timeRange = .hour
         XCTAssertTrue(model.points(for: .cpu).allSatisfy { $0.time >= now }, "leaving the range drops the stored part")
+    }
+
+    /// A longer range reads further back at once, not after the last range's reload interval.
+    func testSwitchingToALongerRangeLoadsItsHistoryAtOnce() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("coreo-ranges-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = try HistoryStore(directory: directory)
+        let now = Date()
+        let threeDaysAgo = now.addingTimeInterval(-3 * 86_400)
+        try await store.append((0..<120).map {
+            HistorySample(metric: .cpu, time: threeDaysAgo.addingTimeInterval(Double($0)), value: 40, availability: .measured)
+        }, now: threeDaysAgo.addingTimeInterval(120))
+        let threeHoursAgo = now.addingTimeInterval(-3 * 3600)
+        try await store.append((0..<120).map {
+            HistorySample(metric: .cpu, time: threeHoursAgo.addingTimeInterval(Double($0)), value: 40, availability: .measured)
+        }, now: now)
+        let model = DashboardModel(
+            monitor: try SystemMonitor(driver: IncreasingHostDriver(origin: now)), interval: .milliseconds(10),
+            historyRecorder: HistoryRecorder(store: store)
+        )
+        model.start()
+        defer { model.stop() }
+        try await eventually { model.frames.count >= 2 }
+        model.timeRange = .sixHours
+        try await eventually { model.points(for: .cpu).contains { $0.time < now.addingTimeInterval(-3600) } }
+        model.timeRange = .week
+        try await eventually { model.points(for: .cpu).contains { $0.time < now.addingTimeInterval(-86_400) } }
     }
 
     func testQuittingWritesTheBufferedHistory() async throws {
@@ -332,6 +375,16 @@ final class DashboardModelTests: XCTestCase {
         let over = SelfCost(cpuPercentOfOneCore: try .measured(0.5), footprintBytes: try .measured(1), wakeupsPerSecond: try .measured(6.5))
         XCTAssertFalse(within.wakeupsOverBudget)
         XCTAssertTrue(over.wakeupsOverBudget)
+
+        // In Low Power Mode the window samples every 2 s, so only half a wakeup is the sampling.
+        let slow = SelfCost(
+            cpuPercentOfOneCore: try .measured(0.5), footprintBytes: try .measured(1), wakeupsPerSecond: try .measured(5.8),
+            samplingSeconds: 2
+        )
+        XCTAssertTrue(slow.wakeupsOverBudget)
+        XCTAssertFalse(SelfCost(
+            cpuPercentOfOneCore: try .measured(0.5), footprintBytes: try .measured(1), wakeupsPerSecond: try .measured(5.8)
+        ).wakeupsOverBudget)
     }
 
     func testClearingASelectionAlsoClearsAnUnfinishedDrag() async throws {

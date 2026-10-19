@@ -39,6 +39,32 @@ public enum MenuBarLayout {
         return kept.isEmpty ? defaultItems : kept
     }
 
+    /// Items after choosing `metric` (nil: none) for `slot`. A reading
+    /// another slot shows swaps places with this one, each keeping its style;
+    /// a new reading takes the slot's style; an empty slot appends.
+    public static func choosing(_ metric: MenuBarMetric?, at slot: Int, in items: [MenuBarItem]) -> [MenuBarItem] {
+        var items = items
+        guard let metric else {
+            if items.indices.contains(slot) { items.remove(at: slot) }
+            return normalized(items)
+        }
+        if let current = items.firstIndex(where: { $0.metric == metric }) {
+            guard current != slot else { return items }
+            if items.indices.contains(slot) {
+                items.swapAt(current, slot)
+            } else {
+                items.append(items.remove(at: current))
+            }
+            return normalized(items)
+        }
+        if items.indices.contains(slot) {
+            items[slot].metric = metric
+        } else {
+            items.append(MenuBarItem(metric: metric, style: .value))
+        }
+        return normalized(items)
+    }
+
     static func saved(in defaults: UserDefaults = .standard) -> [MenuBarItem] {
         guard let data = defaults.data(forKey: defaultsKey),
               let items = try? JSONDecoder().decode([MenuBarItem].self, from: data) else { return defaultItems }

@@ -70,13 +70,19 @@ public actor ProcessInspector {
             signing = ProcessSigning(signer: Self.signer(raw), identifier: raw.identifier)
         }
         var detail = ProcessDetail(process: process.id, arguments: arguments, argumentsProblem: problem, signing: signing)
+        (detail.threads, detail.threadsProblem) = await threads(of: process)
+        return detail
+    }
+
+    /// The thread count alone: unlike arguments and signature it changes
+    /// while a process runs, and one read is cheap enough to repeat.
+    public func threads(of process: ProcessReading) async -> (count: Int?, problem: String?) {
         switch await driver.threads(
             pid: process.id.pid, startSeconds: process.id.startSeconds, startMicroseconds: process.id.startMicroseconds
         ) {
-        case .success(let count): detail.threads = count
-        case .failure(let error): detail.threadsProblem = Self.describe(error, subject: "Threads")
+        case .success(let count): (count, nil)
+        case .failure(let error): (nil, Self.describe(error, subject: "Threads"))
         }
-        return detail
     }
 
     private static func signer(_ raw: CodeSigning) -> ProcessSigner {

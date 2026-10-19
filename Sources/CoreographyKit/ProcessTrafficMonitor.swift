@@ -22,9 +22,41 @@ public struct ProcessTrafficSnapshot: Codable, Sendable {
     public let unattributedSentBytesPerSecond: MetricReading
     /// Why nothing could be read, when nothing could.
     public let unavailableReason: String?
+    /// Built once: rows look rates up per process, even inside a sort comparator.
+    private let index: [Int32: ProcessTrafficReading]
+
+    init(
+        stamp: SampleStamp, processes: [ProcessTrafficReading], unattributedReceivedBytesPerSecond: MetricReading,
+        unattributedSentBytesPerSecond: MetricReading, unavailableReason: String?
+    ) {
+        self.stamp = stamp
+        self.processes = processes
+        self.unattributedReceivedBytesPerSecond = unattributedReceivedBytesPerSecond
+        self.unattributedSentBytesPerSecond = unattributedSentBytesPerSecond
+        self.unavailableReason = unavailableReason
+        index = Self.index(processes)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case stamp, processes, unattributedReceivedBytesPerSecond, unattributedSentBytesPerSecond, unavailableReason
+    }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        try self.init(
+            stamp: values.decode(SampleStamp.self, forKey: .stamp),
+            processes: values.decode([ProcessTrafficReading].self, forKey: .processes),
+            unattributedReceivedBytesPerSecond: values.decode(MetricReading.self, forKey: .unattributedReceivedBytesPerSecond),
+            unattributedSentBytesPerSecond: values.decode(MetricReading.self, forKey: .unattributedSentBytesPerSecond),
+            unavailableReason: values.decodeIfPresent(String.self, forKey: .unavailableReason)
+        )
+    }
 
     /// Rates by PID, for joining to a process sample of the same moment.
-    public func byPID() -> [Int32: ProcessTrafficReading] {
+    public func byPID() -> [Int32: ProcessTrafficReading] { index }
+
+    /// A reused PID keeps the newer process: the higher unique ID.
+    private static func index(_ processes: [ProcessTrafficReading]) -> [Int32: ProcessTrafficReading] {
         Dictionary(processes.map { ($0.pid, $0) }) { first, second in
             first.uniqueID > second.uniqueID ? first : second
         }

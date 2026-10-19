@@ -244,7 +244,9 @@ final class HistoryStoreTests: XCTestCase {
         _ = try HistoryStore(directory: directory)
         let connection = try SQLiteConnection(path: directory.appendingPathComponent("history.sqlite").path)
         for statement in HistoryStore.Prune.all {
-            let plan = try connection.query("EXPLAIN QUERY PLAN " + statement, [.real(0)])
+            // One value per placeholder; the plan does not depend on them.
+            let values = Array(repeating: SQLiteValue.real(0), count: statement.filter { $0 == "?" }.count)
+            let plan = try connection.query("EXPLAIN QUERY PLAN " + statement, values)
                 .compactMap { row in row.last.flatMap { if case .text(let detail) = $0 { detail } else { nil } } }
             XCTAssertFalse(plan.isEmpty, statement)
             XCTAssertTrue(plan.allSatisfy { $0.hasPrefix("SEARCH") }, "\(statement): \(plan)")
@@ -255,7 +257,10 @@ final class HistoryStoreTests: XCTestCase {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let path = directory.appendingPathComponent("history.sqlite").path
         try SQLiteConnection(path: path).execute("PRAGMA user_version=\(HistoryStore.schemaVersion + 1)")
-        XCTAssertThrowsError(try HistoryStore(directory: directory))
+        XCTAssertThrowsError(try HistoryStore(directory: directory)) { error in
+            guard case HistoryStoreError.storage(let reason) = error else { return XCTFail("\(error)") }
+            XCTAssertTrue(reason.hasPrefix("History was written by a newer Coreography"), reason)
+        }
         let version = try SQLiteConnection(path: path).query("PRAGMA user_version").first?.first
         XCTAssertEqual(version, .integer(Int64(HistoryStore.schemaVersion + 1)), "an older build leaves the newer label alone")
     }
@@ -288,10 +293,15 @@ final class HistoryStoreTests: XCTestCase {
         nonisolated(unsafe) let holder = try SQLiteConnection(path: path)
         try holder.execute("PRAGMA journal_mode=WAL; CREATE TABLE t(x)")
         try holder.execute("BEGIN IMMEDIATE")
-        DispatchQueue.global().asyncAfter(deadline: .now() + 0.2) { try? holder.execute("COMMIT") }
+        nonisolated(unsafe) var committed = false
+        DispatchQueue.global().asyncAfter(deadline: .now() + 0.2) { committed = (try? holder.execute("COMMIT")) != nil }
 
         let waiter = try SQLiteConnection(path: path)
         XCTAssertNoThrow(try waiter.execute("INSERT INTO t VALUES (1)"))
+        // COMMIT releases the lock inside execute, a moment before the flag is set.
+        let deadline = Date().addingTimeInterval(2)
+        while !committed, Date() < deadline { Thread.sleep(forTimeInterval: 0.01) }
+        XCTAssertTrue(committed, "the fixture's own commit worked, so a failure above is the wait's")
     }
 
     func testPersistsAcrossReopenWithPrivateFilesInWALMode() async throws {

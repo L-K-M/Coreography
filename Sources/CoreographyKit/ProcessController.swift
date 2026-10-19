@@ -64,7 +64,7 @@ public struct ProcessController: Sendable {
         case .exited: "The process already exited"
         case .identityChanged: "The PID now belongs to a different process; nothing was sent"
         case .notPermitted: "Not permitted: the process belongs to another user or is protected"
-        case .needsAdministrator: "Only an administrator can raise its priority again"
+        case .needsAdministrator: "Its priority was not changed; only an administrator can change it"
         case .refusedByApp: "The app could not be asked to quit"
         case .systemCall(let code): "The request failed (\(code))"
         }

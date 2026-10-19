@@ -24,6 +24,16 @@ final class ProcessActionsTests: XCTestCase {
         XCTAssertEqual(unknown.consequences.last, "Child processes, if any, may also exit.")
     }
 
+    func testSignalsThatCanEndASessionSayItLogsYouOut() throws {
+        let windowServer = try process(pid: 80, name: "WindowServer")
+        let snapshot = try self.snapshot([windowServer])
+        for action in [ProcessAction.hangUp, .interrupt] {
+            let request = ProcessActions.request(for: windowServer, action: action, in: snapshot)
+            XCTAssertEqual(request.consequences.first, "This logs you out; unsaved work in every app is lost.", "\(action)")
+            XCTAssertTrue(request.endsSession, "\(action)")
+        }
+    }
+
     func testRequestsTargetTheExactIdentityAndMarkOnlySuccess() async throws {
         let driver = RecordingDriver(results: [.success(()), .failure(.identityChanged)])
         let model = DashboardModel(
@@ -62,7 +72,7 @@ final class ProcessActionsTests: XCTestCase {
 
         model.perform(model.actionRequest(for: worker, action: .lowerPriority))
         XCTAssertEqual(signaler.calls.last?.nice, ProcessController.lowPriorityNice)
-        XCTAssertEqual(model.actionMessage, "Worker: Only an administrator can raise its priority again")
+        XCTAssertEqual(model.actionMessage, "Worker: Its priority was not changed; only an administrator can change it")
 
         let frozen = model.actionRequest(for: session, action: .suspend)
         XCTAssertEqual(frozen.refusal, "Suspending it would freeze the screen with no way back.")
@@ -90,6 +100,19 @@ final class ProcessActionsTests: XCTestCase {
         XCTAssertEqual(reason, "The process exited before it could be sampled")
         model.dismissSample()
         guard case .idle = model.sampleState else { return XCTFail("dismissed") }
+
+        // Closing while it runs is allowed; the late report does not reopen the sheet.
+        let slow = Task { await model.sampleProcess(try process(pid: 79, name: "Slow")) }
+        let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+        while ContinuousClock.now < deadline {
+            if case .running = model.sampleState { break }
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        guard case .running = model.sampleState else { return XCTFail("sampling never started") }
+        model.dismissSample()
+        guard case .idle = model.sampleState else { return XCTFail("closing a running sample closes it") }
+        _ = await slow.result
+        guard case .idle = model.sampleState else { return XCTFail("the abandoned report stays away") }
     }
 
     private func process(pid: Int32, name: String, parent: UInt32 = 1, start: UInt64 = 10) throws -> ObservedProcess {
@@ -148,7 +171,8 @@ private final class RecordingSignaler: ProcessSignaling, @unchecked Sendable {
 
 private struct Sampler: ProcessSampling {
     func sample(pid: Int32, startSeconds: UInt64, startMicroseconds: UInt64, seconds: Int) async -> Result<String, ProcessSampleError> {
-        pid == 77 ? .success("Call graph:\n    3 Thread_1") : .failure(.exited)
+        if pid == 79 { try? await Task.sleep(for: .milliseconds(100)) }
+        return pid == 77 || pid == 79 ? .success("Call graph:\n    3 Thread_1") : .failure(.exited)
     }
 }
 

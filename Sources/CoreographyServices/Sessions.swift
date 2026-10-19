@@ -70,10 +70,14 @@ struct SessionRecording: Sendable {
     }
 
     /// Readings without values are skipped: a gap is not a zero.
+    /// Slower sources keep their newest frame between updates, so a reading
+    /// no newer than the last one for its metric is that frame again.
     mutating func record(_ samples: [HistorySample]) {
         for sample in samples {
             guard let value = sample.value, Self.metrics.contains(where: { $0.0 == sample.metric }) else { continue }
-            values[sample.metric, default: []].append(SessionPoint(offset: sample.time.timeIntervalSince(start), value: value))
+            let offset = sample.time.timeIntervalSince(start)
+            if let last = values[sample.metric]?.last, offset <= last.offset { continue }
+            values[sample.metric, default: []].append(SessionPoint(offset: offset, value: value))
         }
     }
 
@@ -110,6 +114,8 @@ public struct SessionComparison: Sendable {
         public var id: String { session.uuidString + metric }
         public let session: UUID
         public let name: String
+        /// The chart's key for this line: the name, dated when both sessions share it.
+        public let label: String
         public let metric: String
         public let unit: SessionUnit
         public let points: [SessionPoint]
@@ -119,15 +125,21 @@ public struct SessionComparison: Sendable {
     public let metrics: [(metric: String, unit: SessionUnit, series: [Series])]
 
     static func make(_ first: RecordedSession, _ second: RecordedSession) -> SessionComparison {
+        let labels = first.name == second.name
+            ? (Self.dated(first), Self.dated(second)) : (first.name, second.name)
         let metrics = SessionRecording.metrics.compactMap { metric, unit -> (metric: String, unit: SessionUnit, series: [Series])? in
             let name = "\(metric)"
             guard let a = first.series[name], let b = second.series[name] else { return nil }
             return (name, unit, [
-                Series(session: first.id, name: first.name, metric: name, unit: unit, points: reduced(a)),
-                Series(session: second.id, name: second.name, metric: name, unit: unit, points: reduced(b))
+                Series(session: first.id, name: first.name, label: labels.0, metric: name, unit: unit, points: reduced(a)),
+                Series(session: second.id, name: second.name, label: labels.1, metric: name, unit: unit, points: reduced(b))
             ])
         }
         return SessionComparison(metrics: metrics)
+    }
+
+    private static func dated(_ session: RecordedSession) -> String {
+        "\(session.name) · \(session.start.formatted(date: .abbreviated, time: .shortened))"
     }
 
     /// Bucket extremes, as the lanes draw, so an hour-long session stays a few hundred marks.
@@ -169,7 +181,8 @@ public enum SessionExport {
             topApps: session.topApps.enumerated().map { index, app in
                 AppRangeTotal(
                     name: "App \(index + 1)", cpuSeconds: app.cpuSeconds, diskBytes: app.diskBytes,
-                    networkBytes: app.networkBytes, isLowerBound: app.isLowerBound
+                    networkBytes: app.networkBytes, isLowerBound: app.isLowerBound,
+                    networkIsLowerBound: app.networkIsLowerBound
                 )
             },
             series: session.series

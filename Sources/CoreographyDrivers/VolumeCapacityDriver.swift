@@ -96,11 +96,15 @@ public struct VolumeCapacityDriver: VolumeCapacityReading {
 
 /// Turns resource values into a volume, or nothing when its size is unknown.
 enum VolumeDecoder {
+    /// The system's own mounts (Data, VM, Preboot): the Data volume shares
+    /// the startup disk's space, so listing it would show that disk twice.
+    private static let systemMounts = "/System/Volumes/"
+
     static func volume(
         path: String, name: String?, total: Int?, important: Int64?, available: Int?,
         isInternal: Bool?, isLocal: Bool?, isRoot: Bool?
     ) -> RawVolume? {
-        guard let total, total > 0 else { return nil }
+        guard !path.hasPrefix(systemMounts), let total, total > 0 else { return nil }
         // Important-use space counts purgeable files, as Finder does; some volumes only report plain space.
         guard let free = important ?? available.map(Int64.init), free >= 0 else { return nil }
         let kind: RawVolumeKind = isLocal == false ? .network : (isInternal == true ? .internal : .external)

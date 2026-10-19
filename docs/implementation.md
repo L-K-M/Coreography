@@ -3,7 +3,7 @@
 Track actual delivery against the [product plan](plan.md). A stage is
 complete only after its relevant checks and review pass and its PR merges.
 
-## Current slice: recordings
+## Current slice: review fixes
 
 The native foundation merged in [PR #5](https://github.com/L-K-M/Coreography/pull/5)
 at `aee9494` after two GLM rounds and passing CI. Process monitoring merged
@@ -12,7 +12,7 @@ after two GLM rounds and passing CI. The network slice in
 [PR #7](https://github.com/L-K-M/Coreography/pull/7) merged at `9ae6ca3`;
 storage-driver rates and a fourth lane merged in
 [PR #8](https://github.com/L-K-M/Coreography/pull/8) at `dc3d6bd`.
-Later slices are stacked work awaiting CI, completed review and merge:
+Later slices, each merged after CI and review:
 memory composition,
 swap and pressure in [PR #9](https://github.com/L-K-M/Coreography/pull/9);
 app grouping in [PR #10](https://github.com/L-K-M/Coreography/pull/10);
@@ -40,8 +40,8 @@ Maintenance states follow in [PR #53](https://github.com/L-K-M/Coreography/pull/
 and automation in [PR #54](https://github.com/L-K-M/Coreography/pull/54),
 the command palette in [PR #55](https://github.com/L-K-M/Coreography/pull/55).
 IOReport power and frequency (M2, first rung) follow in
-[PR #56](https://github.com/L-K-M/Coreography/pull/56). This slice adds
-bottleneck hints in [PR #57](https://github.com/L-K-M/Coreography/pull/57).
+[PR #56](https://github.com/L-K-M/Coreography/pull/56), and bottleneck
+hints in [PR #57](https://github.com/L-K-M/Coreography/pull/57).
 The Month tier follows in [PR #58](https://github.com/L-K-M/Coreography/pull/58).
 Per-process network (S3) follows in [PR #59](https://github.com/L-K-M/Coreography/pull/59).
 The Dock icon follows in [PR #60](https://github.com/L-K-M/Coreography/pull/60).
@@ -50,10 +50,16 @@ Network in the ledger follows in [PR #62](https://github.com/L-K-M/Coreography/p
 MCP access through the app follows in [PR #64](https://github.com/L-K-M/Coreography/pull/64).
 Time controls follow in [PR #65](https://github.com/L-K-M/Coreography/pull/65).
 HUD levels follow in [PR #66](https://github.com/L-K-M/Coreography/pull/66).
-Range comparison follows on `feat/range-compare`.
-Menu bar items follow on `feat/menu-bar-items`.
-Inspector history follows on `feat/inspector-history`.
-This slice adds recordings.
+Range comparison, menu bar items, inspector history and recordings follow
+in PRs [#68](https://github.com/L-K-M/Coreography/pull/68) to
+[#71](https://github.com/L-K-M/Coreography/pull/71); GPU time and CPU power,
+the CPU split, lane layout, history fixes, the CPU scale, volume capacity,
+the Low Power Mode cadence and the core-tier band in
+[#72](https://github.com/L-K-M/Coreography/pull/72) to
+[#79](https://github.com/L-K-M/Coreography/pull/79). This slice fixes what
+the reviews of the merged slices found, in
+[#80](https://github.com/L-K-M/Coreography/pull/80) and
+[#81](https://github.com/L-K-M/Coreography/pull/81).
 
 Implemented:
 
@@ -106,28 +112,32 @@ Implemented:
   sets the level, corner, opacity, text size, a dark backing for bright
   scenes and click-through; with click-through off the panel can be
   dragged and remembers its place per display, and choosing a corner
-  forgets dragged places. Option-Command-J cycles the level.
+  forgets dragged places. Control-Command-J cycles the level (Option-Command-H
+  is macOS's Hide Others, so the HUD uses Control).
 
 - Time controls: Pause Recording (toolbar, menu bar extra and palette)
   stops sampling, so every series and the store keep a gap, marked
   "Recording paused" and "Recording resumed"; reopening the window does
   not resume it, and the status line and menu bar title say so. Hold
   still only freezes the display. Command-0 returns to the live edge,
-  leaving hold and the cursor but keeping the range and selection. M (or
-  the palette) drops a named marker, up to 120 characters, a blank name
-  becoming the time; the person's markers draw solid in the accent colour
-  with their name, the others stay dashed and unlabelled. Markers last
-  for the session.
+  ending hold and clearing the cursor but keeping the range and
+  selection. M (or the palette) drops a named marker, up to 120
+  characters, a blank name becoming the time; the person's markers
+  draw solid in the accent colour with their name, the others stay
+  dashed and unlabelled. Markers last for the session.
 
 - MCP access through the app: off by default (Settings > MCP access).
   When on, the app listens on a Unix socket in a 0700 Application
   Support directory, the socket file 0600. A connection is checked with
   the kernel's peer credentials: another user's process is refused
-  before anything else. The client is identified by walking up from the
-  connecting process to the first ancestor inside an app bundle, whose
-  outermost bundle's signature names it (team and identifier, Apple's
-  identifier, or for unsigned code its location); without an app
+  before anything else. The client is identified from the connecting
+  process (an app that speaks the socket itself) or, for Coreography's
+  own CLI, by walking up to the first ancestor inside an app bundle,
+  whose outermost bundle's signature names it (team and identifier,
+  Apple's identifier, or for unsigned code its location); without an app
   ancestor, the top of its tree. Names a client sends are never used.
+  A lock beside the socket keeps a second copy of the app from taking
+  the endpoint over, and a file left by a crash is replaced.
   An unknown client waits for the person's answer in the window (120 s,
   one request shown at a time); approval is saved per identity, so the
   same app does not ask again, and Settings lists approved clients with
@@ -140,6 +150,14 @@ Implemented:
   to the app and fails with the reason when the app is not running, the
   switch is off or the client was refused; `--standalone` keeps sampling
   in its own process, without history.
+  What approval is and is not: a record of consent per client, not a
+  security boundary against your own account. Any program you run can
+  read the same process data through `--standalone` or the system's own
+  interfaces. Approval binds to the nearest app, so approving a terminal
+  or editor covers every program started from it (the prompt says so),
+  and a team-signed grant covers what that team ships under one
+  identifier. The process tree is read after the connection arrives, so
+  a PID reused in between could name the wrong client.
 
 - Network in the ledger: each interval integrates every app's TCP and
   UDP rates (in plus out) from the traffic sample of the same moment
@@ -431,11 +449,10 @@ Implemented:
   (critical memory pressure for 30 s, heavy thermal pressure for 30 s,
   battery under 15% while discharging), evaluated on live data even while
   the display is held. A raised rule tints its lane, names itself and drops
-  a marker; unknown readings pause the clocks rather than count. Only the
-  memory and battery rules notify, through UserNotifications (so Focus
-  applies), with a 15-minute cooldown and one banner per rule. The
-  startup-disk rule and Shortcut actions follow below; user-defined rules
-  remain.
+  a marker; unknown readings pause the clocks rather than count. The
+  memory, battery and startup-disk rules notify, through UserNotifications
+  (so Focus applies), with a 15-minute cooldown and one banner per rule;
+  Shortcut actions are described above. User-defined rules remain.
 - Process pane change highlighting: CPU, footprint and disk cells are
   shaded in their subsystem hue by share of the column's top row; a
   process first seen within 10 s (not present at launch) tints its name;
@@ -492,7 +509,7 @@ Implemented:
   runtime and output caps) after an identity check, and opens the report
   in the app to read or save. Spindump needs root and waits for the
   helper.
-- HUD, first part: Option-Command-H or the menu bar extra shows a small
+- HUD, first part: Control-Command-H or the menu bar extra shows a small
   readout of CPU, GPU, the hottest sensor and system power in the top
   right corner, above full-screen apps and on every Space. It never takes
   focus or clicks and reads the window's own model. Frame rate waits for
@@ -553,7 +570,8 @@ Implemented:
   counted per client so a closed client never pulls its process back.
   It reads for every process, other users' included, and a process with
   no client reads as zero; it is labelled ms/s, not busy %. CPU power is
-  the estimate from `ri_energy_nj` (`RUSAGE_INFO_V6`); a process that ran
+  the estimate from `ri_energy_nj` (`RUSAGE_INFO_V6`, which every
+  supported macOS has; the app needs macOS 26); a process that ran
   with a zero counter has no energy model on that Mac and reads as
   unsupported. Both sum per app and sort the table.
 - More process actions: Suspend and Resume, Send Signal (hang-up,
@@ -562,8 +580,11 @@ Implemented:
   inspector. Signals and renice go through the same identity check as
   Quit and confirm with their consequences; suspending the window
   server, the login window or Coreography itself is refused, because
-  nothing could resume it. Raising priority again needs an
-  administrator and says so. Sample and spindump remain.
+  nothing could resume it. Lower Priority only lowers: a process already
+  at nice 10 or beyond keeps its own value. Hang-up and interrupt on the
+  window server or login window warn that they log you out, as Quit does.
+  Raising priority again needs an administrator and says so. Sample and
+  spindump remain.
 - Saved filters: the current process filter can be kept as a chip
   under the field (up to 12, newest first, no duplicates); a click
   applies it and its menu removes it. Chips are saved in preferences.
@@ -698,7 +719,7 @@ outstanding. The store, MCP and model features above await stack delivery.
 | Month tier | 245 Swift tests pass on Linux against the system SQLite (minute extremes and means, the tier outliving the Day tier and ageing out, per-day totals across midnight, replacement without double counting, names kept with their days then swept); native CI checks `coreo apps --days` |
 | Bottleneck hints | 242 Swift tests pass on Linux (each hint's thresholds and evidence, no CPU-bound hint without a top frequency, no throttling without thermal pressure, no data no hints); the lane and HUD lines compile only in native CI |
 | Apple Silicon power and frequency | 238 Swift tests pass on Linux (block sums without subtotals, units, residency weighting, idle and unfitting tables, hertz or kilohertz tables, legacy and `acc-clusters` assignment, baseline, frozen counters, virtual machines); the IOReport driver compiles only in native CI, whose virtual runner must report unsupported with its reason. Accuracy against `powermetrics` is an owner check (S1) |
-| Command palette | 229 Swift tests pass on Linux (ranking, unavailable reasons, target names, actions applied through the model, unconfirmed process actions ignored); the palette view compiles only in native CI; keyboard use is an owner check |
+| Command palette | 229 Swift tests pass on Linux (ranking, unavailable reasons, target names, actions applied through the model, unconfirmed process actions ignored); the palette view compiles only in native CI; keyboard use awaits its owner check |
 | Automation | 227 Swift tests pass on Linux (every link form, refusals with reasons, holder lookups with their limits, commands applied through the model); intents and link delivery compile only in native CI, which checks the scheme and intent metadata |
 | Maintenance states | 222 Swift tests pass on Linux (running, unknown-progress, idle and unrecognised `tmutil` answers; `mdutil` states; cut-off and failed tools unavailable; path-qualified processes only; no end promised for Spotlight; the summary's state and signal; one read per refresh window through the model). Native CI compares `coreo diagnose` with independent `tmutil` and `mdutil` reads; the inspector's display is an owner check |
 | Diagnostic context | 212 Swift tests pass on Linux; privacy and unsafe-quit regressions failed before the fix. One completed Devin review found the missing kernel note; its PID-0 regression also failed before the fix. Native compilation and current stack review remain pending |

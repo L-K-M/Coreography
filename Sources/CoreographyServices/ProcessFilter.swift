@@ -152,9 +152,11 @@ public struct ProcessFilter: Equatable, Sendable {
         return ProcessFilter(terms: terms, issues: issues)
     }
 
-    /// `~/Downloads` is the home folder's Downloads.
+    /// `~/Downloads` is the home folder's Downloads; `~name` stays as typed,
+    /// since it names another account's home, not this one's plus a suffix.
     static func expandingHome(_ path: String) -> String {
-        path.hasPrefix("~") ? NSHomeDirectory() + path.dropFirst() : path
+        guard path == "~" || path.hasPrefix("~/") else { return path }
+        return NSHomeDirectory() + path.dropFirst()
     }
 
     var isEmpty: Bool { terms.isEmpty }

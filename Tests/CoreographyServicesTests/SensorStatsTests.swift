@@ -36,6 +36,18 @@ final class SensorStatsTests: XCTestCase {
         XCTAssertNil(stats.since, "statistics start with the first real reading")
     }
 
+    func testAnEntirelyUnreadableSampleClearsEveryCurrentValue() throws {
+        var stats = SensorStats()
+        stats.record(temperatures: [try temperature("Tp01", 50)], sensors: nil, at: epoch)
+        let unreadable = TemperatureReading(key: "Tp01", region: nil, celsius: try .unavailable(reason: "fault"))
+        stats.record(temperatures: [unreadable], sensors: nil, at: epoch.addingTimeInterval(1))
+
+        let row = try XCTUnwrap(stats.rows().first)
+        XCTAssertNil(row.current, "a failed sample is not the last good one again")
+        XCTAssertEqual(row.maximum, 50, "statistics stay")
+        XCTAssertEqual(stats.since, epoch)
+    }
+
     private func temperature(_ key: String, _ celsius: Double, region: String? = nil) throws -> TemperatureReading {
         TemperatureReading(key: key, region: region, celsius: try .measured(celsius))
     }

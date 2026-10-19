@@ -121,6 +121,7 @@ public final class DashboardModel {
     public private(set) var sessions: [RecordedSession] = []
     /// A call-stack sample the person asked for (plan: Sample), one at a time.
     public private(set) var sampleState: SampleState = .idle
+    @ObservationIgnored private var sampleRun: UUID?
     /// Filters kept as chips under the field.
     public private(set) var savedFilters: [String] = []
     /// The pane under the lanes; connections are read only while shown or filtered on.
@@ -162,9 +163,12 @@ public final class DashboardModel {
     public private(set) var openFileSnapshot: CapturedOpenFiles?
     /// The selected process's open files, read on selection.
     public private(set) var inspectedFiles: [String]?
+    /// The selected process held more files than one read keeps; the list is a start.
+    public private(set) var inspectedFilesCut = false
     /// The selected process's readings since it was selected, an hour at most.
     public private(set) var selectedProcessHistory: [ProcessHistoryPoint] = []
     @ObservationIgnored private var selectedHistorySegment = 0
+    @ObservationIgnored private var threadRead: Task<Void, Never>?
     /// Displayed (possibly held) power assertions; nil until first read.
     public private(set) var assertionSnapshot: CapturedAssertions?
     /// Displayed (possibly held) per-process network rates; nil until first read.
@@ -175,21 +179,37 @@ public final class DashboardModel {
     public var processGrouping: ProcessGrouping = .app
     /// The shared hover time across all lanes; nil follows the live edge.
     public var cursorTime: Date?
+    /// A new range reads its own stored span at once; the reload interval belongs to the old one.
     public var timeRange: TimeRange = .minute {
-        didSet { refreshStoredHistory() }
+        didSet {
+            if timeRange != oldValue { dropStoredHistory() }
+            refreshStoredHistory()
+        }
     }
     /// A dragged time range; cleared only explicitly (plan: Esc or clear).
-    public var selection: ClosedRange<Date>?
+    /// A comparison needs it, so clearing it in any way drops the comparison.
+    public var selection: ClosedRange<Date>? {
+        didSet {
+            guard selection == nil else { return }
+            comparison = nil
+            draftComparison = nil
+        }
+    }
     /// The range while a drag is in progress; reports wait for the drag to end.
     public var draftSelection: ClosedRange<Date>?
     public private(set) var markers: [TimelineMarker] = []
     /// Sleep, wake, power source and pressure changes found in the displayed data.
     public private(set) var systemMarkers: [TimelineMarker] = []
     /// Everything the lanes mark: the person's actions, alerts and system events.
-    public var timelineMarkers: [TimelineMarker] { (openRecording == nil ? markers : recordingMarkers) + systemMarkers }
+    public var timelineMarkers: [TimelineMarker] { ownMarkers + systemMarkers }
+    /// The person's and alerts' markers, which a recording keeps; system
+    /// markers are derived again from the recorded frames when it opens.
+    private var ownMarkers: [TimelineMarker] { openRecording == nil ? markers : recordingMarkers }
     /// The recording shown in place of live data, when one is open.
     public private(set) var openRecording: OpenRecording?
-    @ObservationIgnored private var recordingMarkers: [TimelineMarker] = []
+    private var recordingMarkers: [TimelineMarker] = []
+    /// The recording open in flight; a newer open or a return to live replaces it.
+    @ObservationIgnored private var recordingOpening: UUID?
     /// One app scoping every view (plan P8); cleared only by its clear button.
     public var scopedApp: String?
     public private(set) var actionMessage: String?
@@ -248,7 +268,9 @@ public final class DashboardModel {
     @ObservationIgnored private var storedLoad: Task<Void, Never>?
     @ObservationIgnored private var storedLoadedAt: Date?
     @ObservationIgnored private var recordedSources = RecordedSources()
-    @ObservationIgnored private var storedScopedCache: (app: String, loadedAt: Date, cpu: [DashboardPoint], disk: [DashboardPoint])?
+    @ObservationIgnored private var storedScopedCache: (
+        app: String, window: ClosedRange<Date>, cpu: [DashboardPoint], disk: [DashboardPoint]
+    )?
     @ObservationIgnored private var sleepState: SleepHistoryState = .notImported
     @ObservationIgnored private var sleepImport: Task<Void, Never>?
     @ObservationIgnored private var wakeImports = WakeImportSpacing()
@@ -603,8 +625,8 @@ public final class DashboardModel {
         return RangeExport.document(range: live, model: frames, apps: apps, naming: exportNaming)
     }
 
-    /// The selected range as a `.coreotrace` recording of displayed data;
-    /// nil without a selection inside the live hour.
+    /// The selected range as a `.coreotrace` recording of displayed data,
+    /// the live hour or an open recording; nil without a selection inside it.
     public func recordingData(name: String) -> Data? {
         guard let selection, let liveStart = frames.first?.stamp.wallTime else { return nil }
         let start = max(selection.lowerBound, liveStart)
@@ -616,7 +638,7 @@ public final class DashboardModel {
             frames: DashboardFrames(
                 host: frames, network: networkFrames, disks: diskFrames, gpu: gpuFrames, power: powerFrames, sensors: sensorFrames
             ),
-            ledger: ledger, markers: timelineMarkers, naming: exportNaming
+            ledger: ledger, markers: ownMarkers, naming: exportNaming
         )
         return try? Recording.encode(document)
     }
@@ -625,19 +647,30 @@ public final class DashboardModel {
     public func reportRecordingFailure(_ message: String) { actionMessage = message }
 
     /// Show a recording in the held display; Return to live goes back.
+    /// Decoding runs off the main actor, since a file may hold 256 MB. The
+    /// file's name, which the person chose, names it over the saved one.
     /// Returns why it could not be opened.
     @discardableResult
-    public func openRecording(_ data: Data) -> String? {
+    public func openRecording(_ data: Data, fileName: String? = nil) async -> String? {
+        // The newest open wins; returning to live meanwhile cancels it.
+        let opening = UUID()
+        recordingOpening = opening
+        let decoded = await Task.detached { () -> Result<Recording.Document, Recording.Failure> in
+            do throws(Recording.Failure) { return .success(try Recording.decode(data)) } catch { return .failure(error) }
+        }.value
+        guard recordingOpening == opening else { return nil }
+        recordingOpening = nil
         let document: Recording.Document
-        do {
-            document = try Recording.decode(data)
-        } catch {
+        switch decoded {
+        case .success(let read):
+            document = read
+        case .failure(let error):
             actionMessage = error.message
             return error.message
         }
         displayMode = .held
         openRecording = OpenRecording(
-            name: document.name, start: document.start, end: document.end, appNames: document.appNames
+            name: fileName ?? document.name, start: document.start, end: document.end, appNames: document.appNames
         )
         frames = document.host
         networkFrames = document.network
@@ -661,7 +694,7 @@ public final class DashboardModel {
                 }
             )
         })
-        recordingMarkers = document.markers.map { TimelineMarker(time: $0.time, label: $0.label, kind: .note) }
+        recordingMarkers = document.markers.map { TimelineMarker(time: $0.time, label: $0.label, kind: $0.kind ?? .note) }
         cursorTime = nil
         clearSelection()
         let duration = document.end.timeIntervalSince(document.start)
@@ -672,6 +705,18 @@ public final class DashboardModel {
 
     /// Hand the newest live readings to the recorder, which batches writes.
     /// The same readings feed an active session, which keeps them past the live hour.
+    /// Each record call waits for the one before it, so waiting for the
+    /// newest is waiting for all of them (quitting needs that).
+    @ObservationIgnored private var lastRecord: Task<Void, Never>?
+
+    private func enqueueRecord(_ work: @escaping @MainActor @Sendable () async -> Void) {
+        let previous = lastRecord
+        lastRecord = Task { @MainActor in
+            await previous?.value
+            await work()
+        }
+    }
+
     private func recordHistory() {
         guard historyRecorder != nil || sessionRecording != nil else { return }
         let samples = HistorySamples.latest(
@@ -682,7 +727,7 @@ public final class DashboardModel {
         sessionRecording?.record(samples)
         guard let historyRecorder else { return }
         let now = Date()
-        Task { [weak self] in
+        enqueueRecord { [weak self] in
             await historyRecorder.record(samples, at: now)
             let problem = await historyRecorder.lastError
             self?.historyProblem = problem
@@ -798,6 +843,8 @@ public final class DashboardModel {
     public private(set) var alertShortcuts: [String: String] = [:]
     /// The person's Shortcuts, read on request; nil until read or when the tool failed.
     public private(set) var availableShortcuts: [String]?
+    /// Whether listing Shortcuts was tried and failed, as opposed to not tried yet.
+    public private(set) var shortcutsUnlisted = false
 
     public func setShortcut(_ name: String?, for ruleID: String) {
         alertShortcuts = shortcutStore.set(name, for: ruleID)
@@ -805,7 +852,13 @@ public final class DashboardModel {
 
     public func refreshShortcuts() async {
         guard let shortcutRunner else { return }
-        if case .success(let names) = await shortcutRunner.list() { availableShortcuts = names } else { availableShortcuts = nil }
+        if case .success(let names) = await shortcutRunner.list() {
+            availableShortcuts = names
+            shortcutsUnlisted = false
+        } else {
+            availableShortcuts = nil
+            shortcutsUnlisted = true
+        }
     }
 
     /// Tests keep their actions out of the person's preferences.
@@ -845,6 +898,8 @@ public final class DashboardModel {
                 self.markers.append(TimelineMarker(time: Date(), label: "Ran Shortcut \(name)", kind: .alert))
             case .failure(let error):
                 self.actionMessage = "Shortcut \(name) for “\(rule.title)” failed: \(error.description)"
+                // The timeline keeps failures too; "why did nothing run?" is asked afterwards.
+                self.markers.append(TimelineMarker(time: Date(), label: "Shortcut \(name) failed", kind: .alert))
             }
         }
     }
@@ -1023,15 +1078,21 @@ public final class DashboardModel {
     public func sampleProcess(_ process: ObservedProcess) async {
         guard let sampler else { return }
         if case .running = sampleState { return }
+        let run = UUID()
+        sampleRun = run
         sampleState = .running(name: process.name, seconds: ProcessSampler.defaultSeconds)
-        switch await sampler.sample(process) {
+        let result = await sampler.sample(process)
+        // Closed while it ran: the tool stops at its own time limit, and its report is dropped.
+        guard sampleRun == run else { return }
+        switch result {
         case .success(let report): sampleState = .finished(report)
         case .failure(let failure): sampleState = .failed(name: process.name, reason: failure.reason)
         }
     }
 
+    /// Also closes a running sample, so the sheet's Close and Escape always work.
     public func dismissSample() {
-        if case .running = sampleState { return }
+        sampleRun = nil
         sampleState = .idle
     }
 
@@ -1041,14 +1102,19 @@ public final class DashboardModel {
 
     /// Coreography's own process cost, from the latest process sample.
     public var selfCost: SelfCost? {
-        SelfCost.measure(in: processSnapshot, logicalCPUCount: latest?.inventory.logicalCPUCount)
+        SelfCost.measure(in: processSnapshot, logicalCPUCount: latest?.inventory.logicalCPUCount, samplingSeconds: samplingSeconds)
     }
 
     /// Append the selected process's live readings; a gap starts a new segment.
     private func recordSelectedHistory(_ processes: CapturedProcesses, traffic: CapturedTraffic?) {
-        guard let selectedProcessRow,
-              let process = processes.processes.first(where: { ProcessGroups.rowID($0) == selectedProcessRow }) else { return }
+        guard let selectedProcessRow else { return }
+        guard let process = processes.processes.first(where: { ProcessGroups.rowID($0) == selectedProcessRow }) else {
+            // A sample that missed the process is a gap the line must not bridge.
+            selectedHistorySegment += 1
+            return
+        }
         if processes.continuity != .continuous { selectedHistorySegment += 1 }
+        refreshSelectedThreads(process)
         let disk = ProcessGroups.total([process.diskReadBytesPerSecond, process.diskWriteBytesPerSecond], overlap: nil)
         let network = ProcessNetwork.rates(for: process, in: traffic)
         selectedProcessHistory.append(ProcessHistoryPoint(
@@ -1105,6 +1171,7 @@ public final class DashboardModel {
             if let files = openFileSnapshot {
                 if let reason = files.unavailableReason { issues.append("file: matches nothing: \(reason)") }
                 if files.restrictedProcesses > 0 { issues.append("file: covers your own processes; other users' need the helper") }
+                if files.failedProcesses > 0 { issues.append("file: could not read \(files.failedProcesses) of the processes") }
             } else {
                 issues.append("file: is waiting for open-file data")
             }
@@ -1182,6 +1249,12 @@ public final class DashboardModel {
     public var paletteShown = false
     /// The named-marker prompt (plan: M drops a named marker).
     public var markerPromptShown = false
+    /// Text fields in the window taking typing now, so plain-letter shortcuts stand aside.
+    public private(set) var typingFields: Set<String> = []
+
+    public func setTyping(_ field: String, _ typing: Bool) {
+        if typing { typingFields.insert(field) } else { typingFields.remove(field) }
+    }
 
     /// When the newest live sample arrived, held display or not; surfaces
     /// that always show live data (the Dock graph) redraw on it.
@@ -1193,7 +1266,11 @@ public final class DashboardModel {
     }
 
     /// The multiplier from a process's whole-machine share to the chosen scale.
-    public var processCPUFactor: Double { processCPUScale.factor(logicalCPUs: latest?.inventory.logicalCPUCount ?? 1) }
+    public var processCPUFactor: Double { processCPUScaleInEffect.factor(logicalCPUs: latest?.inventory.logicalCPUCount ?? 1) }
+
+    /// The scale the numbers are in: one core needs the core count, so the
+    /// whole machine stands in until a host sample names it.
+    public var processCPUScaleInEffect: ProcessCPUScale { latest == nil ? .machine : processCPUScale }
 
     /// Lane order, hidden lanes and sizes; saved as they change.
     public var laneLayout = LaneLayout.saved() {
@@ -1214,7 +1291,7 @@ public final class DashboardModel {
         switch metric {
         case .cpu: reading(for: .cpu)
         case .memory: reading(for: .memory)
-        case .gpu: displayedGPUFrame?.devices.max { ($0.utilizationPercent.numericValue ?? -1) < ($1.utilizationPercent.numericValue ?? -1) }?.utilizationPercent
+        case .gpu: menuBarGPU?.utilizationPercent
         case .download: reading(for: .networkReceived)
         case .upload: reading(for: .networkSent)
         case .temperature: displayedSensorFrame?.hottest?.celsius
@@ -1226,7 +1303,7 @@ public final class DashboardModel {
         let series: [DashboardPoint] = switch metric {
         case .cpu: points(for: .cpu)
         case .memory: points(for: .memory)
-        case .gpu: gpuSeries().first?.points ?? []
+        case .gpu: gpuSeries().first { $0.id == menuBarGPU?.id }?.points ?? []
         case .download: points(for: .networkReceived)
         case .upload: points(for: .networkSent)
         case .temperature: hottestTemperaturePoints()
@@ -1236,6 +1313,11 @@ public final class DashboardModel {
         return series.filter { $0.time >= start }
     }
     private static let menuBarSeconds: TimeInterval = 60
+
+    /// The busiest displayed GPU, which both the value and its graph describe.
+    private var menuBarGPU: CapturedGPUDevice? {
+        displayedGPUFrame?.devices.max { ($0.utilizationPercent.numericValue ?? -1) < ($1.utilizationPercent.numericValue ?? -1) }
+    }
 
     /// What the Dock icon shows; saved.
     public var dockIcon = DockIconStyle.saved() {
@@ -1339,7 +1421,7 @@ public final class DashboardModel {
         case .clearFilter: processFilter = ""
         case .saveFilter: saveProcessFilter()
         case .clearScope: scopedApp = nil
-        case .clearSelection: selection = nil
+        case .clearSelection: clearSelection()
         case .resetSensorStats: resetSensorStats()
         case .refreshStartup: refreshStartupItems()
         case .sampleSelected:
@@ -1423,13 +1505,15 @@ public final class DashboardModel {
     /// to six hours of intervals, too many to walk on every redraw.
     private func storedScopedSeries(_ app: String) -> (cpu: [DashboardPoint], disk: [DashboardPoint])? {
         guard let storedHistory else { return nil }
-        if let cache = storedScopedCache, cache.app == app, cache.loadedAt == storedHistory.end {
+        // Keyed on the whole window: the reduction depends on its start as well as its end.
+        let window = storedHistory.start...storedHistory.end
+        if let cache = storedScopedCache, cache.app == app, cache.window == window {
             return (cache.cpu, cache.disk)
         }
         let series = storedHistory.ledger.series(for: app)
         let cpu = Decimation.points(series.cpu, start: storedHistory.start, end: storedHistory.end)
         let disk = Decimation.points(series.disk, start: storedHistory.start, end: storedHistory.end)
-        storedScopedCache = (app: app, loadedAt: storedHistory.end, cpu: cpu, disk: disk)
+        storedScopedCache = (app: app, window: window, cpu: cpu, disk: disk)
         return (cpu, disk)
     }
 
@@ -1530,7 +1614,7 @@ public final class DashboardModel {
                         let interval = self.liveLedger.record(
                             processes, traffic: traffic, logicalCPUCount: history.last?.inventory.logicalCPUCount
                         )
-                        if let interval, let recorder = self.historyRecorder { Task { await recorder.recordLedger(interval) } }
+                        if let interval, let recorder = self.historyRecorder { self.enqueueRecord { await recorder.recordLedger(interval) } }
                         if let interval { self.sessionRecording?.record(interval) }
                         self.liveLifecycle.record(processes)
                         self.recordSelectedHistory(processes, traffic: traffic)
@@ -1589,9 +1673,16 @@ public final class DashboardModel {
     public private(set) var samplingCadence: SamplingCadence = .normal
 
     /// Seconds between whole-machine samples at the current cadence.
-    public var samplingSeconds: Double {
-        let (seconds, attoseconds) = (interval * samplingCadence.multiplier).components
-        return Double(seconds) + Double(attoseconds) / Self.attosecondsPerSecond
+    public var samplingSeconds: Double { Self.seconds(interval * samplingCadence.multiplier) }
+
+    /// How far back the selected process's history reaches at the current cadence.
+    public var selectedHistorySpan: TimeInterval {
+        Double(Self.contributorCapacity) * Self.seconds(processInterval * samplingCadence.multiplier)
+    }
+
+    private static func seconds(_ duration: Duration) -> Double {
+        let (seconds, attoseconds) = duration.components
+        return Double(seconds) + Double(attoseconds) / attosecondsPerSecond
     }
     private static let attosecondsPerSecond = 1e18
 
@@ -1637,6 +1728,8 @@ public final class DashboardModel {
     /// quitting does not lose the seconds since the last write.
     public func stopForQuit() async {
         halt()
+        // Records still on their way to the recorder go into this last write.
+        await lastRecord?.value
         await historyRecorder?.flush()
     }
 
@@ -1653,6 +1746,7 @@ public final class DashboardModel {
         }
         displayMode = .live
         openRecording = nil
+        recordingOpening = nil
         recordingMarkers = []
         frames = liveFrames
         processSnapshot = liveProcesses
@@ -1721,15 +1815,18 @@ public final class DashboardModel {
         guard let recording = sessionRecording else { return nil }
         sessionRecording = nil
         let session = recording.finish(at: Date())
+        // The message also goes to the window: a toolbar button has nowhere else to show it.
         guard let sessionArchive else {
             sessions.insert(session, at: 0)
-            return "Sessions cannot be saved on this Mac; this one lasts until Coreography quits."
+            actionMessage = "Sessions cannot be saved on this Mac; this one lasts until Coreography quits."
+            return actionMessage
         }
         do {
             try await sessionArchive.save(session)
         } catch {
             sessions.insert(session, at: 0)
-            return "The session could not be saved: \(error)"
+            actionMessage = "The session could not be saved: \(error)"
+            return actionMessage
         }
         await refreshSessions()
         return nil
@@ -1745,7 +1842,11 @@ public final class DashboardModel {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, let index = sessions.firstIndex(where: { $0.id == id }) else { return }
         sessions[index].name = trimmed
-        try? await sessionArchive?.save(sessions[index])
+        do {
+            try await sessionArchive?.save(sessions[index])
+        } catch {
+            actionMessage = "The new name could not be saved and lasts until Coreography quits: \(error)"
+        }
     }
 
     /// Sessions picked for comparison; picking a third drops the oldest pick.
@@ -1767,12 +1868,21 @@ public final class DashboardModel {
     }
 
     public func deleteSession(_ id: UUID) async {
+        do {
+            try await sessionArchive?.delete(id)
+        } catch {
+            // Still on disk: the row and its comparison pick stay, so the list does not lie until the next refresh.
+            actionMessage = "The session could not be deleted: \(error)"
+            return
+        }
         comparedSessions.removeAll { $0 == id }
-        try? await sessionArchive?.delete(id)
         sessions.removeAll { $0.id == id }
     }
 
     public func saveProcessFilter() { savedFilters = filterStore.save(processFilter) }
+
+    /// Blank by the store's own test, so the button never offers a save that does nothing.
+    public var canSaveProcessFilter: Bool { !SavedFilters.isBlank(processFilter) }
 
     public func removeSavedFilter(_ filter: String) { savedFilters = filterStore.remove(filter) }
 
@@ -1802,12 +1912,30 @@ public final class DashboardModel {
     /// The inspector's summary when nothing is selected.
     public func systemFacts() -> CapturedSystemFacts { SystemFacts.read() }
 
+    /// Reread the inspected process's thread count with each process sample;
+    /// a read still running skips this one.
+    private func refreshSelectedThreads(_ process: ObservedProcess) {
+        guard threadRead == nil, let inspector, processDetail?.process == process.id else { return }
+        threadRead = Task { [weak self] in
+            let read = await inspector.threads(of: process)
+            // A cancelled read's handle was already cleared, and may now belong to a newer read.
+            guard let self, !Task.isCancelled else { return }
+            self.threadRead = nil
+            guard self.processDetail?.process == process.id else { return }
+            self.processDetail?.threads = read.count
+            self.processDetail?.threadsProblem = read.problem
+        }
+    }
+
     /// Read the selected process's detail once per selection, off the main actor.
     private func inspectSelection() {
         inspection?.cancel()
+        threadRead?.cancel()
+        threadRead = nil
         processDetail = nil
         inspectedSockets = nil
         inspectedFiles = nil
+        inspectedFilesCut = false
         guard let process = selectedProcess, let inspector else { return }
         if MaintenanceWork.of(process) != nil { refreshMaintenance(olderThan: Self.maintenanceSelectionAge) }
         let connectionMonitor = connectionMonitor
@@ -1820,7 +1948,8 @@ public final class DashboardModel {
             guard let self, !Task.isCancelled else { return }
             self.processDetail = readDetail
             self.inspectedSockets = readSockets.flatMap { $0 }
-            self.inspectedFiles = readFiles.flatMap { $0 }
+            self.inspectedFiles = readFiles.flatMap { $0 }?.paths
+            self.inspectedFilesCut = readFiles.flatMap { $0 }?.isComplete == false
         }
         if startupInventory == nil { refreshStartupItems() }
     }

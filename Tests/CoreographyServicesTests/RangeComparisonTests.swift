@@ -24,7 +24,10 @@ final class RangeComparisonTests: XCTestCase {
             requested: epoch...epoch.addingTimeInterval(5), covered: nil, topCPUApps: [], topDiskApps: [], topNetworkApps: nil,
             activeAppCount: 0, apps: [], cpuMeanPercent: nil, cpuPeakPercent: nil, memoryPeakBytes: nil, gpuPeakPercent: nil, hottest: nil
         )
-        XCTAssertTrue(RangeComparison.make(first: empty, second: report(seconds: 10, apps: [("Safari", 5, 0)], mean: 1)).changes.isEmpty)
+        let comparison = RangeComparison.make(first: empty, second: report(seconds: 10, apps: [("Safari", 5, 0)], mean: 1))
+        XCTAssertTrue(comparison.changes.isEmpty)
+        XCTAssertFalse(comparison.coversBoth, "no change is unknown here, not stable")
+        XCTAssertTrue(RangeComparison.make(first: report(seconds: 5, apps: [], mean: 1), second: report(seconds: 5, apps: [], mean: 1)).coversBoth)
     }
 
     private func report(seconds: TimeInterval, apps: [(String, Double, Double)], mean: Double) -> RangeReport {

@@ -49,6 +49,22 @@ final class MaintenanceStatusTests: XCTestCase {
         )
     }
 
+    /// tmutil's output is parsed, not trusted: an absurd estimate is unknown, not a crash.
+    func testAnOutOfRangeEstimateIsUnknown() {
+        let absurd = """
+            Backup session status:
+            {
+                BackupPhase = Copying;
+                Progress = { TimeRemaining = "1e300"; };
+                Running = 1;
+            }
+            """
+        XCTAssertEqual(
+            TimeMachineStatusParser.parse(absurd),
+            .backingUp(BackupProgress(phase: "Copying", fraction: nil, remainingSeconds: nil))
+        )
+    }
+
     func testIdleAndUnrecognisedStatus() {
         let idle = """
             Backup session status:

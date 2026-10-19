@@ -38,7 +38,13 @@ final class AutomationRouter {
     }
 
     func open(_ url: URL) {
-        if url.isFileURL { return openRecording(url) }
+        if url.isFileURL {
+            guard url.pathExtension.lowercased() == Recording.fileExtension else {
+                showDashboard()
+                return model.reportRecordingFailure("Coreography opens only its recordings; \(url.lastPathComponent) is not one")
+            }
+            return openRecording(url)
+        }
         Task {
             let command = await model.open(url)
             if command == .toggleHUD { return hud.toggle() }
@@ -60,7 +66,7 @@ final class AutomationRouter {
                 model.reportRecordingFailure("The recording could not be read")
                 return
             }
-            model.openRecording(data)
+            await model.openRecording(data, fileName: url.deletingPathExtension().lastPathComponent)
         }
     }
 
@@ -89,9 +95,13 @@ final class AutomationAppDelegate: NSObject, NSApplicationDelegate {
     /// A stuck disk must not stop the app from quitting.
     private static let terminationGrace: Duration = .seconds(3)
     private static var terminationAnswered = false
+    private static var terminationStarted = false
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        // A second Quit while the work runs waits with the first instead of cutting it off.
+        if Self.terminationStarted, !Self.terminationAnswered { return .terminateLater }
         guard let work = Self.beforeTerminate else { return .terminateNow }
+        Self.terminationStarted = true
         Self.beforeTerminate = nil
         // Whichever finishes first, the work or the grace period, lets the app quit.
         Task { @MainActor in

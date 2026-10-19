@@ -68,9 +68,34 @@ final class MCPServerTests: XCTestCase {
         XCTAssertTrue((results.last?["content"] as? [[String: Any]])?.first?["text"] as? String == "Rate limit: at most 10 tool calls per second")
     }
 
+    /// A call spends the shared budget once; delivery only rechecks the grant,
+    /// and an exhausted budget reads as a rate limit, not a revocation.
+    func testACallSpendsTheSharedBudgetOnceAndThrottlingIsNotRevocation() async throws {
+        let checks = Checks()
+        let server = try makeServer(authorize: { await checks.record($0) })
+        _ = try await toolCall(server, id: 1, name: "get_data_sources", arguments: "{}")
+        let recorded = await checks.all
+        XCTAssertEqual(recorded, [.call, .delivery])
+
+        // A session over its own limit is refused before it touches the shared budget.
+        let busy = try makeServer(authorize: { await checks.record($0) })
+        for id in 0..<11 { _ = try await toolCall(busy, id: 10 + id, name: "get_data_sources", arguments: "{}") }
+        let shared = await checks.all.filter { $0 == .call }.count
+        XCTAssertEqual(shared, 1 + 10, "the eleventh call never reached the shared budget")
+
+        await checks.throttle()
+        let throttled = try await toolCall(server, id: 2, name: "get_data_sources", arguments: "{}")
+        XCTAssertEqual(throttled["isError"] as? Bool, true)
+        let text = (throttled["content"] as? [[String: Any]])?.first?["text"] as? String
+        XCTAssertEqual(text, "Rate limit: Coreography serves at most 20 tool calls per second across its clients")
+    }
+
     // MARK: Fixtures
 
-    private func makeServer(counter: SnapshotCounter = SnapshotCounter()) throws -> MCPServer {
+    private func makeServer(
+        counter: SnapshotCounter = SnapshotCounter(),
+        authorize: @escaping @Sendable (MCPCheck) async -> MCPAuthorization = { _ in .allowed }
+    ) throws -> MCPServer {
         var ledger = AppLedger(capacity: 10)
         ledger.record(try processes(at: 0), logicalCPUCount: 2)
         ledger.record(try processes(at: 2), logicalCPUCount: 2)
@@ -79,7 +104,7 @@ final class MCPServerTests: XCTestCase {
             processes: try processes(at: 2), ledger: ledger
         )
         let instant = epoch
-        return MCPServer(version: "test", now: { instant }) { await counter.take(snapshot) }
+        return MCPServer(version: "test", now: { instant }, authorize: authorize) { await counter.take(snapshot) }
     }
 
     private func processes(at second: TimeInterval) throws -> CapturedProcesses {
@@ -123,5 +148,17 @@ private actor SnapshotCounter {
     func take(_ snapshot: DiagnosticSnapshot) -> DiagnosticSnapshot {
         count += 1
         return snapshot
+    }
+}
+
+private actor Checks {
+    private(set) var all: [MCPCheck] = []
+    private var throttled = false
+
+    func throttle() { throttled = true }
+
+    func record(_ check: MCPCheck) -> MCPAuthorization {
+        all.append(check)
+        return throttled && check == .call ? .throttled(callsPerSecond: 20) : .allowed
     }
 }

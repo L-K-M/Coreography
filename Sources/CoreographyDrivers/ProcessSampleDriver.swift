@@ -51,11 +51,16 @@ public struct ProcessSampleDriver: ProcessSampling {
             return .failure(.failed("sample could not start: \(error)"))
         }
         guard !output.timedOut else { return .failure(.failed("sample did not finish in time")) }
-        guard output.exitStatus == 0, let text = try? String(contentsOf: report, encoding: .utf8) else {
+        guard output.exitStatus == 0 else {
             let message = String(decoding: output.data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
             return .failure(.failed(message.isEmpty ? "sample exited with status \(output.exitStatus)" : message))
         }
-        return .success(text)
+        // A clean exit without a readable report is its own failure, not "status 0".
+        do {
+            return .success(try String(contentsOf: report, encoding: .utf8))
+        } catch {
+            return .failure(.failed("sample finished but its report could not be read: \(error)"))
+        }
         #else
         return .failure(.unsupportedPlatform)
         #endif

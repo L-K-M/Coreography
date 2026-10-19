@@ -55,7 +55,7 @@ public struct ProcessActionRequest: Identifiable, Sendable {
 
 /// Who placed a marker: the person's own actions stand apart from what
 /// the system did.
-public enum MarkerKind: Sendable {
+public enum MarkerKind: String, Codable, Sendable {
     /// action: the person's process actions; note: markers they named or pauses they made.
     case action, alert, system, note
 }
@@ -107,15 +107,18 @@ enum ProcessActions {
         case .resume:
             consequences.append("It continues where it stopped.")
         case .hangUp:
+            // Both default to ending the process, so a session process logs you out.
+            if endsSession { consequences.append("This logs you out; unsaved work in every app is lost.") }
             consequences.append("Many daemons reload their settings; other processes may exit.")
         case .interrupt:
+            if endsSession { consequences.append("This logs you out; unsaved work in every app is lost.") }
             consequences.append("As Control-C: most command-line tools stop.")
         case .lowerPriority:
             consequences.append("It gets less CPU when others want it; only an administrator can raise it back.")
         }
         return ProcessActionRequest(
             target: process.id, name: process.name, action: action, consequences: consequences,
-            endsSession: endsSession && (action == .quit || action == .forceQuit), refusal: refusal
+            endsSession: endsSession && [.quit, .forceQuit, .hangUp, .interrupt].contains(action), refusal: refusal
         )
     }
 

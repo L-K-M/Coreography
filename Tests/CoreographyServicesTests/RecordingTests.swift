@@ -22,13 +22,16 @@ final class RecordingTests: XCTestCase {
         let redacted = Recording.make(name: "Build", range: range, frames: frames, ledger: ledger, markers: markers, naming: .redacted)
         let data = try Recording.encode(redacted)
         XCTAssertFalse(String(decoding: data, as: UTF8.self).contains("Secret"), "no app name leaves a redacted recording")
+        XCTAssertFalse(String(decoding: data, as: UTF8.self).contains("Mail"))
         XCTAssertFalse(String(decoding: data, as: UTF8.self).contains("Launched the build"), "nor the person's marker names")
         let read = try Recording.decode(data)
         XCTAssertEqual(read.ledger.count, 2)
         XCTAssertEqual(Set(read.ledger.flatMap(\.entries).map(\.app)), ["App 1", "App 2"])
         XCTAssertTrue(read.ledger.allSatisfy { interval in interval.entries.first { $0.app == "App 1" }?.cpuSeconds == 4 },
                       "the same app keeps one placeholder, ranked by CPU")
+        XCTAssertTrue(read.ledger.allSatisfy { interval in interval.entries.first { $0.app == "App 2" }?.cpuSeconds == 0.8 })
         XCTAssertEqual(read.markers.map(\.label), ["Marker", "Sleep"])
+        XCTAssertEqual(read.markers.map(\.kind), [.note, .system], "a marker keeps its kind")
 
         let named = Recording.make(name: "Build", range: range, frames: frames, ledger: ledger, markers: markers, naming: .named)
         XCTAssertTrue(named.ledger.flatMap(\.entries).contains { $0.app == "Secret Project" })
@@ -45,8 +48,9 @@ final class RecordingTests: XCTestCase {
             name: "x", range: epoch...epoch, frames: DashboardFrames(host: [], network: [], disks: [], gpu: [], power: [], sensors: []),
             ledger: AppLedger(capacity: 1), markers: [], naming: .named
         )
-        var json = try XCTUnwrap(String(data: try Recording.encode(backwards), encoding: .utf8))
-        json = json.replacingOccurrences(of: "\"start\":\"2023-11-14T22:13:20Z\"", with: "\"start\":\"2024-11-14T22:13:20Z\"")
+        let encoded = try XCTUnwrap(String(data: try Recording.encode(backwards), encoding: .utf8))
+        let json = encoded.replacingOccurrences(of: "\"start\":\"2023-11-14T22:13:20Z\"", with: "\"start\":\"2024-11-14T22:13:20Z\"")
+        XCTAssertNotEqual(json, encoded, "the fixture moved the start past the end")
         XCTAssertThrowsError(try Recording.decode(Data(json.utf8))) { XCTAssertEqual($0 as? Recording.Failure, .invalidRange) }
     }
 
@@ -65,19 +69,50 @@ final class RecordingTests: XCTestCase {
         let data = try XCTUnwrap(model.recordingData(name: "Saved"))
         model.returnToNow()
 
-        XCTAssertNil(model.openRecording(data))
-        XCTAssertEqual(model.openRecording?.name, "Saved")
+        let opened = await model.openRecording(data, fileName: "Build log")
+        XCTAssertNil(opened)
+        XCTAssertEqual(model.openRecording?.name, "Build log", "the file's name, which the person chose, names it")
         XCTAssertEqual(model.displayMode, .held)
         XCTAssertEqual(model.frames.first?.stamp.wallTime, start)
         XCTAssertNil(model.selection, "a recording opens without a selection")
         XCTAssertTrue(model.timelineMarkers.contains { $0.label == "Here" })
+        XCTAssertEqual(model.timelineMarkers.filter { $0.label == "Memory pressure warning" }.count, 1,
+                       "system markers come again from the frames, not twice")
         XCTAssertNil(model.processSnapshot, "no live process detail mixed into a replay")
 
         model.toggleDisplayHold()
         XCTAssertNil(model.openRecording)
         XCTAssertEqual(model.displayMode, .live)
-        XCTAssertEqual(model.openRecording(Data("x".utf8)), "The recording could not be read: not a Coreography recording")
+        let refused = await model.openRecording(Data("x".utf8))
+        XCTAssertEqual(refused, "The recording could not be read: not a Coreography recording")
         XCTAssertEqual(model.actionMessage, "The recording could not be read: not a Coreography recording")
+    }
+
+    /// The later of two opens wins, even when the earlier file takes longer to read.
+    @MainActor
+    func testTheLastRecordingOpenedIsTheOneShown() async throws {
+        let model = DashboardModel(monitor: try SystemMonitor(driver: Host()), interval: .milliseconds(10))
+        let range = epoch...epoch.addingTimeInterval(10)
+        let frames = DashboardFrames(host: [], network: [], disks: [], gpu: [], power: [], sensors: [])
+        let many = (0..<60_000).map { TimelineMarker(time: epoch.addingTimeInterval(Double($0 % 10)), label: "m\($0)", kind: .note) }
+        let slow = try Recording.encode(Recording.make(
+            name: "Slow", range: range, frames: frames, ledger: AppLedger(capacity: 1), markers: many, naming: .named
+        ))
+        let quick = try Recording.encode(Recording.make(
+            name: "Quick", range: range, frames: frames, ledger: AppLedger(capacity: 1), markers: [], naming: .named
+        ))
+        let first = Task { await model.openRecording(slow, fileName: "Slow") }
+        let second = Task { await model.openRecording(quick, fileName: "Quick") }
+        _ = await (first.value, second.value)
+        XCTAssertEqual(model.openRecording?.name, "Quick")
+
+        // Returning to live while a file is still being read keeps the window live.
+        let late = Task { await model.openRecording(slow, fileName: "Late") }
+        await Task.yield()
+        model.toggleDisplayHold()
+        if model.displayMode == .held { model.toggleDisplayHold() }
+        _ = await late.value
+        XCTAssertNil(model.openRecording?.name == "Late" ? model.openRecording : nil, "a dismissed open does not land")
     }
 
     // MARK: Fixtures
@@ -115,7 +150,8 @@ private actor Host: HostSampleReading {
                 fileBacked: 1, pageIns: 0, swapIns: 0, swapOuts: 0, pageSizeBytes: 4096
             )),
             swap: .success(SwapUsage(totalBytes: 8192, usedBytes: 0)),
-            memoryPressure: .success(.normal), thermalPressure: .success(.nominal)
+            // Pressure rises once, so the recording holds one system marker.
+            memoryPressure: .success(reads >= 3 ? .warning : .normal), thermalPressure: .success(.nominal)
         )
     }
 }

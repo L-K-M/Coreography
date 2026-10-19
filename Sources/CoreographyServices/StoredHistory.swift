@@ -40,6 +40,15 @@ enum StoredTier: Sendable {
         return span > recentRetention ? .day : .recent
     }
 
+    /// How long one stored value spans: a reading is an instant, a bucket its width.
+    var span: TimeInterval {
+        switch self {
+        case .recent: 0
+        case .day: HistoryStore.dayBucket
+        case .month: HistoryStore.monthBucket
+        }
+    }
+
     /// A silence longer than three sampling steps (sleep, the app not running) is a gap.
     var maximumGap: TimeInterval {
         switch self {
@@ -157,8 +166,12 @@ struct StoredHistory: Sendable {
     }
 
     /// Readings or buckets in the range that predate `cutoff`, where live data takes over.
+    /// A bucket counts only if it ends before live data starts, or its readings would count twice.
     func values(_ metric: HistoryMetric, in range: ClosedRange<Date>, before cutoff: Date) -> [StoredValue] {
-        (reportValues[metric] ?? []).filter { range.contains($0.time) && $0.time < cutoff }
+        let span = tier.span
+        return (reportValues[metric] ?? []).filter {
+            range.contains($0.time) && (span == 0 ? $0.time < cutoff : $0.time.addingTimeInterval(span) <= cutoff)
+        }
     }
 
     /// Missing readings and silences longer than `maximumGap` start new segments.

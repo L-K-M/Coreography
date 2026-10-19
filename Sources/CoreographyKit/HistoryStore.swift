@@ -270,6 +270,8 @@ public actor HistoryStore {
             Self.excludeFromBackups(directory)
         } catch let error as SQLiteError {
             throw HistoryStoreError.storage(error.message)
+        } catch let error as HistoryStoreError {
+            throw error
         } catch {
             throw HistoryStoreError.storage("\(error)")
         }

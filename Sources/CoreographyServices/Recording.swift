@@ -39,6 +39,8 @@ public enum Recording {
     public struct Marker: Codable, Equatable, Sendable {
         public let time: Date
         public let label: String
+        /// Absent in recordings saved before kinds were kept.
+        public var kind: MarkerKind?
     }
 
     public struct Document: Codable, Sendable {
@@ -100,7 +102,7 @@ public enum Recording {
             },
             // A person's marker names can identify work; a redacted recording keeps their times only.
             markers: markers.filter { range.contains($0.time) }.map {
-                Marker(time: $0.time, label: naming == .named || $0.kind != .note ? $0.label : "Marker")
+                Marker(time: $0.time, label: naming == .named || $0.kind != .note ? $0.label : "Marker", kind: $0.kind)
             }
         )
     }

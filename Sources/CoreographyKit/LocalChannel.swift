@@ -23,6 +23,20 @@ public final class LocalChannel: @unchecked Sendable {
     public func close() { connection.close() }
 }
 
+public enum LocalChannelError: Error, Equatable, CustomStringConvertible, Sendable {
+    /// The listener was closed; waiting for clients ends.
+    case closed
+    /// Another live listener, such as a second copy of the app, holds the endpoint.
+    case inUse
+
+    public var description: String {
+        switch self {
+        case .closed: "the listener was closed"
+        case .inUse: "another copy of Coreography already listens there"
+        }
+    }
+}
+
 /// Listens on a socket inside a directory only this user can open.
 public final class LocalChannelListener: @unchecked Sendable {
     private static let directoryPermissions = 0o700
@@ -34,10 +48,20 @@ public final class LocalChannelListener: @unchecked Sendable {
             at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: Self.directoryPermissions]
         )
         try FileManager.default.setAttributes([.posixPermissions: Self.directoryPermissions], ofItemAtPath: directory.path)
-        listener = try LocalSocketListener(path: path)
+        do {
+            listener = try LocalSocketListener(path: path)
+        } catch LocalSocketError.inUse {
+            throw LocalChannelError.inUse
+        }
     }
 
-    public func accept() async throws -> LocalChannel { LocalChannel(try await listener.accept()) }
+    public func accept() async throws -> LocalChannel {
+        do {
+            return LocalChannel(try await listener.accept())
+        } catch LocalSocketError.closed {
+            throw LocalChannelError.closed
+        }
+    }
 
     public func close() { listener.close() }
 }

@@ -66,7 +66,7 @@ public struct VolumeList: Codable, Equatable, Sendable {
 }
 
 /// Why a Shortcut did not run to completion.
-public enum ShortcutFailure: Error, Equatable, Sendable {
+public enum ShortcutFailure: Error, Equatable, Sendable, CustomStringConvertible {
     case invalidName
     case unavailable(String)
     case failed(Int32)

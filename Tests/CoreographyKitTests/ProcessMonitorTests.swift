@@ -77,6 +77,28 @@ final class ProcessMonitorTests: XCTestCase {
         XCTAssertNil(power.numericValue)
     }
 
+    func testWithoutAnyEnergyCounterIdleProcessesAreNotZeroWattsEither() async throws {
+        let monitor = try makeMonitor([
+            fixture(time: 1, rows: [row(pid: 42, time: 1, cpu: 1_000_000_000), row(pid: 43, time: 1)]),
+            fixture(time: 3, rows: [row(pid: 42, time: 3, cpu: 2_000_000_000), row(pid: 43, time: 3)])
+        ])
+        _ = try await monitor.sample()
+        let second = try await monitor.sample()
+        XCTAssertEqual(second.processes.map(\.cpuPowerWatts.availability), [.unsupported, .unsupported],
+                       "no process on this Mac has a counter, so none gets an estimate")
+    }
+
+    func testWithACounterOnThisMacAnIdleProcessDrawsZero() async throws {
+        let monitor = try makeMonitor([
+            fixture(time: 1, rows: [row(pid: 42, time: 1, cpu: 1_000_000_000, energy: 5), row(pid: 43, time: 1)]),
+            fixture(time: 3, rows: [row(pid: 42, time: 3, cpu: 2_000_000_000, energy: 9), row(pid: 43, time: 3)])
+        ])
+        _ = try await monitor.sample()
+        let idle = try await monitor.sample().processes.last?.cpuPowerWatts
+        XCTAssertEqual(idle?.availability, .estimated)
+        XCTAssertEqual(idle?.numericValue, 0)
+    }
+
     func testGPUTimeJoinsByPIDEvenWhereUsageIsRestricted() async throws {
         let monitor = try makeMonitor(
             [

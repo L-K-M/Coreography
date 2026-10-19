@@ -20,6 +20,7 @@ struct AskPanel: View {
                 if model.hasProviderKey {
                     HStack {
                         TextField("Why is my Mac slow?", text: $question)
+                            .modifier(ReportsTyping(model: model, field: "ask"))
                             .textFieldStyle(.roundedBorder)
                             .onSubmit { model.ask(question) }
                         if case .asking = model.askState {
@@ -118,7 +119,7 @@ struct SettingsView: View {
                         ForEach(names, id: \.self) { Text($0).tag($0) }
                     }
                 }
-                Text(model.availableShortcuts == nil
+                Text(model.shortcutsUnlisted
                      ? "Shortcuts could not be listed; rules still tint their lane and notify."
                      : "A rule runs its Shortcut when it is raised, at most once every 15 minutes.")
                     .font(.caption).foregroundStyle(.secondary)
@@ -168,7 +169,7 @@ struct SettingsView: View {
                 Slider(value: $hud.settings.textScale, in: HUDSettings.textScaleRange) { Text("Text size") }
                 Toggle("Dark backing behind text", isOn: $hud.settings.scrim)
                 Toggle("Let clicks pass through", isOn: $hud.settings.clickThrough)
-                Text("Turn click-through off to drag the HUD; it remembers where you put it on each display. Option-Command-H shows it, Option-Command-J changes what it shows. Frame rate needs macOS 27.")
+                Text("Turn click-through off to drag the HUD; it remembers where you put it on each display. Control-Command-H shows it, Control-Command-J changes what it shows. Frame rate needs macOS 27.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section("Dock") {
@@ -177,13 +178,14 @@ struct SettingsView: View {
                     Text("CPU graph").tag(DockIconStyle.cpu)
                     Text("Memory graph").tag(DockIconStyle.memory)
                 }
-                Text("A graph redraws the Dock icon once a second.").font(.caption).foregroundStyle(.secondary)
+                Text("A graph redraws the Dock icon with every sample.").font(.caption).foregroundStyle(.secondary)
             }
             Section("Data sources") {
                 ForEach(model.dataSources, id: \.metric) { source in
                     VStack(alignment: .leading, spacing: 2) {
                         Text("\(source.metric): \(source.availability.rawValue)")
-                        if let detail = source.reason ?? source.source.map({ [$0.provider, $0.driver, $0.channel].compactMap { $0 }.joined(separator: " · ") }) {
+                        if let detail = source.reason ?? source.source.map({ [$0.provider, $0.driver, $0.channel].compactMap { $0 }.joined(separator: " · ") }),
+                           !detail.isEmpty {
                             Text(detail).font(.caption).foregroundStyle(.secondary)
                         }
                     }
@@ -230,7 +232,8 @@ private enum RetentionText {
         guard let bytes else { return String(localized: "Stored size unknown") }
         let used = ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
         let cap = ByteCountFormatter.string(fromByteCount: HistoryRetention.sizeCap, countStyle: .file)
-        return String(localized: "Now \(used) on disk; never more than \(cap)")
+        // Live pages only: freed pages and the write-ahead log can make the file itself larger.
+        return String(localized: "Now \(used) of history; never more than \(cap)")
     }
 }
 
@@ -245,6 +248,8 @@ private struct MenuBarSlot: View {
                 if slot > 0 { Text("None").tag(MenuBarMetric?.none) }
                 ForEach(MenuBarMetric.allCases) { metric in Text(MenuBarText.name(metric)).tag(MenuBarMetric?.some(metric)) }
             }
+            // Slots fill in order, so a slot after an empty one waits.
+            .disabled(slot > model.menuBarItems.count)
             if slot < model.menuBarItems.count {
                 Picker("Style", selection: style) {
                     Text("Value").tag(MenuBarStyle.value)
@@ -260,17 +265,7 @@ private struct MenuBarSlot: View {
     private var metric: Binding<MenuBarMetric?> {
         Binding(
             get: { slot < model.menuBarItems.count ? model.menuBarItems[slot].metric : nil },
-            set: { chosen in
-                var items = model.menuBarItems
-                if let chosen {
-                    let item = MenuBarItem(metric: chosen, style: slot < items.count ? items[slot].style : .value)
-                    items.removeAll { $0.metric == chosen }
-                    if slot < items.count { items[slot] = item } else { items.append(item) }
-                } else if slot < items.count {
-                    items.remove(at: slot)
-                }
-                model.menuBarItems = items
-            }
+            set: { model.menuBarItems = MenuBarLayout.choosing($0, at: slot, in: model.menuBarItems) }
         )
     }
 

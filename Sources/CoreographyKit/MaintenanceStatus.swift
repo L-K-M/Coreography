@@ -109,7 +109,8 @@ enum TimeMachineStatusParser {
         return .backingUp(BackupProgress(
             phase: status["BackupPhase"] as? String,
             fraction: fraction.flatMap { (0...1).contains($0) ? $0 : nil },
-            remainingSeconds: remaining.flatMap { $0 >= 0 ? Int($0) : nil }
+            // Int(exactly:) of the rounded value: an absurd estimate is unknown, not a trap.
+            remainingSeconds: remaining.flatMap { $0 >= 0 ? Int(exactly: $0.rounded()) : nil }
         ))
     }
 

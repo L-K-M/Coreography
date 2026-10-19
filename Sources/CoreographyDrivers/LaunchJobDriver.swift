@@ -12,6 +12,19 @@ public enum LaunchDomain: String, CaseIterable, Sendable {
     case systemAgents
     /// `/System/Library/LaunchDaemons`: Apple's, sealed by SIP.
     case systemDaemons
+
+    /// Where launchd keeps this domain's enable and disable overrides.
+    public var overrides: LaunchOverrideDomain {
+        switch self {
+        case .userAgents, .agents, .systemAgents: .user
+        case .daemons, .systemDaemons: .system
+        }
+    }
+}
+
+/// `launchctl print-disabled gui/<uid>` for agents, `system` for daemons.
+public enum LaunchOverrideDomain: Hashable, Sendable {
+    case user, system
 }
 
 public enum CodeSignature: Sendable {
@@ -40,8 +53,8 @@ public struct RawLaunchJobs: Sendable {
     public let jobs: [RawLaunchJob]
     /// Property lists that could not be read or lack a label.
     public let unreadable: Int
-    /// launchd's enable and disable overrides by label, which win over the plist.
-    public let overrides: [String: Bool]
+    /// launchd's enable and disable overrides by domain and label, which win over the plist.
+    public let overrides: [LaunchOverrideDomain: [String: Bool]]
     /// Why overrides could not be read, when they could not.
     public let overridesProblem: String?
 }
@@ -128,10 +141,10 @@ public struct LaunchJobDriver: LaunchJobReading {
         return result
     }
 
-    private func readOverrides() async -> ([String: Bool], String?) {
+    private func readOverrides() async -> ([LaunchOverrideDomain: [String: Bool]], String?) {
         #if os(macOS)
-        var overrides: [String: Bool] = [:]
-        for domain in ["gui/\(getuid())", "system"] {
+        var overrides: [LaunchOverrideDomain: [String: Bool]] = [:]
+        for (key, domain) in [(LaunchOverrideDomain.user, "gui/\(getuid())"), (.system, "system")] {
             do {
                 let output = try await runner.run(
                     Self.launchctl, arguments: ["print-disabled", domain],
@@ -140,7 +153,7 @@ public struct LaunchJobDriver: LaunchJobReading {
                 guard output.exitStatus == 0, !output.timedOut, !output.truncated else {
                     return (overrides, "launchctl print-disabled \(domain) did not finish cleanly")
                 }
-                overrides.merge(Self.overrides(String(decoding: output.data, as: UTF8.self))) { user, _ in user }
+                overrides[key] = Self.overrides(String(decoding: output.data, as: UTF8.self))
             } catch {
                 return (overrides, "launchctl could not start: \(error)")
             }

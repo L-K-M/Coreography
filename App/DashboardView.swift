@@ -244,7 +244,11 @@ struct DashboardView: View {
             }
             ToolbarItem(placement: .primaryAction) {
                 Button("Marker", systemImage: "flag") { model.markerPromptShown = true }
-                    .keyboardShortcut(processFilterFocused ? nil : KeyboardShortcut("m", modifiers: []))
+                    // A plain letter must not fire while any text field takes typing.
+                    .keyboardShortcut(
+                        processFilterFocused || model.paletteShown || model.markerPromptShown || !model.typingFields.isEmpty
+                            ? nil : KeyboardShortcut("m", modifiers: [])
+                    )
                     .help("Drop a named marker on every lane (M)")
             }
             ToolbarItem(placement: .primaryAction) {
@@ -255,7 +259,9 @@ struct DashboardView: View {
                 ) {
                     model.samplingPaused ? model.resumeSampling() : model.pauseSampling()
                 }
-                .help("Stop sampling; the pause stays as a labelled gap in every series")
+                .help(model.samplingPaused
+                      ? "Start sampling again; the pause stays as a labelled gap in every series"
+                      : "Stop sampling; the pause stays as a labelled gap in every series")
             }
             ToolbarItem(placement: .primaryAction) {
                 Button(
@@ -296,7 +302,10 @@ struct DashboardView: View {
         let points = visiblePoints(model.points(for: metric), start, end)
         let scoped = metric == .cpu ? model.scopedSeries().map { visiblePoints($0.cpu, start, end) } : nil
         let split = metric == .cpu ? model.cpuSplitPoints().filter { (start...end).contains($0.time) } : []
-        let tiers = metric == .cpu ? model.tierBandCells().filter { $0.end >= start && $0.start <= end } : []
+        let allTiers = metric == .cpu ? model.tierBandCells() : []
+        let tiers = allTiers.filter { $0.end >= start && $0.start <= end }
+        // Rows come from every recorded tier, so scrubbing never adds or drops one.
+        let tierRows = Array(Set(allTiers.map(\.tier))).sorted()
 
         return HStack(alignment: .top, spacing: 24) {
             VStack(alignment: .leading, spacing: 10) {
@@ -409,7 +418,7 @@ struct DashboardView: View {
                     ))
                     // Sheds first when the lane is compact (plan: lane sizes).
                     if laneSize != .compact, !tiers.isEmpty {
-                        TierStrip(cells: tiers, range: start...end)
+                        TierStrip(cells: tiers, tiers: tierRows, range: start...end)
                     }
                 }
             }
@@ -854,19 +863,18 @@ private enum PowerText {
     /// "Kept awake by Music (Playing audio, 12 min) and 1 other" (plan P2).
     static func keptAwake(_ holders: [AssertionHolder]) -> String? {
         guard let first = holders.first else { return nil }
-        let others = holders.count > 1 ? String(localized: " and \(holders.count - 1) other") : ""
+        let others = holders.count > 1 ? " " + String(localized: "and \(holders.count - 1) other") : ""
         return String(localized: "Kept awake by \(first.processName ?? "PID \(first.assertion.pid)") (\(detail(first.assertion)))") + others
     }
 
     /// "Prevents system sleep: Playing audio, 12 min".
     static func assertion(_ assertion: CapturedAssertion) -> String {
-        let effect: String
         switch assertion.effect {
-        case .preventsSystemSleep: effect = String(localized: "Prevents system sleep")
-        case .preventsDisplaySleep: effect = String(localized: "Keeps the display on")
-        case .other: effect = assertion.type
+        case .preventsSystemSleep: String(localized: "Prevents system sleep") + ": " + detail(assertion)
+        case .preventsDisplaySleep: String(localized: "Keeps the display on") + ": " + detail(assertion)
+        // The detail already falls back to the type; naming it twice says nothing.
+        case .other: assertion.name == nil ? detail(assertion) : assertion.type + ": " + detail(assertion)
         }
-        return effect + ": " + detail(assertion)
     }
 
     private static func detail(_ assertion: CapturedAssertion) -> String {
@@ -1524,7 +1532,7 @@ private struct ProcessPane: View {
                         .width(60)
                     TableColumn("UID") { Text($0.process?.uid.formatted(.number.grouping(.never)) ?? "") }
                         .width(65)
-                    TableColumn(ProcessText.cpuColumn(model.processCPUScale)) { (row: ProcessRow) in
+                    TableColumn(ProcessText.cpuColumn(model.processCPUScaleInEffect)) { (row: ProcessRow) in
                         ProcessMetricCell(reading: row.cpuPercentOfMachine, format: .percent,
                                           heat: heat.cpu(row), hue: .blue, scale: model.processCPUFactor)
                     }
@@ -1540,7 +1548,7 @@ private struct ProcessPane: View {
                         ProcessMetricCell(reading: $0.diskWriteBytesPerSecond, format: .rate,
                                           heat: heat.write($0), hue: .orange)
                     }
-                    TableColumn("Wakeups/s") { Text(WakeupText.rate($0.wakeupsPerSecond.numericValue)) }
+                    TableColumn("Wakeups/s") { ProcessMetricCell(reading: $0.wakeupsPerSecond, format: .wakeups) }
                     TableColumn("Network in/out") { row in
                         Text(NetworkText.processRates(row))
                             .monospacedDigit()
@@ -1551,16 +1559,16 @@ private struct ProcessPane: View {
                     // because a group cannot infer its row.
                     Group {
                         TableColumn("GPU ms/s") { (row: ProcessRow) in
-                            Text(ProcessText.gpuTime(row.gpuMillisecondsPerSecond.numericValue))
-                                .monospacedDigit()
-                                .help(row.gpuMillisecondsPerSecond.reason
-                                      ?? String(localized: "GPU time per second, not the GPU lane's busy percentage; overlapping work can exceed 1000"))
+                            ProcessMetricCell(
+                                reading: row.gpuMillisecondsPerSecond, format: .gpuTime,
+                                note: String(localized: "GPU time per second, not the GPU lane's busy percentage; overlapping work can exceed 1000")
+                            )
                         }
                         TableColumn("CPU power") { (row: ProcessRow) in
-                            Text(ProcessText.power(row.cpuPowerWatts.numericValue))
-                                .monospacedDigit()
-                                .help(row.cpuPowerWatts.reason
-                                      ?? String(localized: "Estimated by the kernel's CPU energy model; GPU work is not included"))
+                            ProcessMetricCell(
+                                reading: row.cpuPowerWatts, format: .processWatts,
+                                note: String(localized: "Estimated by the kernel's CPU energy model; GPU work is not included")
+                            )
                         }
                     }
                 }
@@ -1581,7 +1589,7 @@ private struct ProcessPane: View {
                         .help("Exit status is not available without the helper")
                 }
 
-                Text("\(ProcessText.cpuScaleNote(model.processCPUScale)) App totals sum their members; footprint sums can count shared memory twice. Process sampling: 2 s; short-lived processes can be missed.")
+                Text("\(ProcessText.cpuScaleNote(model.processCPUScaleInEffect)) App totals sum their members; footprint sums can count shared memory twice. Process sampling: 2 s; short-lived processes can be missed.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -1600,13 +1608,17 @@ private struct SavedFilterChips: View {
         HStack(spacing: 6) {
             Button("Save filter", systemImage: "bookmark") { model.saveProcessFilter() }
                 .labelStyle(.iconOnly)
-                .disabled(model.processFilter.trimmingCharacters(in: .whitespaces).isEmpty)
+                .disabled(!model.canSaveProcessFilter)
                 .help("Keep this filter as a chip")
             ForEach(model.savedFilters, id: \.self) { filter in
+                let active = model.processFilter.trimmingCharacters(in: .whitespacesAndNewlines) == filter
                 Button(filter) { model.processFilter = filter }
+                    .lineLimit(1)
                     .buttonStyle(.bordered)
                     .buttonBorderShape(.capsule)
                     .controlSize(.small)
+                    .tint(active ? .accentColor : nil)
+                    .help("Click to filter; right-click to remove")
                     .contextMenu { Button("Remove", role: .destructive) { model.removeSavedFilter(filter) } }
             }
         }
@@ -1641,6 +1653,8 @@ private struct ProcessActionConfirmation: ViewModifier {
 private struct SampleReportView: View {
     let model: DashboardModel
     @State private var exportFile: ExportFile?
+    @State private var exportName = "Coreography sample"
+    @State private var exportError: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -1659,7 +1673,12 @@ private struct SampleReportView: View {
                     Text(report.text).font(.caption.monospaced()).textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                Button("Save…") { exportFile = ExportFile(data: Data(report.text.utf8)) }
+                Button("Save…") {
+                    exportError = nil
+                    exportName = "Sample of \(report.name)"
+                    exportFile = ExportFile(data: Data(report.text.utf8))
+                }
+                if let exportError { Text("Not saved: \(exportError)").font(.caption).foregroundStyle(.red) }
             }
             HStack {
                 Spacer()
@@ -1671,8 +1690,10 @@ private struct SampleReportView: View {
         .frame(minWidth: 640, minHeight: 420)
         .fileExporter(
             isPresented: Binding(get: { exportFile != nil }, set: { if !$0 { exportFile = nil } }),
-            document: exportFile, contentType: .plainText, defaultFilename: "Coreography sample"
-        ) { _ in }
+            document: exportFile, contentType: .plainText, defaultFilename: exportName
+        ) { result in
+            if case .failure(let error) = result { exportError = error.localizedDescription } else { exportError = nil }
+        }
     }
 }
 
@@ -1682,7 +1703,7 @@ private enum QuitEntries {
 }
 
 /// Every action for one process (plan: Quit, Force Quit, Suspend and Resume,
-/// Send Signal, Renice, Reveal in Finder, Copy). Each confirms first.
+/// Send Signal, Renice, Reveal in Finder, Copy). Each confirms first, except Resume, which only undoes a suspend.
 private struct ProcessActionMenu: View {
     let model: DashboardModel
     let process: ObservedProcess
@@ -1788,7 +1809,7 @@ private struct InspectorView: View {
         }
 
         InspectorSection("Now") {
-            Text(ProcessText.cpu(process.cpuPercentOfMachine.numericValue, model.processCPUScale, factor: model.processCPUFactor))
+            Text(ProcessText.cpu(process.cpuPercentOfMachine.numericValue, model.processCPUScaleInEffect, factor: model.processCPUFactor))
             Text("Footprint \(MetricText.bytes(process.memoryFootprintBytes.numericValue))")
             Text("Disk \(MetricText.bytes(process.diskReadBytesPerSecond.numericValue))/s read, \(MetricText.bytes(process.diskWriteBytesPerSecond.numericValue))/s written")
             Text(WakeupText.rate(process.wakeupsPerSecond.numericValue))
@@ -1803,7 +1824,7 @@ private struct InspectorView: View {
         }
 
         InspectorSection("Since selected") {
-            ProcessHistoryCharts(points: model.selectedProcessHistory)
+            ProcessHistoryCharts(points: model.selectedProcessHistory, span: model.selectedHistorySpan)
         }
 
         InspectorSection("Identity") {
@@ -1835,14 +1856,20 @@ private struct InspectorView: View {
                 if files.count > InspectorText.fileLimit {
                     Text("and \(files.count - InspectorText.fileLimit) more").font(.caption).foregroundStyle(.secondary)
                 }
+                if model.inspectedFilesCut {
+                    Text("It holds more open files than one read keeps; this list is not all of them.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
             } else {
                 Text(inspection.detail == nil ? "Reading…" : "Could not be read").foregroundStyle(.secondary)
             }
         }
 
         if !model.selectedAssertions.isEmpty {
-            InspectorSection("Sleep assertions") {
-                ForEach(model.selectedAssertions) { assertion in
+            // Assertions are only ever read now, so a held display says so.
+            InspectorSection(model.displayMode == .live ? "Sleep assertions" : "Sleep assertions now") {
+                // One process can hold two alike assertions; position keeps the rows apart.
+                ForEach(Array(model.selectedAssertions.enumerated()), id: \.offset) { _, assertion in
                     Text(PowerText.assertion(assertion))
                 }
             }
@@ -2003,6 +2030,7 @@ private struct ConnectionsPane: View {
         DisclosureGroup("Connections") {
             VStack(alignment: .leading, spacing: 10) {
                 TextField("Filter: app, process, address or port", text: $model.connectionFilter)
+                    .modifier(ReportsTyping(model: model, field: "connections"))
                     .textFieldStyle(.roundedBorder)
                 Text(ConnectionText.coverage(model.connectionSnapshot))
                     .font(.caption)
@@ -2048,7 +2076,7 @@ private struct StartupPane: View {
                     TableColumn("Kind") { Text(StartupText.kind($0.item.kind)) }
                     TableColumn("State") { Text(StartupText.state($0.item)) }
                     TableColumn("Running") { Text($0.processCount == 0 ? "–" : "\($0.processCount)") }
-                    TableColumn(ProcessText.cpuColumn(model.processCPUScale)) { (row: StartupRow) in
+                    TableColumn(ProcessText.cpuColumn(model.processCPUScaleInEffect)) { (row: StartupRow) in
                         Text(MetricText.percent(row.cpuPercentOfMachine.map { $0 * model.processCPUFactor }))
                     }
                     TableColumn("Footprint") { Text(MetricText.bytes($0.memoryFootprintBytes)) }
@@ -2183,6 +2211,7 @@ private struct SessionNameField: View {
 
     var body: some View {
         TextField("Name", text: $name)
+            .modifier(ReportsTyping(model: model, field: "session-\(session.id)"))
             .textFieldStyle(.roundedBorder)
             .frame(width: 200)
             .onAppear { name = session.name }
@@ -2205,9 +2234,9 @@ private struct SessionComparisonView: View {
                             LineMark(
                                 x: .value("Seconds from start", point.offset),
                                 y: .value(metric.metric, point.value),
-                                series: .value("Session", series.name)
+                                series: .value("Session", series.label)
                             )
-                            .foregroundStyle(by: .value("Session", series.name))
+                            .foregroundStyle(by: .value("Session", series.label))
                         }
                     }
                 }
@@ -2332,7 +2361,7 @@ private enum ConnectionText {
 }
 
 private struct ProcessMetricCell: View {
-    enum Format { case percent, bytes, rate, watts }
+    enum Format { case percent, bytes, rate, watts, wakeups, gpuTime, processWatts }
     let reading: DashboardReading
     let format: Format
     /// 0-1 share of the column's largest value; shades the cell in its subsystem hue.
@@ -2340,13 +2369,15 @@ private struct ProcessMetricCell: View {
     var hue: Color = .clear
     /// Display multiplier, such as whole-machine CPU to one core = 100 %.
     var scale = 1.0
+    /// What the column means, shown on hover when the reading has no reason or method.
+    var note: String?
 
     var body: some View {
         Text(label)
             .monospacedDigit()
             .padding(.horizontal, 4)
             .background(hue.opacity(min(max(heat, 0), 1) * 0.35), in: RoundedRectangle(cornerRadius: 3))
-            .help(reading.reason ?? reading.method ?? [reading.source?.provider, reading.source?.driver, reading.source?.channel]
+            .help(reading.reason ?? reading.method ?? note ?? [reading.source?.provider, reading.source?.driver, reading.source?.channel]
                 .compactMap { $0 }.joined(separator: " · "))
     }
 
@@ -2366,6 +2397,9 @@ private struct ProcessMetricCell: View {
         case .bytes: return MetricText.bytes(value) + suffix
         case .rate: return MetricText.bytes(value) + "/s" + suffix
         case .watts: return MetricText.watts(value) + suffix
+        case .wakeups: return WakeupText.rate(value) + suffix
+        case .gpuTime: return ProcessText.gpuTime(value) + suffix
+        case .processWatts: return ProcessText.power(value) + suffix
         }
     }
 }
@@ -2410,7 +2444,7 @@ private struct RangePanel: View {
             Text(RangeText.apps(String(localized: "Top disk"), report.topDiskApps) { MetricText.bytes($0.diskBytes) })
                 .font(.callout)
             if let network = report.topNetworkApps {
-                Text(RangeText.apps(String(localized: "Top network"), network) { MetricText.bytes($0.networkBytes) })
+                Text(RangeText.apps(String(localized: "Top network"), network, bound: \.networkIsLowerBound) { MetricText.bytes($0.networkBytes) })
                     .font(.callout)
             }
             Text(RangeText.coverage(report)).font(.caption).foregroundStyle(.secondary)
@@ -2503,15 +2537,21 @@ private enum RangeText {
     static func exportScope(_ document: RangeExport.Document?, requested: ClosedRange<Date>) -> String {
         guard let document else { return String(localized: "Export covers live data only, which this range predates.") }
         guard document.start > requested.lowerBound else { return "" }
-        let start = document.start.formatted(date: .omitted, time: .shortened)
+        // With the date: a long range often starts the day before live data does.
+        let start = document.start.formatted(date: .abbreviated, time: .shortened)
         return String(localized: "Export starts at \(start), where live data begins; recorded history is not exported yet.")
     }
 
     /// "Markers: 10:02 Memory pressure warning · 10:05 Wake: Lid Open".
+    /// A long range can hold dozens of transitions; the caption names the first few and counts the rest.
+    private static let shownMarkers = 8
+
     static func markers(_ markers: [TimelineMarker]) -> String {
-        String(localized: "Markers: ") + markers.map {
+        let shown = markers.prefix(shownMarkers).map {
             "\($0.time.formatted(date: .omitted, time: .shortened)) \($0.label)"
         }.joined(separator: " · ")
+        let more = markers.count - min(markers.count, shownMarkers)
+        return more == 0 ? String(localized: "Markers: \(shown)") : String(localized: "Markers: \(shown) · \(more) more")
     }
 
     /// "CPU mean 12% → 38%, memory peak 9.1 GB → 11.4 GB".
@@ -2528,10 +2568,11 @@ private enum RangeText {
 
     /// "Safari 0.20 → 1.05 cores · Xcode 0.9 → 0.1 cores".
     static func changes(_ comparison: RangeComparison) -> String {
+        guard comparison.coversBoth else { return String(localized: "No process samples fall in one of the ranges, so apps cannot be compared.") }
         guard !comparison.changes.isEmpty else { return String(localized: "No app changed by a hundredth of a core or more.") }
         let cores = FloatingPointFormatStyle<Double>.number.precision(.fractionLength(2))
         let items = comparison.changes.map { change in
-            let estimate = change.isLowerBound ? String(localized: " est.") : ""
+            let estimate = change.isLowerBound ? " " + String(localized: "est.") : ""
             return String(localized: "\(change.app) \(change.firstCores.formatted(cores)) → \(change.secondCores.formatted(cores)) cores\(estimate)")
         }
         return String(localized: "Biggest changes: ") + items.joined(separator: " · ")
@@ -2556,9 +2597,12 @@ private enum RangeText {
         return parts.isEmpty ? String(localized: "No samples in this range") : parts.joined(separator: " · ")
     }
 
-    static func apps(_ title: String, _ apps: [AppRangeTotal], value: (AppRangeTotal) -> String) -> String {
+    static func apps(
+        _ title: String, _ apps: [AppRangeTotal], bound: KeyPath<AppRangeTotal, Bool> = \.isLowerBound,
+        value: (AppRangeTotal) -> String
+    ) -> String {
         guard !apps.isEmpty else { return title + ": " + String(localized: "no recorded activity") }
-        let items = apps.map { $0.name + " " + value($0) + ($0.isLowerBound ? " " + String(localized: "est.") : "") }
+        let items = apps.map { $0.name + " " + value($0) + ($0[keyPath: bound] ? " " + String(localized: "est.") : "") }
         return title + ": " + items.joined(separator: " · ")
     }
 
@@ -2570,8 +2614,11 @@ private enum RangeText {
         guard let covered = report.covered else {
             return String(localized: "No process samples fall in this range.")
         }
-        let from = covered.lowerBound.formatted(date: .omitted, time: .standard)
-        let to = covered.upperBound.formatted(date: .omitted, time: .standard)
+        // Over a day or more, app totals can cover only part of it; the dates say which part.
+        let date: Date.FormatStyle.DateStyle = report.requested.upperBound.timeIntervalSince(report.requested.lowerBound) >= TimeRange.day.seconds
+            ? .abbreviated : .omitted
+        let from = covered.lowerBound.formatted(date: date, time: .standard)
+        let to = covered.upperBound.formatted(date: date, time: .standard)
         return String(localized: "\(report.activeAppCount) active apps; process samples cover \(from)–\(to). Own-user processes only; \"est.\" marks lower bounds.")
     }
 }
@@ -2809,7 +2856,7 @@ private struct SelfCostLine: View {
         } ?? String(localized: "CPU unavailable")
         let memory = MetricText.bytes(cost.footprintBytes.numericValue)
         let wakeups = WakeupText.rate(cost.wakeupsPerSecond.numericValue)
-        let budget = String(localized: "budget \(SelfCost.cpuBudgetPercentOfOneCore.formatted())% · \(MetricText.bytes(SelfCost.footprintBudgetBytes))")
+        let budget = String(localized: "budget \(SelfCost.cpuBudgetPercentOfOneCore.formatted())% · \(MetricText.bytes(SelfCost.footprintBudgetBytes)) · \(SelfCost.wakeupBudgetBeyondSampling.formatted()) wakeups/s beyond sampling")
         let note = over(cost) ? " · " + String(localized: "over budget") : ""
         return String(localized: "Coreography: \(cpu) · \(memory) · \(wakeups) (\(budget))") + note
     }
@@ -2914,6 +2961,8 @@ enum MetricText {
 private struct ProcessHistoryCharts: View {
     private static let chartHeight: CGFloat = 60
     let points: [ProcessHistoryPoint]
+    /// How far back the history reaches at the current cadence.
+    let span: TimeInterval
 
     var body: some View {
         if points.count < 2 {
@@ -2926,7 +2975,8 @@ private struct ProcessHistoryCharts: View {
                 Text("Footprint").font(.caption).foregroundStyle(.secondary)
                 chart(\.footprintBytes, color: .teal)
                 if let first = points.first?.time {
-                    Text("Since \(first.formatted(date: .omitted, time: .standard)); kept for an hour while selected")
+                    let kept = Duration.seconds(span).formatted(.units(allowed: [.hours, .minutes], width: .wide))
+                    Text("Since \(first.formatted(date: .omitted, time: .standard)); the last \(kept) kept while selected")
                         .font(.caption2).foregroundStyle(.secondary)
                 }
             }
@@ -2954,7 +3004,7 @@ enum NetworkText {
 
     static func rates(_ received: DashboardReading, _ sent: DashboardReading) -> String {
         guard received.numericValue != nil || sent.numericValue != nil else { return "–" }
-        let estimate = received.availability == .estimated || sent.availability == .estimated ? String(localized: " est.") : ""
+        let estimate = received.availability == .estimated || sent.availability == .estimated ? " " + String(localized: "est.") : ""
         return "↓\(MetricText.rate(received.numericValue)) ↑\(MetricText.rate(sent.numericValue))\(estimate)"
     }
 }
@@ -2986,7 +3036,7 @@ enum SiliconText {
         let parts = [("CPU", frame.cpuPowerWatts), ("GPU", frame.gpuPowerWatts), ("ANE", frame.anePowerWatts)]
             .filter { $0.1.numericValue != nil }
             .map { "\($0.0) \(MetricText.watts($0.1.numericValue))" }
-        return parts.joined(separator: " · ") + String(localized: " est.")
+        return parts.joined(separator: " · ") + " " + String(localized: "est.")
     }
 }
 
@@ -3041,10 +3091,10 @@ private extension EnvironmentValues {
 private struct TierStrip: View {
     private static let rowHeight: CGFloat = 10
     let cells: [TierBandCell]
+    let tiers: [String]
     let range: ClosedRange<Date>
 
     var body: some View {
-        let tiers = Array(Set(cells.map(\.tier))).sorted()
         Chart(cells) { cell in
             RectangleMark(
                 xStart: .value("Start", max(cell.start, range.lowerBound)), xEnd: .value("End", min(cell.end, range.upperBound)),
@@ -3137,7 +3187,8 @@ private struct LaneMenu: View {
         } label: {
             Image(systemName: "ellipsis.circle")
         }
-        .menuStyle(.borderlessButton)
+        .menuStyle(.button)
+        .buttonStyle(.borderless)
         .menuIndicator(.hidden)
         .fixedSize()
         .padding(6)
@@ -3165,5 +3216,20 @@ enum LaneText {
         case .regular: String(localized: "Regular")
         case .tall: String(localized: "Tall")
         }
+    }
+}
+
+/// A text field that tells the model while it takes typing, so plain-letter
+/// shortcuts such as M stand aside.
+struct ReportsTyping: ViewModifier {
+    let model: DashboardModel
+    let field: String
+    @FocusState private var focused: Bool
+
+    func body(content: Content) -> some View {
+        content
+            .focused($focused)
+            .onChange(of: focused) { _, typing in model.setTyping(field, typing) }
+            .onDisappear { model.setTyping(field, false) }
     }
 }

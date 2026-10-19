@@ -167,10 +167,10 @@ public actor DiagnosticService {
         return try await siliconMonitor.sample()
     }
 
-    /// Per-process network rates: a baseline, two seconds, then the interval.
     /// Every visible volume's capacity; one read, no baseline needed.
     public func volumes() async -> CapturedVolumes { await VolumeMonitor().volumes() }
 
+    /// Per-process network rates: a baseline, two seconds, then the interval.
     public func captureTrafficOnce() async throws -> CapturedTraffic {
         await trafficMonitor.reset()
         _ = try await trafficMonitor.sample()
@@ -210,11 +210,18 @@ public actor DiagnosticService {
             sensors: await sensorMonitor.history(), processes: processes, ledger: ledger,
             maintenance: await MaintenanceStatusProvider().load(), silicon: await siliconMonitor.history()
         )
+        // Only unread network leaves the network list out; any other failure is reported.
+        let topNetworkApps: TopAppsPage?
+        do {
+            topNetworkApps = try DiagnosticTools.topApps(snapshot, metric: .network)
+        } catch DiagnosticError.unavailable {
+            topNetworkApps = nil
+        }
         return DiagnosisReport(
             summary: DiagnosticTools.summary(snapshot),
             topCPUApps: try DiagnosticTools.topApps(snapshot, metric: .cpu),
             topDiskApps: try DiagnosticTools.topApps(snapshot, metric: .disk),
-            topNetworkApps: try? DiagnosticTools.topApps(snapshot, metric: .network),
+            topNetworkApps: topNetworkApps,
             dataSources: DiagnosticTools.dataSources(snapshot)
         )
     }
