@@ -180,7 +180,10 @@ public final class DashboardModel {
     /// Time Machine and Spotlight state when last read; nil until first read.
     public private(set) var maintenanceStatus: CapturedMaintenance?
     public var processSort: ProcessSort = .cpu
-    public var processGrouping: ProcessGrouping = .app
+    public var processGrouping: ProcessGrouping = .app {
+        // Choosing the by-user view again asks again for names a directory could not give.
+        didSet { if processGrouping == .user, oldValue != .user { accountsAsked = [] } }
+    }
     /// The shared hover time across all lanes; nil follows the live edge.
     public var cursorTime: Date?
     /// A new range reads its own stored span at once; the reload interval belongs to the old one.
@@ -282,6 +285,12 @@ public final class DashboardModel {
     @ObservationIgnored private var wakeImports = WakeImportSpacing()
     @ObservationIgnored private var alertEngine = AlertEngine(rules: AlertRules.shipped)
     @ObservationIgnored private var customAlertStore = CustomAlertRules(defaults: .standard)
+    @ObservationIgnored private let accounts = AccountDirectory()
+    /// Names for the by-user view, looked up off the main actor: a directory
+    /// service can take a moment for a UID it has not answered before.
+    private var accountNames: [UInt32: String] = [:]
+    @ObservationIgnored private var accountsAsked: Set<UInt32> = []
+    @ObservationIgnored private var accountLookup: Task<Void, Never>?
     @ObservationIgnored private var alertCooldown = AlertCooldown()
     /// Shortcut runs have their own cooldown, so a flapping rule cannot loop one.
     @ObservationIgnored private var shortcutCooldown = AlertCooldown()
@@ -1231,6 +1240,24 @@ public final class DashboardModel {
         }
     }
 
+    /// The names known now; UIDs not yet asked about are looked up in the
+    /// background, and their groups read their UID until the names arrive.
+    private func knownAccountNames() -> [UInt32: String] {
+        let uids = Set((processSnapshot?.processes ?? []).map(\.uid))
+        let unasked = uids.subtracting(accountsAsked)
+        guard !unasked.isEmpty, accountLookup == nil else { return accountNames }
+        accountsAsked.formUnion(unasked)
+        let accounts = accounts
+        let wanted = accountsAsked
+        accountLookup = Task { [weak self] in
+            let names = await Task.detached { accounts.names(for: wanted) }.value
+            guard let self else { return }
+            self.accountLookup = nil
+            if names != self.accountNames { self.accountNames = names }
+        }
+        return accountNames
+    }
+
     /// One process's TCP and UDP rates from the displayed traffic sample.
     public func networkRates(for process: ObservedProcess) -> (received: DashboardReading, sent: DashboardReading) {
         ProcessNetwork.rates(for: process, in: trafficSnapshot)
@@ -1244,7 +1271,9 @@ public final class DashboardModel {
             isNew: { lifecycle.isNew($0, at: time) },
             facts: ProcessFacts(
                 sockets: connectionSnapshot.map(SocketFacts.init), sleepPreventers: assertionSnapshot?.sleepPreventers,
-                openFiles: openFileSnapshot?.files, traffic: trafficSnapshot, cpuFactor: processCPUFactor
+                openFiles: openFileSnapshot?.files, traffic: trafficSnapshot, cpuFactor: processCPUFactor,
+                // Only the by-user view names accounts.
+                accountNames: processGrouping == .user ? knownAccountNames() : [:]
             )
         )
         let ranked = rangeRanked(rows)
