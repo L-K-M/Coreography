@@ -112,6 +112,10 @@ public final class DashboardModel {
         didSet {
             if wantsConnections { sampleConnections() }
             if wantsOpenFiles { sampleOpenFiles() }
+            // As with the by-user view: starting to name a user asks again for names not given.
+            if ProcessFilter.parse(processFilter).usesAccountNames, !ProcessFilter.parse(oldValue).usesAccountNames {
+                accountsAsked = []
+            }
         }
     }
     /// The session being recorded (plan P19), when one is.
@@ -1275,8 +1279,9 @@ public final class DashboardModel {
             facts: ProcessFacts(
                 sockets: connectionSnapshot.map(SocketFacts.init), sleepPreventers: assertionSnapshot?.sleepPreventers,
                 openFiles: openFileSnapshot?.files, traffic: trafficSnapshot, cpuFactor: processCPUFactor,
-                // Only the by-user view names accounts.
-                accountNames: processGrouping == .user ? knownAccountNames() : [:]
+                // Only the by-user view and `user:<name>` need account names.
+                accountNames: processGrouping == .user || ProcessFilter.parse(processFilter).usesAccountNames
+                    ? knownAccountNames() : [:]
             )
         )
         let ranked = rangeRanked(rows)
