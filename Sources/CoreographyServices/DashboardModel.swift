@@ -208,6 +208,8 @@ public final class DashboardModel {
     /// The recording shown in place of live data, when one is open.
     public private(set) var openRecording: OpenRecording?
     private var recordingMarkers: [TimelineMarker] = []
+    /// The recording open in flight; a newer open or a return to live replaces it.
+    @ObservationIgnored private var recordingOpening: UUID?
     /// One app scoping every view (plan P8); cleared only by its clear button.
     public var scopedApp: String?
     public private(set) var actionMessage: String?
@@ -650,9 +652,14 @@ public final class DashboardModel {
     /// Returns why it could not be opened.
     @discardableResult
     public func openRecording(_ data: Data, fileName: String? = nil) async -> String? {
+        // The newest open wins; returning to live meanwhile cancels it.
+        let opening = UUID()
+        recordingOpening = opening
         let decoded = await Task.detached { () -> Result<Recording.Document, Recording.Failure> in
             do throws(Recording.Failure) { return .success(try Recording.decode(data)) } catch { return .failure(error) }
         }.value
+        guard recordingOpening == opening else { return nil }
+        recordingOpening = nil
         let document: Recording.Document
         switch decoded {
         case .success(let read):
@@ -1138,7 +1145,7 @@ public final class DashboardModel {
         )
         let ranked = rangeRanked(rows)
         guard let scopedApp else { return ranked }
-        return ranked.filter { $0.appName == scopedApp }
+        return ProcessGroups.scoped(ranked, to: scopedApp)
     }
 
     /// With a selection, sorting by CPU ranks apps by their CPU-seconds
@@ -1242,6 +1249,12 @@ public final class DashboardModel {
     public var paletteShown = false
     /// The named-marker prompt (plan: M drops a named marker).
     public var markerPromptShown = false
+    /// Text fields in the window taking typing now, so plain-letter shortcuts stand aside.
+    public private(set) var typingFields: Set<String> = []
+
+    public func setTyping(_ field: String, _ typing: Bool) {
+        if typing { typingFields.insert(field) } else { typingFields.remove(field) }
+    }
 
     /// When the newest live sample arrived, held display or not; surfaces
     /// that always show live data (the Dock graph) redraw on it.
@@ -1253,7 +1266,11 @@ public final class DashboardModel {
     }
 
     /// The multiplier from a process's whole-machine share to the chosen scale.
-    public var processCPUFactor: Double { processCPUScale.factor(logicalCPUs: latest?.inventory.logicalCPUCount ?? 1) }
+    public var processCPUFactor: Double { processCPUScaleInEffect.factor(logicalCPUs: latest?.inventory.logicalCPUCount ?? 1) }
+
+    /// The scale the numbers are in: one core needs the core count, so the
+    /// whole machine stands in until a host sample names it.
+    public var processCPUScaleInEffect: ProcessCPUScale { latest == nil ? .machine : processCPUScale }
 
     /// Lane order, hidden lanes and sizes; saved as they change.
     public var laneLayout = LaneLayout.saved() {
@@ -1355,7 +1372,8 @@ public final class DashboardModel {
         entries += TimeRange.allCases.map { entry(CommandPalette.rangeTitle($0), .range($0)) }
         entries += DetailPane.allCases.map { entry(CommandPalette.paneTitle($0), .pane($0)) }
         entries += [
-            entry("Group Processes by App", .grouping(.app)), entry("Show Processes Ungrouped", .grouping(.flat))
+            entry("Group Processes by App", .grouping(.app)), entry("Show Processes as a Tree", .grouping(.tree)),
+            entry("Show Processes Ungrouped", .grouping(.flat)), entry("Group Processes by User", .grouping(.user))
         ]
         entries += ProcessSort.allCases.map { entry(CommandPalette.sortTitle($0), .sort($0)) }
         entries += CommandPalette.filterPresets.map { entry($0.title, .filter($0.filter)) }
@@ -1729,6 +1747,7 @@ public final class DashboardModel {
         }
         displayMode = .live
         openRecording = nil
+        recordingOpening = nil
         recordingMarkers = []
         frames = liveFrames
         processSnapshot = liveProcesses
@@ -1850,14 +1869,14 @@ public final class DashboardModel {
     }
 
     public func deleteSession(_ id: UUID) async {
-        comparedSessions.removeAll { $0 == id }
         do {
             try await sessionArchive?.delete(id)
         } catch {
-            // Still on disk: the row stays, so the list does not lie until the next refresh.
+            // Still on disk: the row and its comparison pick stay, so the list does not lie until the next refresh.
             actionMessage = "The session could not be deleted: \(error)"
             return
         }
+        comparedSessions.removeAll { $0 == id }
         sessions.removeAll { $0.id == id }
     }
 
@@ -1900,9 +1919,10 @@ public final class DashboardModel {
         guard threadRead == nil, let inspector, processDetail?.process == process.id else { return }
         threadRead = Task { [weak self] in
             let read = await inspector.threads(of: process)
-            guard let self else { return }
+            // A cancelled read's handle was already cleared, and may now belong to a newer read.
+            guard let self, !Task.isCancelled else { return }
             self.threadRead = nil
-            guard !Task.isCancelled, self.processDetail?.process == process.id else { return }
+            guard self.processDetail?.process == process.id else { return }
             self.processDetail?.threads = read.count
             self.processDetail?.threadsProblem = read.problem
         }

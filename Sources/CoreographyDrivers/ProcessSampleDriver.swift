@@ -56,10 +56,11 @@ public struct ProcessSampleDriver: ProcessSampling {
             return .failure(.failed(message.isEmpty ? "sample exited with status \(output.exitStatus)" : message))
         }
         // A clean exit without a readable report is its own failure, not "status 0".
-        guard let text = try? String(contentsOf: report, encoding: .utf8) else {
-            return .failure(.failed("sample finished but its report could not be read"))
+        do {
+            return .success(try String(contentsOf: report, encoding: .utf8))
+        } catch {
+            return .failure(.failed("sample finished but its report could not be read: \(error)"))
         }
-        return .success(text)
         #else
         return .failure(.unsupportedPlatform)
         #endif

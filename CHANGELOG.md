@@ -33,6 +33,8 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
 ### Added
 - The Startup tab opens Login Items & Extensions in System Settings, and each item
   reveals its property list in Finder or copies its label.
+- The process pane groups as a parent-child tree or by user, besides by
+  app and flat; filters and app scope keep the parents of each match.
 - The CPU lane shows each core tier's activity as a strip under the
   graph.
 - Sampling slows to half rate while Low Power Mode is on, and the window

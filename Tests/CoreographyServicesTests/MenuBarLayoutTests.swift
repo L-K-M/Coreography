@@ -20,7 +20,7 @@ final class MenuBarLayoutTests: XCTestCase {
         XCTAssertEqual(MenuBarLayout.saved(in: defaults).count, 3)
     }
 
-    /// Picking a reading another slot shows swaps the two; nothing is lost.
+    /// Picking a reading another slot already shows swaps the two; nothing is lost.
     func testChoosingASlotSwapsMovesOrRemovesWithoutLoss() {
         let items: [MenuBarItem] = [.init(metric: .cpu, style: .value), .init(metric: .memory, style: .graph)]
         XCTAssertEqual(

@@ -38,7 +38,8 @@ enum CPUSplit {
 }
 
 extension DashboardModel {
-    /// Live samples only: stored history keeps the total, not the split.
+    /// Displayed frames, live or a recording's; the stored part of a long
+    /// range keeps only the total, so the split starts where they do.
     public func cpuSplitPoints() -> [CPUSplitPoint] { CPUSplit.points(frames) }
 
     public var displayedCPUSplit: (user: Double, system: Double)? { displayedFrame.flatMap(CPUSplit.split) }

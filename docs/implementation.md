@@ -12,8 +12,7 @@ after two GLM rounds and passing CI. The network slice in
 [PR #7](https://github.com/L-K-M/Coreography/pull/7) merged at `9ae6ca3`;
 storage-driver rates and a fourth lane merged in
 [PR #8](https://github.com/L-K-M/Coreography/pull/8) at `dc3d6bd`.
-Later slices, each merged after CI and review through PR #55; the rest are
-stacked work awaiting CI, completed review and merge:
+Later slices, each merged after CI and review:
 memory composition,
 swap and pressure in [PR #9](https://github.com/L-K-M/Coreography/pull/9);
 app grouping in [PR #10](https://github.com/L-K-M/Coreography/pull/10);
@@ -349,7 +348,12 @@ Implemented:
   responsible app that started no later, otherwise under their
   outermost `.app` bundle. Group CPU and disk totals are measured only
   when every member is readable; otherwise they are labelled lower
-  bounds. Footprint sums are always estimates. A flat view remains.
+  bounds. Footprint sums are always estimates. A flat view remains, a
+  tree nests each process under its parent (a parent younger than its
+  child is a reused PID, so the child becomes a root; a parent loop
+  lists each process once) with its own readings, and a by-user view
+  totals each UID like an app. A filter or app scope in the tree keeps
+  the parents leading to each match.
 - The memory lane stacks the composition under the physical-memory line,
   draws a pressure band above it, and has a ten-column numeric table and
   per-layer chart accessibility. `coreo snapshot` exports the same detail.
@@ -571,7 +575,8 @@ Implemented:
   counted per client so a closed client never pulls its process back.
   It reads for every process, other users' included, and a process with
   no client reads as zero; it is labelled ms/s, not busy %. CPU power is
-  the estimate from `ri_energy_nj` (`RUSAGE_INFO_V6`); a process that ran
+  the estimate from `ri_energy_nj` (`RUSAGE_INFO_V6`, which every
+  supported macOS has; the app needs macOS 26); a process that ran
   with a zero counter has no energy model on that Mac and reads as
   unsupported. Both sum per app and sort the table.
 - More process actions: Suspend and Resume, Send Signal (hang-up,
