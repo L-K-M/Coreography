@@ -310,13 +310,13 @@ struct DashboardView: View {
         let tierRows = Array(Set(allTiers.map(\.tier))).sorted()
         // The lane's detail (plan: double-click expands it): every core's activity.
         let showsCores = metric == .cpu && model.expandedLanes.contains(.cpu)
-        let cores = showsCores ? model.coreHeatCells().filter { $0.end >= start && $0.start <= end } : []
+        let cores = showsCores ? model.coreHeatCells(in: start...end, maximumColumns: Layout.coreColumns) : []
 
         return HStack(alignment: .top, spacing: 24) {
             VStack(alignment: .leading, spacing: 10) {
                 Text(title).font(.caption.weight(.medium)).foregroundStyle(.secondary)
                     .onTapGesture(count: 2) { if metric == .cpu { model.toggleDetail(.cpu) } }
-                    .help(metric == .cpu ? String(localized: "Double-click to show or hide each core") : "")
+                    .help(String(localized: "Double-click to show or hide each core"))
                 Text(metric == .cpu
                      ? MetricText.percent(reading?.numericValue)
                      : MetricText.bytes(reading?.numericValue))
@@ -3052,6 +3052,8 @@ private enum ToolbarText {
 }
 
 private enum Layout {
+    /// Columns per core in the CPU lane's heat strip; a long range merges neighbours to fit.
+    static let coreColumns = 240
     static let padding: CGFloat = 20
     static let cornerRadius: CGFloat = 10
     static let headerWidth: CGFloat = 180
@@ -3242,7 +3244,7 @@ private struct CoreStrip: View {
     var body: some View {
         let rows = (0..<max(coreCount, (cells.map(\.core).max() ?? -1) + 1)).map { "\($0)" }
         if cells.isEmpty {
-            Text("Each core's activity appears after the next samples.").font(.caption).foregroundStyle(.secondary)
+            Text("No per-core readings in this range.").font(.caption).foregroundStyle(.secondary)
         } else {
             Chart(cells) { cell in
                 RectangleMark(

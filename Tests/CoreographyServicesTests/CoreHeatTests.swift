@@ -11,9 +11,19 @@ final class CoreHeatTests: XCTestCase {
         for _ in 0..<3 { frames.append(try await monitor.sample()) }
         let cells = CoreHeat.cells(frames, nominalSeconds: 2)
         XCTAssertEqual(cells.map(\.core), [0, 1, 0, 1], "the first sample is a baseline, so it draws nothing")
-        XCTAssertEqual(cells.first?.busyPercent, 50)
-        XCTAssertEqual(cells.first?.end, frames[2].stamp.wallTime, "a cell reaches the next sample")
-        XCTAssertEqual(cells.last?.end, frames[2].stamp.wallTime.addingTimeInterval(2), "the newest spans one interval")
+        XCTAssertEqual(cells.map(\.busyPercent), [50, 75, 50, 75])
+        XCTAssertEqual(cells.first?.start, frames[0].stamp.wallTime, "a share covers the interval it measures")
+        XCTAssertEqual(cells.first?.end, frames[1].stamp.wallTime)
+        XCTAssertEqual(cells.last?.end, frames[2].stamp.wallTime)
+
+        let merged = CoreHeat.cells(frames, nominalSeconds: 2, maximumColumns: 1)
+        XCTAssertEqual(merged.map(\.core), [0, 1], "a long range merges neighbours")
+        XCTAssertEqual(merged.first?.start, frames[0].stamp.wallTime)
+        XCTAssertEqual(merged.first?.end, frames[2].stamp.wallTime)
+        XCTAssertEqual(merged.map(\.busyPercent), [50, 75])
+
+        let window = frames[2].stamp.wallTime.addingTimeInterval(0.5)...frames[2].stamp.wallTime.addingTimeInterval(9)
+        XCTAssertTrue(CoreHeat.cells(frames, nominalSeconds: 2, in: window).isEmpty, "nothing measured in the window")
     }
 }
 

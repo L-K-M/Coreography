@@ -25,6 +25,13 @@ final class CoreActivityTests: XCTestCase {
         XCTAssertEqual(fewer.coreBusyPercent?.map(\.availability), [.collecting], "a different core count has no baseline")
     }
 
+    func testACounterGoingBackwardsIsAGapNotNegativeWork() async throws {
+        let monitor = try SystemMonitor(driver: Cores([[ticks(100, 0, 100)], [ticks(50, 0, 200)]]))
+        _ = try await monitor.sample()
+        let second = try await monitor.sample()
+        XCTAssertEqual(second.coreBusyPercent?.first?.availability, .gap)
+    }
+
     func testAMonitorWithoutCoreCountersHasNoStrip() async throws {
         let monitor = try SystemMonitor(driver: Cores([]))
         let snapshot = try await monitor.sample()
