@@ -53,9 +53,13 @@ struct MenuBarView: View {
 /// The menu bar title: whole-machine CPU, or a dash while collecting.
 struct MenuBarLabel: View {
     let model: DashboardModel
+    let automation: AutomationRouter
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         Text(MetricText.percent(model.reading(for: .cpu)?.numericValue)).monospacedDigit()
+            // Always shown while the app runs, so links can open a closed window.
+            .onAppear { automation.openDashboard = { openWindow(id: "dashboard") } }
     }
 }
 

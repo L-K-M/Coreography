@@ -891,6 +891,68 @@ public final class DashboardModel {
         detailPane == .connections || ProcessFilter.parse(processFilter).usesSockets
     }
 
+    /// Apply a link or Shortcut command (plan: automation); returns, and
+    /// shows, why it could not be applied. Showing the window and the HUD
+    /// belongs to the app.
+    @discardableResult
+    public func perform(_ command: AutomationCommand) async -> String? {
+        let failure: String?
+        switch command {
+        case .show, .toggleHUD:
+            failure = nil
+        case .filter(let text):
+            detailPane = .processes
+            processFilter = text
+            failure = nil
+        case .selectProcess(let pid):
+            if let process = processSnapshot?.processes.first(where: { $0.id.pid == pid }) {
+                detailPane = .processes
+                selectedProcessRow = ProcessGroups.rowID(process)
+                failure = nil
+            } else {
+                failure = "No observed process has PID \(pid)"
+            }
+        case .range(let range):
+            timeRange = range
+            failure = nil
+        case .startRecording(let name):
+            failure = sessionRecording == nil ? nil : "A session is already recording"
+            if failure == nil { startRecording(name: name) }
+        case .stopRecording:
+            failure = sessionRecording == nil ? "No session is recording" : await stopRecording()
+        }
+        if let failure { actionMessage = failure }
+        return failure
+    }
+
+    /// Parse and apply a `coreography://` link; a refusal is shown. Returns
+    /// the command, so the app can show its window or the HUD.
+    public func open(_ url: URL) async -> AutomationCommand? {
+        switch AutomationLink.command(from: url) {
+        case .success(let command):
+            await perform(command)
+            return command
+        case .failure(let error):
+            actionMessage = error.message
+            return nil
+        }
+    }
+
+    /// Who holds a port now: one socket read over the latest process sample.
+    public func holders(ofPort port: UInt16) async -> HolderLookup {
+        guard let connectionMonitor else { return HolderLookup(holders: [], limitations: ["Connections are not read here"]) }
+        guard let processes = liveProcesses else { return HolderLookup(holders: [], limitations: ["Waiting for the first process sample"]) }
+        return HolderLookups.port(port, in: processes, connections: await connectionMonitor.sample(processes))
+    }
+
+    /// Who has a file open now whose path contains `text`; `~` is the home folder.
+    public func holders(ofFile text: String) async -> HolderLookup {
+        guard let openFileMonitor else { return HolderLookup(holders: [], limitations: ["Open files are not read here"]) }
+        guard let processes = liveProcesses else { return HolderLookup(holders: [], limitations: ["Waiting for the first process sample"]) }
+        let files = await openFileMonitor.sample(processes)
+        return HolderLookups.file(ProcessFilter.expandingHome(text), in: processes, files: files)
+    }
+
     /// One read of every process's sockets, off the sampling loop and never
     /// two at once; a pass covers hundreds of processes.
     private func sampleConnections() {
