@@ -271,6 +271,13 @@ struct DashboardView: View {
                     Text(SiliconText.tiers(model.displayedSiliconFrame))
                         .font(.caption).foregroundStyle(.secondary)
                         .help("Activity and frequency per core tier from IOReport residency, estimated")
+                    // Heuristics, labelled as such; the evidence shows on hover.
+                    ForEach(model.bottleneckHints, id: \.kind) { hint in
+                        Text(hint.title)
+                            .font(.caption.weight(.medium)).foregroundStyle(.orange)
+                            .help(hint.evidence.joined(separator: "\n"))
+                            .accessibilityValue(hint.evidence.joined(separator: ", "))
+                    }
                     ContributorLine(model: model, subsystem: .cpu)
                     if let app = model.scopedApp {
                         Text("\(app): \(MetricText.percent(scoped?.last?.value))")

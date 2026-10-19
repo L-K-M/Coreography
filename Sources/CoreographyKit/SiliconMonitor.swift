@@ -31,6 +31,8 @@ public struct CPUTierReading: Codable, Equatable, Sendable {
     public let activePercent: MetricReading
     /// Residency-weighted mean frequency while active, in MHz.
     public let frequencyMHz: MetricReading
+    /// The tier's top DVFS frequency, when its table is known.
+    public let maximumMHz: Double?
 }
 
 public struct SiliconSnapshot: Identifiable, Codable, Sendable {
@@ -161,7 +163,8 @@ public actor SiliconMonitor {
                 kind: kind, cores: members.count,
                 activePercent: try active.map { try .estimated($0, method: Self.residencyMethod, source: Self.source) }
                     ?? .unavailable(reason: "No residency was reported", source: Self.source),
-                frequencyMHz: try frequency(usage, table: table)
+                frequencyMHz: try frequency(usage, table: table),
+                maximumMHz: try? table.get().max()
             )
         }
     }

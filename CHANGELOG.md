@@ -13,6 +13,9 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
   after the store first exceeds it.
 
 ### Added
+- Bottleneck hints in the CPU lane and HUD: "Looks GPU-bound", "Looks
+  CPU-bound" and "Possibly throttling", each with the readings that
+  tripped it.
 - Apple Silicon CPU, GPU, ANE and DRAM power from IOReport's energy
   model, and each CPU tier's activity and frequency, in the CPU and
   Power lanes, the HUD, diagnostics and `coreo silicon`. All are
