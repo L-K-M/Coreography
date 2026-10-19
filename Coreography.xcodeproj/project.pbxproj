@@ -14,6 +14,7 @@
 		A10000000000000000000006 /* CoreographyServices in Frameworks */ = {isa = PBXBuildFile; productRef = A90000000000000000000002; };
 		A10000000000000000000008 /* MenuBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000008; };
 		A10000000000000000000009 /* AskView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000009; };
+		A1000000000000000000000A /* HUD.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000A; };
 		A10000000000000000000007 /* coreo in Helpers */ = {isa = PBXBuildFile; fileRef = A20000000000000000000007; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 /* End PBXBuildFile section */
 
@@ -42,6 +43,7 @@
 		A20000000000000000000006 = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Coreography.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A20000000000000000000008 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarView.swift; sourceTree = "<group>"; };
 		A20000000000000000000009 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AskView.swift; sourceTree = "<group>"; };
+		A2000000000000000000000A = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HUD.swift; sourceTree = "<group>"; };
 		A20000000000000000000007 = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = coreo; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -58,7 +60,7 @@
 		};
 		A50000000000000000000002 /* App */ = {
 			isa = PBXGroup;
-			children = (A20000000000000000000001, A20000000000000000000002, A20000000000000000000008, A20000000000000000000009, A20000000000000000000003, A20000000000000000000004, );
+			children = (A20000000000000000000001, A20000000000000000000002, A20000000000000000000008, A20000000000000000000009, A2000000000000000000000A, A20000000000000000000003, A20000000000000000000004, );
 			path = App;
 			sourceTree = "<group>";
 		};
@@ -115,7 +117,7 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
-		A40000000000000000000001 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (A10000000000000000000001, A10000000000000000000002, A10000000000000000000008, A10000000000000000000009, ); runOnlyForDeploymentPostprocessing = 0; };
+		A40000000000000000000001 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (A10000000000000000000001, A10000000000000000000002, A10000000000000000000008, A10000000000000000000009, A1000000000000000000000A, ); runOnlyForDeploymentPostprocessing = 0; };
 		A40000000000000000000004 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (A10000000000000000000005, ); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXSourcesBuildPhase section */
 
