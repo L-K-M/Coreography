@@ -7,6 +7,10 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
 ## [Unreleased]
 
 ### Fixed
+- The Sensors tab no longer shows the last good readings as current
+  after a sample in which no sensor could be read.
+- Startup items take launchd's enable state from their own domain, so an
+  agent and a daemon with the same label no longer share it.
 - Quitting writes the history recorded since the last write instead of
   dropping up to 30 seconds of it.
 - History retention deletes seek each table's key instead of scanning
