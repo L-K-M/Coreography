@@ -3,7 +3,7 @@
 Track actual delivery against the [product plan](plan.md). A stage is
 complete only after its relevant checks and review pass and its PR merges.
 
-## Current slice: time controls
+## Current slice: HUD levels
 
 The native foundation merged in [PR #5](https://github.com/L-K-M/Coreography/pull/5)
 at `aee9494` after two GLM rounds and passing CI. Process monitoring merged
@@ -48,9 +48,21 @@ The Dock icon follows in [PR #60](https://github.com/L-K-M/Coreography/pull/60).
 Alert actions follow in [PR #61](https://github.com/L-K-M/Coreography/pull/61).
 Network in the ledger follows in [PR #62](https://github.com/L-K-M/Coreography/pull/62).
 MCP access through the app follows in [PR #64](https://github.com/L-K-M/Coreography/pull/64).
-This slice adds the plan's remaining time controls.
+Time controls follow in [PR #65](https://github.com/L-K-M/Coreography/pull/65).
+This slice gives the HUD the plan's density control.
 
 Implemented:
+
+- HUD levels (plan P16): one value (frame rate when available, else
+  CPU), one line (CPU, GPU, power, temperature), a block (adding the top
+  core tier, GPU clock, thermal pressure and the bottleneck hint) or
+  everything (every core tier, memory pressure, swap, network, battery
+  time at this draw and fans). The frame-rate slot is left out rather
+  than drawn empty until macOS 27's source is wired (S4). Settings > HUD
+  sets the level, corner, opacity, text size, a dark backing for bright
+  scenes and click-through; with click-through off the panel can be
+  dragged and remembers its place per display, and choosing a corner
+  forgets dragged places. Option-Command-J cycles the level.
 
 - Time controls: Pause Recording (toolbar, menu bar extra and palette)
   stops sampling, so every series and the store keep a gap, marked
@@ -582,6 +594,7 @@ helper remain outstanding. The store, MCP and model features above await stack d
 | Native network MIB, wide-counter mapping and three-lane UI | Passed at `e62fac1`, including native C fixtures, live CLI and both executable architectures; integrated candidate pending |
 | Native IOKit storage counters and four-lane renderer | Passed [native CI](https://github.com/L-K-M/Coreography/actions/runs/39110306993) at `6434722`: 75 tests, 16 drivers, 32 measured rate fields, no inventory issues; owner checks pending |
 | On-disk history store and recorder | History slice: 148 Swift tests pass on Linux against the real system SQLite (round trip with gaps, duplicates, retention, reopen, permissions, WAL, batching); native CI checks the CLI and file permissions |
+| HUD levels | 267 Swift tests pass on Linux (items per level, no empty frame-rate slot, the cycle wrapping, saved and clamped settings); the panel compiles only in native CI; staying above full-screen games remains an owner check (S6) |
 | Time controls | 265 Swift tests pass on Linux (no sampling while paused even when started, pause markers, resume, return to now keeping the selection, marker names); the toolbar, menu and alert compile only in native CI |
 | MCP access through the app | 263 Swift tests pass on Linux with real Unix sockets (off by default, 0700 directory and 0600 socket, approval once per identity, refusal and denial, another user's peer refused first, revocation closing sessions, disabling removing the socket, the bridge client's refusals and a piped session, identity from signed, unsigned and app-less trees); native CI checks the bridge fails without the app; approving a real assistant is an owner check |
 | Network in the ledger | 259 Swift tests pass on Linux against the system SQLite (a schema-4 store migrated in place with its rows kept, network per interval and per day, unknown without coverage, the diagnostic ranking and its unavailable case) |

@@ -67,6 +67,7 @@ struct AskPanel: View {
 struct SettingsView: View {
     @Bindable var model: DashboardModel
     let mcpAccess: MCPAccess
+    @Bindable var hud: HUDController
     @State private var key = ""
     @State private var message: String?
 
@@ -113,6 +114,26 @@ struct SettingsView: View {
                 Text(model.availableShortcuts == nil
                      ? "Shortcuts could not be listed; rules still tint their lane and notify."
                      : "A rule runs its Shortcut when it is raised, at most once every 15 minutes.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Section("HUD") {
+                Picker("Shows", selection: $hud.settings.density) {
+                    Text("One value").tag(HUDDensity.single)
+                    Text("One line").tag(HUDDensity.line)
+                    Text("Block").tag(HUDDensity.block)
+                    Text("Everything").tag(HUDDensity.detailed)
+                }
+                Picker("Corner", selection: $hud.settings.corner) {
+                    Text("Top left").tag(HUDCorner.topLeft)
+                    Text("Top right").tag(HUDCorner.topRight)
+                    Text("Bottom left").tag(HUDCorner.bottomLeft)
+                    Text("Bottom right").tag(HUDCorner.bottomRight)
+                }
+                Slider(value: $hud.settings.opacity, in: HUDSettings.opacityRange) { Text("Opacity") }
+                Slider(value: $hud.settings.textScale, in: HUDSettings.textScaleRange) { Text("Text size") }
+                Toggle("Dark backing behind text", isOn: $hud.settings.scrim)
+                Toggle("Let clicks pass through", isOn: $hud.settings.clickThrough)
+                Text("Turn click-through off to drag the HUD; it remembers where you put it on each display. Option-Command-H shows it, Option-Command-J changes what it shows. Frame rate needs macOS 27.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section("Dock") {
