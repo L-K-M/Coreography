@@ -20,6 +20,9 @@ public struct SystemSnapshot: Codable, Equatable, Identifiable, Sendable {
     public let memory: MemoryDetail
     /// Measured `ThermalPressureLevel` ordinal.
     public let thermalPressure: MetricReading
+    /// Each logical CPU's busy share of its own time, 0-100, in CPU number
+    /// order; nil where cores are not read (and in recordings made before).
+    public let coreBusyPercent: [MetricReading]?
     public let cpuSource: String
     public let memorySource: String
     public let continuity: SamplingContinuity
@@ -27,7 +30,8 @@ public struct SystemSnapshot: Codable, Equatable, Identifiable, Sendable {
     init(
         stamp: SampleStamp, inventory: SystemInventory,
         cpuPercentOfMachine: MetricReading, cpuSystemPercentOfMachine: MetricReading? = nil, memoryUsedBytes: MetricReading,
-        memory: MemoryDetail, thermalPressure: MetricReading, continuity: SamplingContinuity
+        memory: MemoryDetail, thermalPressure: MetricReading, continuity: SamplingContinuity,
+        coreBusyPercent: [MetricReading]? = nil
     ) {
         self.id = UUID()
         self.stamp = stamp
@@ -37,6 +41,7 @@ public struct SystemSnapshot: Codable, Equatable, Identifiable, Sendable {
         self.memoryUsedBytes = memoryUsedBytes
         self.memory = memory
         self.thermalPressure = thermalPressure
+        self.coreBusyPercent = coreBusyPercent
         self.cpuSource = "Mach CPU tick counters; percent of the whole machine"
         self.memorySource = "Mach VM composition; bytes; excludes cached files"
         self.continuity = continuity

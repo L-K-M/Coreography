@@ -666,6 +666,14 @@ Implemented:
   never parsed. With nothing selected it shows the chip, model, macOS
   build, uptime, load averages and Coreography's own cost. Per-process
   history lanes, open files, assertions, threads and wakeups remain.
+- CPU lane detail: Show Cores in the lane's menu, or a double-click on
+  its title, adds a heat strip with one row per logical CPU, each core's
+  busy ticks over its own ticks between samples (`host_processor_info`,
+  `PROCESSOR_CPU_LOAD_INFO`), so it holds across cadences; a change in
+  the core count or an interruption starts over, and a core without a
+  reading leaves a hole. Rows follow CPU numbers: grouping them by
+  cluster needs the CPU-to-cluster map, which remains, as do the other
+  lanes' detail views. Native CI checks one measured 0-100 share per core.
 - Lane inspector: a lane's menu shows its static facts (chip, model,
   logical CPUs and core tiers; physical memory; each GPU; storage devices
   and volume sizes; primary and observed interfaces; adapter rating,

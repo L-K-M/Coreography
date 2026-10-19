@@ -68,6 +68,13 @@ def validate(snapshot):
     validate_memory(snapshot, memory, capacity)
     if reading(snapshot, "thermalPressure", "measured") not in THERMAL_LEVELS:
         raise ValueError("thermalPressure must be a known level")
+    # After the baseline every logical CPU has its own measured share.
+    cores = snapshot.get("coreBusyPercent")
+    if not isinstance(cores, list) or len(cores) != snapshot["inventory"].get("logicalCPUCount"):
+        raise ValueError("coreBusyPercent must hold one reading per logical CPU")
+    for index, core in enumerate(cores):
+        if not 0 <= reading({"core": core}, "core", "measured") <= 100:
+            raise ValueError(f"core {index} must be between 0 and 100 percent")
 
 
 if __name__ == "__main__":
