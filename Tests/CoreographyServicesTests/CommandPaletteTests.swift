@@ -65,6 +65,9 @@ final class CommandPaletteTests: XCTestCase {
         // The app confirms these; the model must not act on them unasked.
         await model.run(.processAction(.forceQuit))
         XCTAssertNil(model.actionMessage)
+
+        await model.run(.stopRecording)
+        XCTAssertNotNil(model.paletteEntries.first { $0.title == "Start Recording" }, "the session ends with the test")
     }
 }
 

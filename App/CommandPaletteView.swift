@@ -31,20 +31,28 @@ struct CommandPaletteView: View {
 
             Divider()
 
-            List(results, selection: $highlighted) { entry in
-                HStack {
-                    Text(entry.title)
-                    Spacer()
-                    if let reason = entry.unavailableReason {
-                        Text(reason).font(.caption).foregroundStyle(.secondary)
+            // A list does not follow a selection set in code; the arrow keys must keep it visible.
+            ScrollViewReader { proxy in
+                List(results, selection: $highlighted) { entry in
+                    HStack {
+                        Text(entry.title)
+                        Spacer()
+                        if let reason = entry.unavailableReason {
+                            Text(reason).font(.caption).foregroundStyle(.secondary)
+                        }
                     }
+                    .foregroundStyle(entry.unavailableReason == nil ? .primary : .secondary)
+                    .contentShape(Rectangle())
+                    .onTapGesture(count: 2) { run(entry) }
+                    .accessibilityAction { run(entry) }
+                    .accessibilityHint(entry.unavailableReason ?? "")
+                    .id(entry.id)
                 }
-                .foregroundStyle(entry.unavailableReason == nil ? .primary : .secondary)
-                .contentShape(Rectangle())
-                .onTapGesture(count: 2) { run(entry) }
-                .accessibilityHint(entry.unavailableReason ?? "")
+                .listStyle(.plain)
+                .onChange(of: highlighted) { _, id in
+                    if let id { proxy.scrollTo(id) }
+                }
             }
-            .listStyle(.plain)
         }
         .frame(width: 520, height: 380)
         .onAppear { fieldFocused = true }
