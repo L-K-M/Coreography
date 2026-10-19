@@ -38,7 +38,13 @@ final class AutomationRouter {
     }
 
     func open(_ url: URL) {
-        if url.isFileURL { return openRecording(url) }
+        if url.isFileURL {
+            guard url.pathExtension.lowercased() == Recording.fileExtension else {
+                showDashboard()
+                return model.reportRecordingFailure("Coreography opens only its recordings; \(url.lastPathComponent) is not one")
+            }
+            return openRecording(url)
+        }
         Task {
             let command = await model.open(url)
             if command == .toggleHUD { return hud.toggle() }
@@ -60,7 +66,7 @@ final class AutomationRouter {
                 model.reportRecordingFailure("The recording could not be read")
                 return
             }
-            model.openRecording(data)
+            await model.openRecording(data, fileName: url.deletingPathExtension().lastPathComponent)
         }
     }
 

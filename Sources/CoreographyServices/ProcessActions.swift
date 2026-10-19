@@ -55,7 +55,7 @@ public struct ProcessActionRequest: Identifiable, Sendable {
 
 /// Who placed a marker: the person's own actions stand apart from what
 /// the system did.
-public enum MarkerKind: Sendable {
+public enum MarkerKind: String, Codable, Sendable {
     /// action: the person's process actions; note: markers they named or pauses they made.
     case action, alert, system, note
 }

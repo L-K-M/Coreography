@@ -201,10 +201,13 @@ public final class DashboardModel {
     /// Sleep, wake, power source and pressure changes found in the displayed data.
     public private(set) var systemMarkers: [TimelineMarker] = []
     /// Everything the lanes mark: the person's actions, alerts and system events.
-    public var timelineMarkers: [TimelineMarker] { (openRecording == nil ? markers : recordingMarkers) + systemMarkers }
+    public var timelineMarkers: [TimelineMarker] { ownMarkers + systemMarkers }
+    /// The person's and alerts' markers, which a recording keeps; system
+    /// markers are derived again from the recorded frames when it opens.
+    private var ownMarkers: [TimelineMarker] { openRecording == nil ? markers : recordingMarkers }
     /// The recording shown in place of live data, when one is open.
     public private(set) var openRecording: OpenRecording?
-    @ObservationIgnored private var recordingMarkers: [TimelineMarker] = []
+    private var recordingMarkers: [TimelineMarker] = []
     /// One app scoping every view (plan P8); cleared only by its clear button.
     public var scopedApp: String?
     public private(set) var actionMessage: String?
@@ -620,8 +623,8 @@ public final class DashboardModel {
         return RangeExport.document(range: live, model: frames, apps: apps, naming: exportNaming)
     }
 
-    /// The selected range as a `.coreotrace` recording of displayed data;
-    /// nil without a selection inside the live hour.
+    /// The selected range as a `.coreotrace` recording of displayed data,
+    /// the live hour or an open recording; nil without a selection inside it.
     public func recordingData(name: String) -> Data? {
         guard let selection, let liveStart = frames.first?.stamp.wallTime else { return nil }
         let start = max(selection.lowerBound, liveStart)
@@ -633,7 +636,7 @@ public final class DashboardModel {
             frames: DashboardFrames(
                 host: frames, network: networkFrames, disks: diskFrames, gpu: gpuFrames, power: powerFrames, sensors: sensorFrames
             ),
-            ledger: ledger, markers: timelineMarkers, naming: exportNaming
+            ledger: ledger, markers: ownMarkers, naming: exportNaming
         )
         return try? Recording.encode(document)
     }
@@ -642,19 +645,25 @@ public final class DashboardModel {
     public func reportRecordingFailure(_ message: String) { actionMessage = message }
 
     /// Show a recording in the held display; Return to live goes back.
+    /// Decoding runs off the main actor, since a file may hold 256 MB. The
+    /// file's name, which the person chose, names it over the saved one.
     /// Returns why it could not be opened.
     @discardableResult
-    public func openRecording(_ data: Data) -> String? {
+    public func openRecording(_ data: Data, fileName: String? = nil) async -> String? {
+        let decoded = await Task.detached { () -> Result<Recording.Document, Recording.Failure> in
+            do throws(Recording.Failure) { return .success(try Recording.decode(data)) } catch { return .failure(error) }
+        }.value
         let document: Recording.Document
-        do {
-            document = try Recording.decode(data)
-        } catch {
+        switch decoded {
+        case .success(let read):
+            document = read
+        case .failure(let error):
             actionMessage = error.message
             return error.message
         }
         displayMode = .held
         openRecording = OpenRecording(
-            name: document.name, start: document.start, end: document.end, appNames: document.appNames
+            name: fileName ?? document.name, start: document.start, end: document.end, appNames: document.appNames
         )
         frames = document.host
         networkFrames = document.network
@@ -678,7 +687,7 @@ public final class DashboardModel {
                 }
             )
         })
-        recordingMarkers = document.markers.map { TimelineMarker(time: $0.time, label: $0.label, kind: .note) }
+        recordingMarkers = document.markers.map { TimelineMarker(time: $0.time, label: $0.label, kind: $0.kind ?? .note) }
         cursorTime = nil
         clearSelection()
         let duration = document.end.timeIntervalSince(document.start)
