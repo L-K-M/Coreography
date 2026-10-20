@@ -930,10 +930,10 @@ implemented and listed above; native behavior still awaits the
 | M2 | Chip profiles as bundled data rather than code, voltage sensors, GPU frequency detail |
 | M3 | Audio graphs beyond the chart descriptors; an opt-in 60 Hz redraw |
 | M4 | `log show` sleep and wake import; `pmset` history covers sleep and wake today |
-| M5 | The privileged helper and what needs it: other users' processes, spindump, not-responding detection, login and background items, raising priority, exit status; connections grouped by domain |
+| M5 | The privileged helper and what needs it: other users' processes, spindump, not-responding detection, login and background items, raising priority, exit status. Separately, connections grouped by domain |
 | M6 / S9 | Frame rate: `metalperftrace` capture, the HUD's frame-rate slot, FPS in sessions and the performance view |
-| M7 | Localization, soak and performance checks, the updater, Developer ID signing and notarized releases |
-| Later | Desktop widget, Control Center control, per-file tracing, ES launch timeline, Prometheus export, Wi-Fi details |
+| M7 | Localization, integration, soak and performance checks, the updater, Developer ID signing and notarized releases |
+| Deferred by the plan | Desktop widget, Control Center control, per-file tracing, ES launch timeline, Prometheus export, Wi-Fi details |
 
 ## Owner Mac checks
 
