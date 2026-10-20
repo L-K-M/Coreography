@@ -7,6 +7,8 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
 ## [Unreleased]
 
 ### Fixed
+- The inspector no longer explains a program as a macOS process when
+  its signature shows another developer or none.
 - App grouping and `#apps` recognize bundles whose extension is not
   lowercase, such as `Old.APP`.
 - A user name the account database failed to read is asked for again,

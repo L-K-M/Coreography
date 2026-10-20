@@ -104,9 +104,15 @@ enum ProcessExplanations {
     /// Excludes writable third-party locations such as /usr/local.
     private static let systemPrefixes = ["/System/", "/usr/libexec/", "/usr/sbin/", "/usr/bin/", "/sbin/", "/bin/", "/Library/Apple/System/"]
 
-    /// A missing path cannot establish that a familiar name belongs to macOS.
-    static func note(for process: ObservedProcess) -> ProcessExplanation? {
+    /// A missing path cannot establish that a familiar name belongs to macOS,
+    /// and a signature read as anyone's but Apple's rules it out; an unread
+    /// one leaves the path to decide.
+    static func note(for process: ObservedProcess, signer: CapturedSigner? = nil) -> ProcessExplanation? {
         guard let note = notes[process.name] else { return nil }
+        switch signer {
+        case .developer, .unsigned: return nil
+        case .apple, .unknown, nil: break
+        }
         // The kernel has no executable path; PID 0 cannot belong to a user process.
         if process.id.pid == 0, process.name == "kernel_task" { return note }
         guard let path = process.executablePath else { return nil }
@@ -133,10 +139,12 @@ enum ProcessInspections {
         }
 
         let label = process.executablePath.flatMap { path in startup?.items.first { $0.program == path }?.label }
+        let detail = detail?.process == process.id ? detail : nil
         return ProcessInspection(
             process: process, appName: ProcessGroups.appNames(snapshot)[process.id] ?? process.name,
-            parentChain: chain, launchdLabel: label, explanation: ProcessExplanations.note(for: process),
-            detail: detail?.process == process.id ? detail : nil, sockets: sockets,
+            parentChain: chain, launchdLabel: label,
+            explanation: ProcessExplanations.note(for: process, signer: detail?.signing?.signer),
+            detail: detail, sockets: sockets,
             maintenance: maintenance.flatMap { status in MaintenanceWork.of(process).map { MaintenanceNotes.note($0, status) } }
         )
     }
