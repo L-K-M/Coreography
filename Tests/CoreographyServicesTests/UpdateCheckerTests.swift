@@ -34,6 +34,7 @@ final class UpdateCheckerTests: XCTestCase {
         let relaunched = makeChecker(version: "0.1.0", feed: .tag("v0.2.0"), announced: announced)
         relaunched.start()
         await waitUntil { relaunched.status != .notChecked && relaunched.status != .checking }
+        XCTAssertNotNil(relaunched.lastChecked, "an already announced release still records the check")
         let second = await announced.versions
         XCTAssertEqual(second, ["0.2.0"])
     }
