@@ -173,6 +173,50 @@ final class ProcessGroupsTests: XCTestCase {
     }
 
     /// Plan: app icons beside app rows. A helper outside the bundle does not hide it.
+    /// Plan: an opt-in ports column. An app lists the ports its members
+    /// listen on; a connection out is not a listening port.
+    func testARowListsThePortsItsMembersListenOn() throws {
+        let helper = try webContent(responsible: 100)
+        let processes = try snapshot([safari, helper, standaloneDaemon])
+        let socket = { (process: ObservedProcess, state: TCPState, port: UInt16) in
+            ConnectionReading(
+                process: process.id, processName: process.name, descriptor: 3, transport: .tcp, state: state,
+                local: ConnectionEndpoint(address: "0.0.0.0", port: port),
+                remote: state == .listen ? nil : ConnectionEndpoint(address: "1.1.1.1", port: 443)
+            )
+        }
+        let connections = ConnectionSnapshot(
+            takenAt: Date(), connections: [
+                socket(processes.processes[0], .listen, 8080), socket(processes.processes[1], .listen, 5000),
+                socket(processes.processes[1], .established, 50000)
+            ],
+            restrictedProcesses: 0, truncatedProcesses: 0, failedProcesses: 0, unavailableReason: nil
+        )
+        let rows = ProcessGroups.rows(
+            in: processes, matching: "", sortedBy: .cpu, grouping: .app, facts: ProcessFacts(sockets: SocketFacts(connections))
+        )
+        XCTAssertEqual(rows.first { $0.name == "Safari" }?.listeningPorts, [5000, 8080])
+        XCTAssertEqual(rows.first { $0.name == "mds" }?.listeningPorts, [], "read and listening on nothing")
+
+        let unread = ProcessGroups.rows(in: processes, matching: "", sortedBy: .cpu, grouping: .app)
+        XCTAssertNil(unread.first { $0.name == "Safari" }?.listeningPorts, "no connection data is not no ports")
+
+        // Another user's process was never read, so it has no answer rather than none;
+        // a socket still binding (port 0) is no port.
+        let other = try process(pid: 400, name: "postgres", cpu: nil, path: "/usr/local/bin/postgres", uid: 0)
+        let mine = try process(pid: 500, name: "server", cpu: 1, path: "/usr/local/bin/server")
+        let mixed = try snapshot([other, mine])
+        let binding = ConnectionSnapshot(
+            takenAt: Date(), connections: [socket(mine, .listen, 0)],
+            restrictedProcesses: 1, truncatedProcesses: 0, failedProcesses: 0, unavailableReason: nil
+        )
+        let read = ProcessGroups.rows(
+            in: mixed, matching: "", sortedBy: .cpu, grouping: .flat, facts: ProcessFacts(sockets: SocketFacts(binding))
+        )
+        XCTAssertNil(read.first { $0.name == "postgres" }?.listeningPorts)
+        XCTAssertEqual(read.first { $0.name == "server" }?.listeningPorts, [])
+    }
+
     func testARowFindsTheAppBundleOfItsFirstMemberInOne() throws {
         let processes = try snapshot([safari, webContent(responsible: 100), standaloneDaemon])
         let rows = ProcessGroups.rows(in: processes, matching: "", sortedBy: .cpu, grouping: .app)

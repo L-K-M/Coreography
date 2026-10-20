@@ -1885,6 +1885,12 @@ private struct ProcessPane: View {
                         }
                         .customizationID(ProcessColumns.signerID)
                         .defaultVisibility(.hidden)
+                        TableColumn("Ports") { (row: ProcessRow) in
+                            Text(ProcessText.ports(row.listeningPorts))
+                                .help(String(localized: "Ports it listens on, read while this column shows; other users' processes need the helper"))
+                        }
+                        .customizationID(ProcessColumns.portsID)
+                        .defaultVisibility(.hidden)
                     }
                 }
                 .frame(height: 260)
@@ -1893,6 +1899,7 @@ private struct ProcessPane: View {
                 // column shows. `.automatic` is the column's hidden default.
                 .onChange(of: columns, initial: true) { _, chosen in
                     model.showsSigners = chosen[visibility: ProcessColumns.signerID] == .visible
+                    model.showsPorts = chosen[visibility: ProcessColumns.portsID] == .visible
                 }
                 .textSelection(.enabled)
 
@@ -1910,7 +1917,7 @@ private struct ProcessPane: View {
                         .help("Exit status is not available without the helper")
                 }
 
-                Text("\(ProcessText.cpuScaleNote(model.processCPUScaleInEffect)) App totals sum their members; footprint sums can count shared memory twice. Process sampling: \(model.processSamplingSeconds.formatted()) s; short-lived processes can be missed. Right-click a column header for wakeups, CPU time, start time, threads, instructions, QoS, architecture and signer.")
+                Text("\(ProcessText.cpuScaleNote(model.processCPUScaleInEffect)) App totals sum their members; footprint sums can count shared memory twice. Process sampling: \(model.processSamplingSeconds.formatted()) s; short-lived processes can be missed. Right-click a column header for wakeups, CPU time, start time, threads, instructions, QoS, architecture, signer and ports.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -2365,6 +2372,7 @@ private enum AppIcons {
 private enum ProcessColumns {
     private static let defaultsKey = "processColumns"
     static let signerID = "signer"
+    static let portsID = "ports"
 
     static func saved() -> TableColumnCustomization<ProcessRow> {
         guard let data = UserDefaults.standard.data(forKey: defaultsKey),
@@ -2401,6 +2409,13 @@ private enum ProcessText {
         guard !kinds.isEmpty else { return "–" }
         let order: [ObservedArchitecture] = [.appleSilicon, .intel, .intelTranslated]
         return order.filter(kinds.contains).map(architecture).joined(separator: ", ")
+    }
+
+    /// Example: "443, 8080"; "–" until connections are read or for another
+    /// user's process, blank for none.
+    static func ports(_ ports: Set<UInt16>?) -> String {
+        guard let ports else { return "–" }
+        return ports.sorted().map(String.init).joined(separator: ", ")
     }
 
     /// Example: "Apple, team ABCDE12345"; "–" until checked.
