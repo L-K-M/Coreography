@@ -88,8 +88,10 @@ struct ProcessLifecycle: Sendable {
         defer { appEvents.removeAll { time.timeIntervalSince($0.time) > Self.eventWindow } }
 
         let now = Dictionary(uniqueKeysWithValues: running.map { ($0, time) })
+        // Only a complete list can be the baseline: one cut short would make
+        // every app it left out look started on the next sample.
         guard let seen = appsSeen, continuity == .continuous else {
-            appsSeen = now
+            appsSeen = truncated ? nil : now
             return
         }
         guard !truncated else {

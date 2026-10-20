@@ -94,6 +94,25 @@ final class ProcessLifecycleTests: XCTestCase {
         XCTAssertEqual(lifecycle.appEvents.map(\.app), ["Old"], "Mail was only left out, so it neither exited nor started")
     }
 
+    /// Only a complete list sets the apps to compare against: one cut short
+    /// at launch or after sleep would make every app it left out look new.
+    func testATruncatedFirstListStartsNoApps() throws {
+        let paths: [Int32: String] = [1: "/Applications/Mail.app/Contents/MacOS/Mail", 2: "/Applications/Notes.app/Contents/MacOS/Notes"]
+        var lifecycle = ProcessLifecycle()
+        lifecycle.record(try snapshot(at: 0, pids: [2], paths: paths, truncated: true))
+        lifecycle.record(try snapshot(at: 2, pids: [1, 2], paths: paths))
+        XCTAssertTrue(lifecycle.appEvents.isEmpty, "Mail was running at launch, only left out")
+
+        lifecycle = ProcessLifecycle()
+        lifecycle.record(try snapshot(at: 3598, pids: [1, 2], paths: paths))
+        lifecycle.record(try snapshot(at: 3600, pids: [2], paths: paths, continuity: .interrupted, truncated: true))
+        lifecycle.record(try snapshot(at: 3602, pids: [1, 2], paths: paths))
+        XCTAssertTrue(lifecycle.appEvents.isEmpty, "Mail was running after sleep, only left out")
+
+        lifecycle.record(try snapshot(at: 3604, pids: [], paths: paths))
+        XCTAssertEqual(lifecycle.appEvents.map(\.app), ["Mail", "Notes"], "a complete list after the gap is a baseline again")
+    }
+
     private func identity(_ pid: Int32) throws -> ProcessIdentity {
         try ProcessIdentity(pid: pid, startSeconds: 1, startMicroseconds: 0)
     }
