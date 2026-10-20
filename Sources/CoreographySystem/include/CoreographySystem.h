@@ -79,7 +79,10 @@ enum {
     COREO_SIGNAL_STOP = 3,      /* SIGSTOP: suspend it */
     COREO_SIGNAL_CONTINUE = 4,  /* SIGCONT: resume it */
     COREO_SIGNAL_HANGUP = 5,    /* SIGHUP: daemons often reload */
-    COREO_SIGNAL_INTERRUPT = 6  /* SIGINT: as Control-C */
+    COREO_SIGNAL_INTERRUPT = 6, /* SIGINT: as Control-C */
+    COREO_SIGNAL_USER1 = 7,     /* SIGUSR1: defined by the program, ends it unhandled */
+    COREO_SIGNAL_USER2 = 8,     /* SIGUSR2: defined by the program, ends it unhandled */
+    COREO_SIGNAL_INFO = 9       /* SIGINFO: status request, ignored unhandled */
 };
 
 /* The nice range setpriority accepts. */

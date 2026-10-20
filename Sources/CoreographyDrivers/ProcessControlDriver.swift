@@ -29,7 +29,7 @@ public enum ProcessControlError: Error, Equatable, Sendable {
 
 /// Signals beyond quitting, named by intent rather than number.
 public enum ProcessSignal: Sendable {
-    case suspend, resume, hangUp, interrupt
+    case suspend, resume, hangUp, interrupt, user1, user2, info
 }
 
 public protocol ProcessSignaling: Sendable {
@@ -102,6 +102,9 @@ extension ProcessControlDriver: ProcessSignaling {
         case .resume: Int32(COREO_SIGNAL_CONTINUE)
         case .hangUp: Int32(COREO_SIGNAL_HANGUP)
         case .interrupt: Int32(COREO_SIGNAL_INTERRUPT)
+        case .user1: Int32(COREO_SIGNAL_USER1)
+        case .user2: Int32(COREO_SIGNAL_USER2)
+        case .info: Int32(COREO_SIGNAL_INFO)
         }
         let status = coreo_process_signal(pid, startSeconds, startMicroseconds, kind)
         return status == 0 ? .success(()) : .failure(Self.error(status))

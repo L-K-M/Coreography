@@ -306,6 +306,15 @@ coreo_process_signal(int32_t pid, uint64_t start_seconds, uint64_t start_microse
     case COREO_SIGNAL_INTERRUPT:
         signal_number = SIGINT;
         break;
+    case COREO_SIGNAL_USER1:
+        signal_number = SIGUSR1;
+        break;
+    case COREO_SIGNAL_USER2:
+        signal_number = SIGUSR2;
+        break;
+    case COREO_SIGNAL_INFO:
+        signal_number = SIGINFO;
+        break;
     default:
         return EINVAL;
     }
@@ -743,7 +752,7 @@ coreo_process_signal(int32_t pid, uint64_t start_seconds, uint64_t start_microse
 {
     (void)start_seconds;
     (void)start_microseconds;
-    if (pid <= 0 || signal_kind < COREO_SIGNAL_TERMINATE || signal_kind > COREO_SIGNAL_INTERRUPT) {
+    if (pid <= 0 || signal_kind < COREO_SIGNAL_TERMINATE || signal_kind > COREO_SIGNAL_INFO) {
         return EINVAL;
     }
     return ENOTSUP;
