@@ -4,6 +4,7 @@ import CoreographyKit
 public typealias CapturedProcesses = ProcessSnapshot
 public typealias ObservedProcess = ProcessReading
 public typealias ObservedArchitecture = ProcessArchitecture
+public typealias ObservedQoS = ProcessQoS
 
 public enum ProcessSort: String, CaseIterable, Identifiable, Sendable {
     case cpu, memory, diskRead, diskWrite, network, gpu, power, name
@@ -13,6 +14,8 @@ public enum ProcessSort: String, CaseIterable, Identifiable, Sendable {
     case started
     /// Most threads first.
     case threads
+    /// Most instructions retired per second first.
+    case instructions
 
     public var id: Self { self }
 }
@@ -59,6 +62,7 @@ enum ProcessList {
         case .cpuTime: row.cpuTimeSeconds.numericValue
         case .started: row.id.startTime.timeIntervalSince1970
         case .threads: row.threadCount.numericValue
+        case .instructions: row.instructionsPerSecond.numericValue
         case .name, .network: nil
         }
     }

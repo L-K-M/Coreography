@@ -221,6 +221,32 @@ final class ProcessGroupsTests: XCTestCase {
         XCTAssertEqual(total.unread, 1)
     }
 
+    /// Plan: opt-in instructions and QoS columns, both sorted by their sums.
+    func testGroupsSumInstructionsAndEachQoSClass() throws {
+        let safariPath = "/Applications/Safari.app/Contents/MacOS"
+        let processes = try snapshot([
+            try process(pid: 100, name: "Safari", cpu: 9, path: "\(safariPath)/Safari",
+                        instructions: 1e9, qos: [.default: 20, .utility: 5]),
+            try process(pid: 101, name: "helper", cpu: 1, path: "\(safariPath)/helper",
+                        instructions: 5e8, qos: [.default: 0, .utility: 5]),
+            try process(pid: 200, name: "mds", cpu: 1, path: "/usr/sbin/mds", instructions: 2e9),
+            try process(pid: 300, name: "locked", cpu: nil, path: "/usr/sbin/locked")
+        ])
+        let rows = ProcessGroups.rows(in: processes, matching: "", sortedBy: .instructions, grouping: .app)
+        XCTAssertEqual(rows.map(\.name), ["mds", "Safari", "locked"], "most instructions per second first, unread last")
+
+        let safari = try XCTUnwrap(rows[1])
+        XCTAssertEqual(safari.instructionsPerSecond.numericValue, 1.5e9, "an app sums its processes")
+        let qos = try XCTUnwrap(safari.qosCPUPercent)
+        XCTAssertEqual(qos[.default]?.numericValue, 20)
+        XCTAssertEqual(qos[.utility]?.numericValue, 10, "each class sums across members")
+        XCTAssertEqual(qos[.background]?.numericValue, 0)
+
+        let locked = try XCTUnwrap(rows.last)
+        XCTAssertNil(locked.qosCPUPercent, "an unread process has no split")
+        XCTAssertNil(locked.instructionsPerSecond.numericValue)
+    }
+
     /// Plan: an opt-in architecture column. An app lists what its members run.
     func testAnAppListsItsMembersArchitecturesAndRosettaFindsTranslatedOnes() throws {
         let processes = try snapshot([
@@ -365,7 +391,8 @@ final class ProcessGroupsTests: XCTestCase {
     private func process(
         pid: Int32, name: String, cpu: Double?, start: UInt64 = 10,
         path: String? = nil, responsible: Int32? = nil, gpu: Double = 0, power: Double? = 0,
-        parent: UInt32 = 1, uid: UInt32 = 501, threads: Double? = 1, architecture: ProcessArchitecture? = nil
+        parent: UInt32 = 1, uid: UInt32 = 501, threads: Double? = 1, architecture: ProcessArchitecture? = nil,
+        instructions: Double? = nil, qos: [ProcessQoS: Double]? = nil
     ) throws -> ObservedProcess {
         let source = MetricSource(provider: "processes", driver: "libproc")
         return ProcessReading(
@@ -381,6 +408,13 @@ final class ProcessGroupsTests: XCTestCase {
                 ?? .unsupported(reason: "No energy counter for this process", source: source),
             cpuTimeSeconds: try cpu.map { try .measured($0, source: source) } ?? .restricted(reason: "EPERM", source: source),
             threadCount: try threads.map { try .measured($0, source: source) } ?? .restricted(reason: "EPERM", source: source),
+            instructionsPerSecond: try instructions.map { try .measured($0, source: source) }
+                ?? .unsupported(reason: "This Mac reports no instruction counter", source: source),
+            qosCPUPercent: try qos.map { split in
+                Dictionary(uniqueKeysWithValues: try ProcessQoS.allCases.map {
+                    ($0, try .measured(split[$0] ?? 0, source: source))
+                })
+            },
             architecture: architecture,
             executablePath: path, responsiblePID: responsible
         )

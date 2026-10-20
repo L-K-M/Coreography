@@ -122,6 +122,68 @@ final class ProcessMonitorTests: XCTestCase {
         XCTAssertEqual(idle?.numericValue, 0)
     }
 
+    func testInstructionsPerSecondUsesTheActualInterval() async throws {
+        let monitor = try makeMonitor([
+            fixture(time: 1, rows: [row(time: 1, cpu: 1_000_000_000, instructions: 2_000_000_000)]),
+            fixture(time: 3, rows: [row(time: 3, cpu: 2_000_000_000, instructions: 4_500_000_000)])
+        ])
+        let first = try await monitor.sample()
+        XCTAssertEqual(first.processes.first?.instructionsPerSecond.availability, .collecting)
+        let second = try await monitor.sample()
+        XCTAssertEqual(second.processes.first?.instructionsPerSecond.numericValue, 1_250_000_000, "2.5 G in 2 s")
+    }
+
+    func testAMacWithoutAnInstructionCounterIsNotZeroPerSecond() async throws {
+        let monitor = try makeMonitor([
+            fixture(time: 1, rows: [row(time: 1, cpu: 1_000_000_000)]),
+            fixture(time: 3, rows: [row(time: 3, cpu: 2_000_000_000)])
+        ])
+        _ = try await monitor.sample()
+        let second = try await monitor.sample()
+        let instructions = try XCTUnwrap(second.processes.first?.instructionsPerSecond)
+        XCTAssertEqual(instructions.availability, .unsupported)
+        XCTAssertNil(instructions.numericValue)
+    }
+
+    func testWithAnInstructionCounterAnIdleProcessRetiresNone() async throws {
+        let monitor = try makeMonitor([
+            fixture(time: 1, rows: [
+                row(pid: 42, time: 1, cpu: 1_000_000_000, instructions: 5), row(pid: 43, time: 1)
+            ]),
+            fixture(time: 3, rows: [
+                row(pid: 42, time: 3, cpu: 2_000_000_000, instructions: 9), row(pid: 43, time: 3)
+            ])
+        ])
+        _ = try await monitor.sample()
+        let idle = try await monitor.sample().processes.last?.instructionsPerSecond
+        XCTAssertEqual(idle?.availability, .measured)
+        XCTAssertEqual(idle?.numericValue, 0)
+    }
+
+    func testTheQOSSplitSumsEachClassOverTheInterval() async throws {
+        let monitor = try makeMonitor([
+            fixture(time: 1, rows: [row(time: 1, cpu: 1_000_000_000, qos: [.default: 1_000_000_000])]),
+            fixture(time: 3, rows: [row(
+                time: 3, cpu: 2_000_000_000, qos: [.default: 1_800_000_000, .utility: 200_000_000]
+            )])
+        ])
+        let first = try await monitor.sample()
+        XCTAssertEqual(first.processes.first?.qosCPUPercent?[.default]?.availability, .collecting)
+        let second = try await monitor.sample()
+        let split = try XCTUnwrap(second.processes.first?.qosCPUPercent)
+        XCTAssertEqual(split[.default]?.numericValue, 10, "800 M ns in 2 s on 4 CPUs")
+        XCTAssertEqual(split[.utility]?.numericValue, 2.5)
+        XCTAssertEqual(split[.background]?.numericValue, 0, "a class without time is measured zero")
+    }
+
+    /// The split rides on the usage counters, so restricted means no split at all.
+    func testAProcessWhoseUsageCannotBeReadHasNoQOSSplit() async throws {
+        let monitor = try makeMonitor([fixture(time: 1, rows: [row(time: 1, failure: .restricted(code: 1))])])
+        let process = try await monitor.sample().processes.first
+        XCTAssertNil(process?.qosCPUPercent)
+        XCTAssertEqual(process?.instructionsPerSecond.availability, .restricted)
+    }
+
     func testGPUTimeJoinsByPIDEvenWhereUsageIsRestricted() async throws {
         let monitor = try makeMonitor(
             [
@@ -365,6 +427,7 @@ final class ProcessMonitorTests: XCTestCase {
     private func row(
         pid: Int32 = 42, time: UInt64, start: UInt64 = 100,
         cpu: UInt64 = 0, read: UInt64 = 0, wakeups: UInt64 = 0, energy: UInt64 = 0, failure: ProcessDriverError? = nil,
+        instructions: UInt64 = 0, qos: [ProcessQoSClass: UInt64] = [:],
         threads: Result<Int, ProcessDriverError> = .success(7),
         cpuType: Result<ProcessCPUType, ProcessDriverError> = .success(.arm64)
     ) -> RawProcessInfo {
@@ -373,7 +436,8 @@ final class ProcessMonitorTests: XCTestCase {
             name: "Fixture \(pid)", monotonicNanoseconds: time * 1_000_000_000,
             counters: failure.map { .failure($0) } ?? .success(ProcessCounters(
                 userNanoseconds: cpu, systemNanoseconds: 0, physicalFootprintBytes: 4096,
-                diskReadBytes: read, diskWriteBytes: 0, wakeups: wakeups, energyNanojoules: energy
+                diskReadBytes: read, diskWriteBytes: 0, wakeups: wakeups, energyNanojoules: energy,
+                instructions: instructions, qosNanoseconds: qos
             )),
             threads: threads, cpuType: cpuType
         )

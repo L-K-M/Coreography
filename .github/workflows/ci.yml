@@ -208,6 +208,13 @@ jobs:
           assert own["executablePath"].endswith("/Coreography.app/Contents/Helpers/coreo")
           threads = own["threadCount"]
           assert threads["availability"] == "measured" and threads["numericValue"] >= 1, threads
+          # A VM may keep no instruction counter; then the rate is unsupported, never zero.
+          instructions = own["instructionsPerSecond"]
+          assert instructions["availability"] in ("measured", "collecting", "unsupported"), instructions
+          assert instructions["availability"] != "measured" or instructions["numericValue"] >= 0
+          # coreo's own counters are readable, so its split names every QoS class.
+          qos = own["qosCPUPercent"]
+          assert set(qos) == {"userInteractive", "userInitiated", "default", "utility", "background", "maintenance", "legacy"}, qos
           # The universal coreo runs its native slice, never under Rosetta.
           assert own.get("architecture") in ("appleSilicon", "intel"), own.get("architecture")
           # coreo opens no GPU connection, so its GPU time is a measured zero.
