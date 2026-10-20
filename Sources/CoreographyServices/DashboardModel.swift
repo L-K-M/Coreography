@@ -739,6 +739,8 @@ public final class DashboardModel {
         var stored: StoredHistory.RawData?
         if selection.lowerBound < (liveStart ?? .distantFuture) {
             guard let history = storedHistory else {
+                // A replayed recording without a stored part will never load one.
+                if openRecording != nil { throw .missingHistory("The recording holds nothing before its first sample.") }
                 throw .missingHistory(storedHistoryProblem ?? "The stored part is still loading; try again in a moment.")
             }
             guard history.start <= selection.lowerBound else {
