@@ -7,6 +7,7 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
 ## [Unreleased]
 
 ### Fixed
+- The toolbar's "Live · last 1 min" label has room inside its capsule.
 - The inspector no longer explains a program as a macOS process when
   its signature shows another developer or none.
 - App grouping and `#apps` recognize bundles whose extension is not
