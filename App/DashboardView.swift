@@ -1901,7 +1901,7 @@ private struct ProcessPane: View {
                         .help("Exit status is not available without the helper")
                 }
 
-                Text("\(ProcessText.cpuScaleNote(model.processCPUScaleInEffect)) App totals sum their members; footprint sums can count shared memory twice. Process sampling: \(model.processSamplingSeconds.formatted()) s; short-lived processes can be missed. Right-click a column header for wakeups, CPU time, start time, threads, architecture and signer.")
+                Text("\(ProcessText.cpuScaleNote(model.processCPUScaleInEffect)) App totals sum their members; footprint sums can count shared memory twice. Process sampling: \(model.processSamplingSeconds.formatted()) s; short-lived processes can be missed. Right-click a column header for wakeups, CPU time, start time, threads, architecture, signer and ports.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
