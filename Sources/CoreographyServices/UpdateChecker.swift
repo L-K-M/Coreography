@@ -18,7 +18,7 @@ public enum UpdateStatus: Equatable, Sendable {
 /// links to it; downloading and installing stay with the person.
 ///
 /// ```text
-/// launch, then hourly ──due (a day since the last answer)?──> ReleaseFeed
+/// launch, then hourly ──due (no answer yet this run, or a day since)?──> ReleaseFeed
 ///                                                             ├─> newer: status + one notification per version
 ///                                                             └─> failed: retried next hour
 /// ```
@@ -42,7 +42,8 @@ public final class UpdateChecker {
     @ObservationIgnored private let feed: ReleaseFeed
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private let now: @Sendable () -> Date
-    @ObservationIgnored private let announce: @Sendable (PublishedRelease) async -> Void
+    /// Returns whether the notification was posted.
+    @ObservationIgnored private let announce: @Sendable (PublishedRelease) async -> Bool
     @ObservationIgnored private var loop: Task<Void, Never>?
 
     public convenience init(version: String) {
@@ -57,7 +58,7 @@ public final class UpdateChecker {
 
     init(
         version: String, feed: ReleaseFeed, defaults: UserDefaults, now: @escaping @Sendable () -> Date,
-        announce: @escaping @Sendable (PublishedRelease) async -> Void
+        announce: @escaping @Sendable (PublishedRelease) async -> Bool
     ) {
         currentVersion = version
         self.version = AppVersion(version)
@@ -121,10 +122,12 @@ public final class UpdateChecker {
         }
         status = .available(release)
 
-        // One notification per version; a manual check shows it in Settings instead.
+        // One notification per version; a manual check shows it in Settings
+        // instead. An undelivered one, such as with notifications denied, is
+        // tried again at the next check.
         guard defaults.string(forKey: Self.announcedKey) != release.version.description else { return }
+        if trigger == .automatic, await !announce(release) { return }
         defaults.set(release.version.description, forKey: Self.announcedKey)
-        if trigger == .automatic { await announce(release) }
     }
 
     private static func message(_ failure: ReleaseFeedFailure) -> String {

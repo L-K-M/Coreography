@@ -1165,7 +1165,7 @@ empty virtual-machine inventory does not validate hardware rates.
 ## Review decisions carried forward
 
 - Updates are notify-only by owner decision (2026-10-20), replacing the
-  plan's Sparkle: Coreography checks GitHub's latest release daily, links
+  plan's Sparkle: Coreography checks GitHub's latest release at launch and daily, links
   to its page and never downloads or installs anything itself.
 - Network parent integration: derive numeric-cell tooltips from reading
   provenance, show interface inventory issues/capacity, and remove the

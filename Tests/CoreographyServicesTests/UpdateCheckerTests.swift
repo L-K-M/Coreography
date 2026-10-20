@@ -23,7 +23,8 @@ final class UpdateCheckerTests: XCTestCase {
         let checker = makeChecker(version: "0.1.0", feed: .tag("v0.2.0"), announced: announced)
 
         checker.start()
-        await waitUntil { checker.lastChecked != nil }
+        // The flag is written after the notification, so it marks a finished check.
+        await waitUntil { self.defaults.string(forKey: "updateAnnouncedVersion") != nil }
         guard case .available(let release) = checker.status else { return XCTFail("\(checker.status)") }
         XCTAssertEqual(release.version, AppVersion("0.2.0"))
         let first = await announced.versions
@@ -32,9 +33,23 @@ final class UpdateCheckerTests: XCTestCase {
         // A relaunch finds the same release and stays quiet.
         let relaunched = makeChecker(version: "0.1.0", feed: .tag("v0.2.0"), announced: announced)
         relaunched.start()
-        await waitUntil { relaunched.lastChecked != nil }
+        await waitUntil { relaunched.status != .notChecked && relaunched.status != .checking }
         let second = await announced.versions
         XCTAssertEqual(second, ["0.2.0"])
+    }
+
+    @MainActor
+    func testAnUndeliveredNotificationIsTriedAgain() async {
+        let denied = Announced(delivers: false)
+        makeChecker(version: "0.1.0", feed: .tag("v0.2.0"), announced: denied).start()
+        await waitUntil { await !denied.versions.isEmpty }
+        XCTAssertNil(defaults.string(forKey: "updateAnnouncedVersion"), "nothing was shown, so nothing is spent")
+
+        let allowed = Announced()
+        makeChecker(version: "0.1.0", feed: .tag("v0.2.0"), announced: allowed).start()
+        await waitUntil { self.defaults.string(forKey: "updateAnnouncedVersion") != nil }
+        let versions = await allowed.versions
+        XCTAssertEqual(versions, ["0.2.0"])
     }
 
     @MainActor
@@ -85,9 +100,9 @@ final class UpdateCheckerTests: XCTestCase {
 
     @MainActor
     func testAutomaticChecksOffMakeNoRequest() async throws {
-        defaults.set(false, forKey: "updateCheckAutomatic")
         let feed = Feed.tag("v0.2.0")
         let checker = makeChecker(version: "0.1.0", feed: feed)
+        checker.setAutomatic(false)
         checker.start()
         try await Task.sleep(for: .milliseconds(50))
         XCTAssertEqual(checker.status, .notChecked)
@@ -99,17 +114,27 @@ final class UpdateCheckerTests: XCTestCase {
     private func makeChecker(version: String, feed: Feed, announced: Announced = Announced()) -> UpdateChecker {
         UpdateChecker(version: version, feed: ReleaseFeed(transport: feed), defaults: defaults, now: Date.init) {
             await announced.add($0.version.description)
+            return announced.delivers
         }
     }
 
     @MainActor
-    private func waitUntil(_ condition: () -> Bool) async {
-        for _ in 0..<200 where !condition() { try? await Task.sleep(for: .milliseconds(5)) }
+    private func waitUntil(_ condition: () async -> Bool) async {
+        for _ in 0..<200 {
+            if await condition() { return }
+            try? await Task.sleep(for: .milliseconds(5))
+        }
+        XCTFail("timed out waiting for the check")
     }
 }
 
 private actor Announced {
+    /// False plays notifications being denied.
+    nonisolated let delivers: Bool
     private(set) var versions: [String] = []
+
+    init(delivers: Bool = true) { self.delivers = delivers }
+
     func add(_ version: String) { versions.append(version) }
 }
 

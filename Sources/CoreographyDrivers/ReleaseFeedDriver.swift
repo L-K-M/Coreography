@@ -34,6 +34,7 @@ public struct GitHubReleaseDriver: ReleaseFeedFetching {
         request.setValue(Self.apiVersion, forHTTPHeaderField: "x-github-api-version")
 
         let (data, response) = try await URLSession.shared.data(for: request)
-        return ReleaseFeedReply(status: (response as? HTTPURLResponse)?.statusCode ?? 0, body: data)
+        guard let http = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
+        return ReleaseFeedReply(status: http.statusCode, body: data)
     }
 }
