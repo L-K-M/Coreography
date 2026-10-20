@@ -200,6 +200,21 @@ final class ProcessGroupsTests: XCTestCase {
 
         let unread = ProcessGroups.rows(in: processes, matching: "", sortedBy: .cpu, grouping: .app)
         XCTAssertNil(unread.first { $0.name == "Safari" }?.listeningPorts, "no connection data is not no ports")
+
+        // Another user's process was never read, so it has no answer rather than none;
+        // a socket still binding (port 0) is no port.
+        let other = try process(pid: 400, name: "postgres", cpu: nil, path: "/usr/local/bin/postgres", uid: 0)
+        let mine = try process(pid: 500, name: "server", cpu: 1, path: "/usr/local/bin/server")
+        let mixed = try snapshot([other, mine])
+        let binding = ConnectionSnapshot(
+            takenAt: Date(), connections: [socket(mine, .listen, 0)],
+            restrictedProcesses: 1, truncatedProcesses: 0, failedProcesses: 0, unavailableReason: nil
+        )
+        let read = ProcessGroups.rows(
+            in: mixed, matching: "", sortedBy: .cpu, grouping: .flat, facts: ProcessFacts(sockets: SocketFacts(binding))
+        )
+        XCTAssertNil(read.first { $0.name == "postgres" }?.listeningPorts)
+        XCTAssertEqual(read.first { $0.name == "server" }?.listeningPorts, [])
     }
 
     func testARowFindsTheAppBundleOfItsFirstMemberInOne() throws {

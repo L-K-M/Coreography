@@ -51,7 +51,9 @@ struct SocketFacts: Sendable {
         for connection in snapshot.connections {
             if connection.local.port != 0 { ports[connection.process, default: []].insert(connection.local.port) }
             if let remote = connection.remote { ports[connection.process, default: []].insert(remote.port) }
-            if connection.isListening { listeningPorts[connection.process, default: []].insert(connection.local.port) }
+            if connection.isListening, connection.local.port != 0 {
+                listeningPorts[connection.process, default: []].insert(connection.local.port)
+            }
         }
         self.ports = ports
         self.listeningPorts = listeningPorts

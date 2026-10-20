@@ -288,7 +288,7 @@ enum ProcessGroups {
             threadCount: total(members.map(\.threadCount), overlap: nil),
             architectures: Set(members.compactMap(\.architecture)),
             signers: Set(members.compactMap { $0.executablePath.flatMap { facts.signers[$0] } }),
-            listeningPorts: facts.sockets.map { sockets in members.reduce(into: []) { $0.formUnion(sockets.listeningPorts[$1.id] ?? []) } },
+            listeningPorts: groupPorts(members, facts.sockets),
             started: members.map(\.id.startTime).min(),
             children: children
         )
@@ -375,7 +375,7 @@ enum ProcessGroups {
             threadCount: process.threadCount,
             architectures: Set([process.architecture].compactMap { $0 }),
             signers: Set([process.executablePath.flatMap { facts.signers[$0] }].compactMap { $0 }),
-            listeningPorts: facts.sockets.map { $0.listeningPorts[process.id] ?? [] },
+            listeningPorts: listeningPorts(process, facts.sockets),
             started: process.id.startTime,
             children: nil
         )
@@ -410,6 +410,19 @@ enum ProcessGroups {
                 source: source
             )
         return reading ?? .gap(reason: "Non-finite total", source: source)
+    }
+
+    /// The ports a process listens on; nil before connections are read and
+    /// for one whose sockets cannot be: the read is same-user, like usage.
+    private static func listeningPorts(_ process: ObservedProcess, _ sockets: SocketFacts?) -> Set<UInt16>? {
+        guard let sockets, process.cpuPercentOfMachine.availability != .restricted else { return nil }
+        return sockets.listeningPorts[process.id] ?? []
+    }
+
+    /// The readable members' ports together; nil when no member was read.
+    private static func groupPorts(_ members: [ObservedProcess], _ sockets: SocketFacts?) -> Set<UInt16>? {
+        let read = members.compactMap { listeningPorts($0, sockets) }
+        return read.isEmpty ? nil : read.reduce(into: []) { $0.formUnion($1) }
     }
 
     private static func sorted(_ rows: [ProcessRow], by sort: ProcessSort) -> [ProcessRow] {

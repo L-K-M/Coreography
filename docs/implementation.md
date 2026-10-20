@@ -404,7 +404,8 @@ Implemented:
   program, four at a time, starting only while the column shows, and an
   app lists each signer. An opt-in Ports column lists the local ports
   each process, or an app's members, listens on; connections are read
-  while it shows, for your own processes only, and "–" means not read.
+  while it shows, for your own processes only; "–" means not read,
+  as for another user's process, and blank means none.
   QoS and instructions columns remain.
 - The memory lane stacks the composition under the physical-memory line,
   draws a pressure band above it, and has a ten-column numeric table and

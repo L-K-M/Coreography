@@ -2395,13 +2395,14 @@ private enum ProcessText {
         return order.filter(kinds.contains).map(architecture).joined(separator: ", ")
     }
 
-    /// Example: "Apple, team ABCDE12345"; "–" until checked.
-    /// Example: "443, 8080"; "–" until connections are read, blank for none.
+    /// Example: "443, 8080"; "–" until connections are read or for another
+    /// user's process, blank for none.
     static func ports(_ ports: Set<UInt16>?) -> String {
         guard let ports else { return "–" }
         return ports.sorted().map(String.init).joined(separator: ", ")
     }
 
+    /// Example: "Apple, team ABCDE12345"; "–" until checked.
     static func signers(_ signers: Set<CapturedSigner>) -> String {
         guard !signers.isEmpty else { return "–" }
         return signers.map(signer).sorted().joined(separator: ", ")
