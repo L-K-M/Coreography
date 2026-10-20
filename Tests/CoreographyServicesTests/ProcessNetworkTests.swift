@@ -34,6 +34,19 @@ final class ProcessNetworkTests: XCTestCase {
         XCTAssertTrue(unread.allSatisfy { $0.networkReceivedBytesPerSecond.availability == .collecting })
     }
 
+    /// Plan: the network lane names its top apps ("top then") like the others.
+    func testContributorsRankAppsByTrafficAndSkipIdleOnes() throws {
+        let processes = try snapshot([
+            (10, "Safari", "/Applications/Safari.app/Contents/MacOS/Safari", nil),
+            (12, "Mail", "/Applications/Mail.app/Contents/MacOS/Mail", nil)
+        ])
+        let traffic = try trafficSnapshot([(10, "Safari", 1_000, 10)])
+        let contributors = Contributors.snapshot(from: processes, traffic: traffic)
+        XCTAssertEqual(contributors.network.map(\.name), ["Safari"], "Mail moved nothing")
+        XCTAssertEqual(contributors.network.first?.value, 1_010, "in plus out")
+        XCTAssertTrue(Contributors.snapshot(from: processes).network.isEmpty, "unread traffic names no one")
+    }
+
     func testUnavailableTrafficIsUnsupportedWithItsReason() throws {
         let processes = try snapshot([(10, "Safari", nil, nil)])
         let traffic = ProcessTrafficSnapshot(

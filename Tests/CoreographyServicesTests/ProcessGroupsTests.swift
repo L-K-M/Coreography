@@ -160,6 +160,18 @@ final class ProcessGroupsTests: XCTestCase {
         XCTAssertEqual(contributors.disk.count, Contributors.limit)
     }
 
+    /// Plan: the GPU detail's per-app GPU time and the power detail's
+    /// per-app modeled energy, named like the other lanes' top apps.
+    func testContributorsRankGPUTimeAndModeledPower() throws {
+        let game = try process(pid: 600, name: "Game", cpu: 1, path: "/Applications/Game.app/Contents/MacOS/Game", gpu: 40, power: 2)
+        let tool = try process(pid: 700, name: "tool", cpu: 1, path: "/usr/local/bin/tool", gpu: 0, power: nil)
+        let contributors = Contributors.snapshot(from: try snapshot([game, tool]))
+        XCTAssertEqual(contributors.gpu.map(\.name), ["Game"], "no GPU time is no contributor")
+        XCTAssertEqual(contributors.gpu.first?.value, 40)
+        XCTAssertEqual(contributors.power.map(\.name), ["Game"], "no energy counter is no contributor")
+        XCTAssertEqual(contributors.power.first?.isEstimate, true, "modeled energy is an estimate")
+    }
+
     /// Plan: opt-in CPU time and start time columns, sortable.
     func testGroupsTotalCPUTimeAndStartWithTheirFirstMember() throws {
         let processes = try snapshot([safari, webContent(responsible: 100), standaloneDaemon])
@@ -206,6 +218,21 @@ final class ProcessGroupsTests: XCTestCase {
 
         let translated = ProcessGroups.rows(in: processes, matching: "#rosetta", sortedBy: .cpu, grouping: .flat)
         XCTAssertEqual(translated.map(\.name), ["plugin"])
+    }
+
+    /// Plan: an opt-in signing column. An app lists each signer of its programs.
+    func testAnAppListsTheSignersOfItsPrograms() throws {
+        let safari = "/Applications/Safari.app/Contents/MacOS/Safari"
+        let plugin = "/Applications/Safari.app/Contents/MacOS/plugin"
+        let processes = try snapshot([
+            try process(pid: 100, name: "Safari", cpu: 9, path: safari),
+            try process(pid: 101, name: "plugin", cpu: 1, path: plugin),
+            try process(pid: 200, name: "mds", cpu: 1, path: "/usr/sbin/mds")
+        ])
+        let facts = ProcessFacts(signers: [safari: .apple, plugin: .developer(team: "ABCDE12345")])
+        let rows = ProcessGroups.rows(in: processes, matching: "", sortedBy: .cpu, grouping: .app, facts: facts)
+        XCTAssertEqual(rows.first { $0.name == "Safari" }?.signers, [.apple, .developer(team: "ABCDE12345")])
+        XCTAssertEqual(rows.first { $0.name == "mds" }?.signers, [], "not yet checked")
     }
 
     /// Plan: grouping as a parent-child tree, each row with its own readings.

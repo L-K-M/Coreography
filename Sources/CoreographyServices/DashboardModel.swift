@@ -298,6 +298,12 @@ public final class DashboardModel {
     private var accountNames: [UInt32: String] = [:]
     @ObservationIgnored private var accountsAsked: Set<UInt32> = []
     @ObservationIgnored private var accountLookup: Task<Void, Never>?
+    @ObservationIgnored private let signerDirectory = SignerDirectory()
+    /// Signers by executable path, checked off the main actor: checking a
+    /// program's signature reads it from disk.
+    private var signers: [String: CapturedSigner] = [:]
+    @ObservationIgnored private var signersAsked: Set<String> = []
+    @ObservationIgnored private var signerLookup: Task<Void, Never>?
     @ObservationIgnored private var alertCooldown = AlertCooldown()
     /// Shortcut runs have their own cooldown, so a flapping rule cannot loop one.
     @ObservationIgnored private var shortcutCooldown = AlertCooldown()
@@ -509,8 +515,12 @@ public final class DashboardModel {
         if let rail = displayedSensorFrame?.systemPowerWatts, rail.numericValue != nil { return rail }
         return displayedPowerFrame?.systemPowerWatts ?? displayedSensorFrame?.systemPowerWatts
     }
+    /// Before the live process samples, the stored ledger answers for the
+    /// cursor with what it kept: CPU, disk and network per app.
     public var displayedContributors: ContributorSnapshot? {
-        atCursor(contributorHistory, tolerance: Self.contributorTolerance) { $0.time }
+        if let live = atCursor(contributorHistory, tolerance: Self.contributorTolerance, time: { $0.time }) { return live }
+        guard let cursorTime, cursorTime < contributorHistory.first?.time ?? .distantFuture else { return nil }
+        return storedHistory?.ledger.contributors(at: cursorTime)
     }
 
     private func atCursor<Frame>(
@@ -1267,6 +1277,30 @@ public final class DashboardModel {
         return accountNames
     }
 
+    /// Whether the table shows its signer column; checks start only then,
+    /// and a batch already running finishes into the cache. Showing it again
+    /// retries programs that could not be checked.
+    public var showsSigners = false {
+        didSet { if showsSigners, !oldValue { signersAsked = [] } }
+    }
+
+    /// The signers known now; programs not yet checked are checked in the
+    /// background, and their rows show no signer until the answers arrive.
+    private func knownSigners() -> [String: CapturedSigner] {
+        let paths = Set((processSnapshot?.processes ?? []).compactMap(\.executablePath))
+        let unasked = paths.subtracting(signersAsked)
+        guard !unasked.isEmpty, signerLookup == nil else { return signers }
+        signersAsked.formUnion(unasked)
+        let directory = signerDirectory
+        signerLookup = Task { [weak self] in
+            let found = await directory.signers(for: unasked)
+            guard let self else { return }
+            self.signerLookup = nil
+            if !found.isEmpty { self.signers.merge(found) { _, checked in checked } }
+        }
+        return signers
+    }
+
     /// One process's TCP and UDP rates from the displayed traffic sample.
     public func networkRates(for process: ObservedProcess) -> (received: DashboardReading, sent: DashboardReading) {
         ProcessNetwork.rates(for: process, in: trafficSnapshot)
@@ -1283,7 +1317,8 @@ public final class DashboardModel {
                 openFiles: openFileSnapshot?.files, traffic: trafficSnapshot, cpuFactor: processCPUFactor,
                 // Only the by-user view and `user:<name>` need account names.
                 accountNames: processGrouping == .user || ProcessFilter.parse(processFilter).usesAccountNames
-                    ? knownAccountNames() : [:]
+                    ? knownAccountNames() : [:],
+                signers: showsSigners ? knownSigners() : [:]
             )
         )
         let ranked = rangeRanked(rows)
@@ -1773,7 +1808,7 @@ public final class DashboardModel {
                     }
                     if let processes {
                         self.liveProcesses = processes
-                        self.liveContributorHistory.append(Contributors.snapshot(from: processes))
+                        self.liveContributorHistory.append(Contributors.snapshot(from: processes, traffic: traffic))
                         self.liveContributorHistory = Array(self.liveContributorHistory.suffix(Self.contributorCapacity))
                         let interval = self.liveLedger.record(
                             processes, traffic: traffic, logicalCPUCount: history.last?.inventory.logicalCPUCount

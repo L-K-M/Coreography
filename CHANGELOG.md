@@ -36,8 +36,15 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
 - The lanes mark apps starting and exiting, such as "Mail started".
 - An opt-in Threads column and sort in the process table, and the
   header's thread total. `coreo top --sort threads` ranks by them.
+- The network lane names its top apps by traffic, live and under the
+  cursor, as the CPU, memory and disk lanes do.
+- The GPU and power lanes name the apps using the most GPU time and
+  modeled CPU power.
+- Pointing at stored history names the apps leading CPU, disk and
+  network then, not only within the live hour.
 - An opt-in Architecture column (Apple, Intel, or Intel under Rosetta)
   and a `#rosetta` filter.
+- An opt-in Signed by column: Apple, the developer team, or Unsigned.
 - With an app shown in the lanes, the network lane names its traffic, in
   plus out, as the CPU and disk lanes do.
 - With an app shown in the lanes, the memory and GPU lanes name its

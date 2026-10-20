@@ -663,6 +663,7 @@ private struct GPULane: View {
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 Text(GPUText.status(latest, cursor: model.cursorTime)).font(.caption).foregroundStyle(.secondary)
+                ContributorLine(model: model, subsystem: .gpu)
                 ScopedReadingLine(model: model, metric: .gpu)
             }
             .monospacedDigit()
@@ -797,6 +798,7 @@ private struct PowerLane: View {
                 if let awake = PowerText.keptAwake(model.sleepPreventers) {
                     Text(awake).font(.caption).foregroundStyle(.orange)
                 }
+                ContributorLine(model: model, subsystem: .power)
                 Text(system?.reason ?? system?.method ?? "")
                     .font(.caption).foregroundStyle(.secondary)
             }
@@ -1240,6 +1242,7 @@ private struct NetworkLane: View {
                 Text("↑ " + MetricText.rate(sendReading?.numericValue))
                     .font(.system(size: 20, weight: .semibold))
                 interfacePicker
+                ContributorLine(model: model, subsystem: .network)
                 // A scoped app's TCP and UDP, every interface together (plan P8).
                 if let app = model.scopedApp {
                     Text(model.scopedNetworkRate.map { "\(app): \(MetricText.rate($0)) in + out" }
@@ -1646,10 +1649,21 @@ private struct ProcessPane: View {
                         }
                         .customizationID("architecture")
                         .defaultVisibility(.hidden)
+                        TableColumn("Signed by") { (row: ProcessRow) in
+                            Text(ProcessText.signers(row.signers))
+                                .help(String(localized: "Who signed its program, checked once per program while this column shows; an app lists each signer"))
+                        }
+                        .customizationID(ProcessColumns.signerID)
+                        .defaultVisibility(.hidden)
                     }
                 }
                 .frame(height: 260)
                 .onChange(of: columns) { _, chosen in ProcessColumns.save(chosen) }
+                // Signatures are read from disk, so checks start only while their
+                // column shows. `.automatic` is the column's hidden default.
+                .onChange(of: columns, initial: true) { _, chosen in
+                    model.showsSigners = chosen[visibility: ProcessColumns.signerID] == .visible
+                }
                 .textSelection(.enabled)
 
                 if let message = model.actionMessage {
@@ -1666,7 +1680,7 @@ private struct ProcessPane: View {
                         .help("Exit status is not available without the helper")
                 }
 
-                Text("\(ProcessText.cpuScaleNote(model.processCPUScaleInEffect)) App totals sum their members; footprint sums can count shared memory twice. Process sampling: 2 s; short-lived processes can be missed. Right-click a column header for wakeups, CPU time, start time, threads and architecture.")
+                Text("\(ProcessText.cpuScaleNote(model.processCPUScaleInEffect)) App totals sum their members; footprint sums can count shared memory twice. Process sampling: 2 s; short-lived processes can be missed. Right-click a column header for wakeups, CPU time, start time, threads, architecture and signer.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -2089,6 +2103,7 @@ private struct HeatScale {
 /// The process table's column choices, kept across launches.
 private enum ProcessColumns {
     private static let defaultsKey = "processColumns"
+    static let signerID = "signer"
 
     static func saved() -> TableColumnCustomization<ProcessRow> {
         guard let data = UserDefaults.standard.data(forKey: defaultsKey),
@@ -2125,6 +2140,21 @@ private enum ProcessText {
         guard !kinds.isEmpty else { return "–" }
         let order: [ObservedArchitecture] = [.appleSilicon, .intel, .intelTranslated]
         return order.filter(kinds.contains).map(architecture).joined(separator: ", ")
+    }
+
+    /// Example: "Apple, team ABCDE12345"; "–" until checked.
+    static func signers(_ signers: Set<CapturedSigner>) -> String {
+        guard !signers.isEmpty else { return "–" }
+        return signers.map(signer).sorted().joined(separator: ", ")
+    }
+
+    private static func signer(_ signer: CapturedSigner) -> String {
+        switch signer {
+        case .apple: String(localized: "Apple")
+        case .developer(let team): team.map { String(localized: "team \($0)") } ?? String(localized: "a developer")
+        case .unsigned: String(localized: "Unsigned")
+        case .unknown: String(localized: "Unknown")
+        }
     }
 
     private static func architecture(_ kind: ObservedArchitecture) -> String {
@@ -3000,7 +3030,7 @@ private struct ChartInteraction: View {
     }
 }
 
-private enum ContributorSubsystem { case cpu, memory, disk }
+private enum ContributorSubsystem { case cpu, memory, disk, network, gpu, power }
 
 /// "Top then": the leading apps at the process sample nearest the cursor.
 private struct ContributorLine: View {
@@ -3012,7 +3042,26 @@ private struct ContributorLine: View {
             .font(.caption)
             .foregroundStyle(.secondary)
             .lineLimit(2)
-            .help("Own-user processes grouped by app, from the process sample nearest the cursor")
+            .help(help)
+    }
+
+    /// GPU time and modeled energy can be absent for every app, as on a Mac
+    /// without energy counters; that is not the same as an idle machine.
+    private var emptyNote: String {
+        switch subsystem {
+        case .gpu: String(localized: "no app used GPU time")
+        case .power: String(localized: "no app reported modeled energy")
+        case .cpu, .memory, .disk, .network: String(localized: "no readable activity")
+        }
+    }
+
+    private var help: String {
+        switch subsystem {
+        case .network: String(localized: "TCP and UDP in plus out across every interface, grouped by app, from the process sample nearest the cursor")
+        case .gpu: String(localized: "GPU time per second by app, not a share of the busy percentage; from the process sample nearest the cursor")
+        case .power: String(localized: "CPU power the kernel's energy model gives each app, an estimate without GPU work; from the process sample nearest the cursor")
+        case .cpu, .memory, .disk: String(localized: "Own-user processes grouped by app, from the process sample nearest the cursor")
+        }
     }
 
     private var label: String {
@@ -3025,16 +3074,25 @@ private struct ContributorLine: View {
         case .cpu: snapshot.cpu
         case .memory: snapshot.memory
         case .disk: snapshot.disk
+        case .network: snapshot.network
+        case .gpu: snapshot.gpu
+        case .power: snapshot.power
         }
         let prefix = model.cursorTime == nil
             ? String(localized: "Top")
             : String(localized: "Top at \(snapshot.time.formatted(date: .omitted, time: .standard))")
-        guard !contributors.isEmpty else { return prefix + ": " + String(localized: "no readable activity") }
+        // The stored ledger kept CPU, disk and network per app, nothing else.
+        if snapshot.origin == .storedLedger, [.memory, .gpu, .power].contains(subsystem) {
+            return prefix + ": " + String(localized: "not kept in stored history")
+        }
+        guard !contributors.isEmpty else { return prefix + ": " + emptyNote }
         let items = contributors.map { contributor in
             let value = switch subsystem {
             case .cpu: MetricText.percent(contributor.value)
             case .memory: MetricText.bytes(contributor.value)
-            case .disk: MetricText.rate(contributor.value)
+            case .disk, .network: MetricText.rate(contributor.value)
+            case .gpu: ProcessText.gpuTime(contributor.value) + " ms/s"
+            case .power: ProcessText.power(contributor.value)
             }
             return contributor.name + " " + value + (contributor.isEstimate ? " " + String(localized: "est.") : "")
         }
