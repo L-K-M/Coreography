@@ -106,6 +106,9 @@ final class ProcessLifecycleTests: XCTestCase {
         lifecycle.record(try snapshot(at: 3600, pids: [2], paths: paths, continuity: .interrupted, truncated: true))
         lifecycle.record(try snapshot(at: 3602, pids: [2], paths: paths))
         XCTAssertTrue(lifecycle.appEvents.isEmpty, "Mail quit at an unknown time during sleep")
+
+        lifecycle.record(try snapshot(at: 3604, pids: [], paths: paths))
+        XCTAssertEqual(lifecycle.appEvents.map(\.app), ["Notes"], "a complete list after the gap is a baseline again")
     }
 
     private func identity(_ pid: Int32) throws -> ProcessIdentity {
