@@ -481,7 +481,7 @@ jobs:
           import json, sys
           with open(sys.argv[1]) as source:
               report = json.load(source)
-          assert report["windowStart"] <= report["windowEnd"] and len(report["metrics"]) == 21
+          assert report["windowStart"] <= report["windowEnd"] and len(report["metrics"]) == 21, f"metrics {len(report['metrics'])}"
           for metric in report["metrics"]:
               assert 0 <= metric["valued"] <= metric["storedSamples"], metric
               if metric["valued"]:

@@ -221,12 +221,12 @@ enum HistorySamples {
         (.p, .performanceClusterActivePercent, .performanceClusterFrequencyMHz)
     ]
 
+    private static let clusterMeanMethod = "Core-weighted mean of the kind's clusters"
+
     /// One stored reading per tier kind: the mean across the kind's clusters,
     /// weighted by each entry's core count (0 counts as 1). A frame carries
     /// one entry per kind today, so the weighting only matters if several
     /// appear. A kind absent from the frame gives no reading at all.
-    private static let clusterMeanMethod = "Core-weighted mean of the kind's clusters"
-
     static func clusterMean(
         _ tiers: [CPUTierReading], kind: CPUTierKind, _ reading: KeyPath<CPUTierReading, MetricReading>
     ) -> MetricReading? {
