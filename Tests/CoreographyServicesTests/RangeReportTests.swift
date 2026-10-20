@@ -132,6 +132,14 @@ final class RangeReportTests: XCTestCase {
         let bucket = StoredValue(time: epoch, mean: 15, maximum: 90, count: 10)
         XCTAssertNil(RangeReport.cpuPercentiles(stored: raw + [bucket], live: [40]), "a rolled-up bucket hides its spread")
         XCTAssertNil(RangeReport.cpuPercentiles(stored: [], live: []))
+        let liveOnly = RangeReport.cpuPercentiles(stored: [], live: [40, 50])
+        XCTAssertEqual(liveOnly?.median, 40, "nearest rank: the 1st of 2 live readings")
+        XCTAssertEqual(liveOnly?.p95, 50)
+        let poisoned = RangeReport.cpuPercentiles(
+            stored: raw + [StoredValue(time: epoch, mean: .nan, maximum: .nan, count: 1)], live: [.infinity]
+        )
+        XCTAssertEqual(poisoned?.median, 20, "a non-finite reading is no reading")
+        XCTAssertEqual(poisoned?.p95, 30)
     }
 
     func testReportRanksAppsAndSummarisesLanes() throws {

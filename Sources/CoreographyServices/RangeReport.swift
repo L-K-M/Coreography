@@ -82,7 +82,7 @@ public struct RangeReport: Sendable {
     /// (plan: percentiles require raw samples).
     static func cpuPercentiles(stored: [StoredValue], live: [Double]) -> (median: Double, p95: Double)? {
         guard stored.allSatisfy({ $0.count == 1 }) else { return nil }
-        let sorted = (stored.map(\.mean) + live).sorted()
+        let sorted = (stored.map(\.mean) + live).filter(\.isFinite).sorted()
         guard let median = NearestRank.value(sorted, NearestRank.median),
               let p95 = NearestRank.value(sorted, NearestRank.p95) else { return nil }
         return (median, p95)

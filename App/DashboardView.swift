@@ -3026,10 +3026,12 @@ private enum RangeText {
         var parts: [String] = []
         if let mean = report.cpuMeanPercent, let peak = report.cpuPeakPercent {
             // Percentiles only where raw readings back them; rolled-up history keeps none.
-            let spread = report.cpuMedianPercent.flatMap { median in report.cpuP95Percent.map { p95 in
-                String(localized: ", median \(MetricText.percent(median)), 95th \(MetricText.percent(p95))")
-            } } ?? ""
-            parts.append(String(localized: "CPU mean \(MetricText.percent(mean))\(spread), peak \(MetricText.percent(peak))"))
+            // Whole sentences, so a translation can order them freely.
+            if let median = report.cpuMedianPercent, let p95 = report.cpuP95Percent {
+                parts.append(String(localized: "CPU mean \(MetricText.percent(mean)), median \(MetricText.percent(median)), 95th \(MetricText.percent(p95)), peak \(MetricText.percent(peak))"))
+            } else {
+                parts.append(String(localized: "CPU mean \(MetricText.percent(mean)), peak \(MetricText.percent(peak))"))
+            }
         }
         if let memory = report.memoryPeakBytes {
             parts.append(String(localized: "memory peak \(MetricText.bytes(memory))"))
