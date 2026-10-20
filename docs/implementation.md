@@ -361,8 +361,12 @@ Implemented:
   history. Automatic selection requires a single device and complete
   inventory. Physical and virtual driver counters are kept separate.
 - `coreo disks --once --json` captures available storage rates and failures.
-- Disk and network share a mirrored chart and accessibility renderer.
-  Native scanning actors share an executor implementation while each owns
+- Disk and network share a mirrored chart and accessibility renderer;
+  a range of measured zeros reads "no activity", unlike a gap. A lane
+  with nothing to draw shows a lock and the reason when permissions
+  withhold it, and a dashed "Not available on this Mac" frame when the
+  Mac lacks the source, at the graph's height. No helper exists, so no
+  Install button is offered. Native scanning actors share an executor implementation while each owns
   a serial queue and retains its task's cancellation context.
 - Memory composition from the same `HOST_VM_INFO64` read: app, wired,
   compressed and cached bytes, compression ratio, and page-in, swap-in

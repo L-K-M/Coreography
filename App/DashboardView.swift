@@ -326,6 +326,9 @@ struct DashboardView: View {
                 Text(title).font(.caption.weight(.medium)).foregroundStyle(.secondary)
                     .onTapGesture(count: 2) { if metric == .cpu { model.toggleDetail(.cpu) } }
                     .help(String(localized: "Double-click to show or hide each core"))
+                    .accessibilityActions {
+                        if metric == .cpu { Button("Show or hide detail") { model.toggleDetail(.cpu) } }
+                    }
                 Text(metric == .cpu
                      ? MetricText.percent(reading?.numericValue)
                      : MetricText.bytes(reading?.numericValue))
@@ -363,10 +366,7 @@ struct DashboardView: View {
             .frame(width: Layout.headerWidth, alignment: .leading)
 
             if points.isEmpty {
-                Text(reading?.reason ?? String(localized: "Collecting samples…"))
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, minHeight: graphHeight)
+                LaneEmptyState(reading: reading, height: graphHeight)
             } else {
                 VStack(alignment: .leading, spacing: 4) {
                     Chart {
@@ -492,9 +492,7 @@ private struct MemoryLane: View {
 
             VStack(alignment: .leading, spacing: 8) {
                 if stack.isEmpty {
-                    Text(used?.reason ?? String(localized: "Collecting samples…"))
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, minHeight: graphHeight)
+                    LaneEmptyState(reading: used, height: graphHeight)
                 } else {
                     chart(stack: stack, pressure: pressure, capacity: capacity, start: start, end: end)
                 }
@@ -745,6 +743,44 @@ private struct GPULane: View {
     }
 }
 
+/// A lane with nothing to draw, in the plan's state grammar: a lock for
+/// what permissions withhold, a dashed frame for what this Mac lacks, so
+/// neither reads as a quiet machine. The frame keeps the graph's height.
+///
+/// ```text
+/// restricted:   [lock] Needs Full Disk Access
+/// unsupported:  ┌ ─ ─ Not available on this Mac ─ ─ ┐
+///               └ ─ ─ ─ ─ ─  reason  ─ ─ ─ ─ ─ ─ ┘
+/// ```
+private struct LaneEmptyState: View {
+    private static let dash: [CGFloat] = [4, 3]
+    let reading: DashboardReading?
+    let height: CGFloat
+
+    var body: some View {
+        content
+            .font(.callout)
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, minHeight: height)
+    }
+
+    @ViewBuilder private var content: some View {
+        switch reading?.availability {
+        case .restricted:
+            Label(reading?.reason ?? String(localized: "Restricted"), systemImage: "lock.fill")
+        case .unavailable, .unsupported:
+            VStack(spacing: 2) {
+                Text("Not available on this Mac")
+                if let reason = reading?.reason { Text(reason).font(.caption) }
+            }
+            .frame(maxWidth: .infinity, minHeight: height)
+            .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(style: StrokeStyle(lineWidth: 1, dash: Self.dash)))
+        default:
+            Text(reading?.reason ?? String(localized: "Collecting samples…"))
+        }
+    }
+}
+
 private enum GPUText {
     static func status(_ frame: CapturedGPU?, cursor: Date?) -> String {
         guard let frame else {
@@ -830,9 +866,7 @@ private struct PowerLane: View {
 
             VStack(alignment: .leading, spacing: 8) {
                 if points.isEmpty {
-                    Text(latest?.batteryChargePercent.reason ?? String(localized: "Collecting samples…"))
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, minHeight: graphHeight)
+                    LaneEmptyState(reading: latest?.batteryChargePercent, height: graphHeight)
                 } else {
                     chart(points: points, plugged: plugged, start: start, end: end)
                 }
@@ -1051,9 +1085,7 @@ private struct ThermalLane: View {
             if !temperatures.isEmpty {
                 temperatureChart(temperatures, spans: spans, start: start, end: end)
             } else if spans.isEmpty {
-                Text(reading?.reason ?? String(localized: "Collecting samples…"))
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, minHeight: Layout.bandHeight)
+                LaneEmptyState(reading: reading, height: Layout.bandHeight)
             } else {
                 Chart {
                     ForEach(spans) { span in
@@ -1300,9 +1332,7 @@ private struct NetworkLane: View {
 
             VStack(alignment: .leading, spacing: 8) {
                 if received.isEmpty && sent.isEmpty {
-                    Text(receiveReading?.reason ?? String(localized: "Collecting samples…"))
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, minHeight: graphHeight)
+                    LaneEmptyState(reading: receiveReading, height: graphHeight)
                 } else {
                     TransferChart(
                         title: String(localized: "Network"), aboveLabel: String(localized: "Received"),
@@ -1593,10 +1623,19 @@ private struct TransferChart: View {
             }
         }
         .frame(height: graphHeight)
+        // Plan zero state: a measured flat zero says so, unlike a gap.
+        .overlay {
+            if isIdle { Text("no activity").font(.caption).foregroundStyle(.secondary) }
+        }
         .accessibilityChartDescriptor(TransferChartAccessibility(
             title: title, aboveLabel: aboveLabel, belowLabel: belowLabel,
             above: above, below: below, start: start, end: end, maximum: maximum
         ))
+    }
+
+    private var isIdle: Bool {
+        let values = (above + below).map(\.value)
+        return !values.isEmpty && values.allSatisfy { $0 == 0 }
     }
 
     private func rateCeiling(_ value: Double) -> Double {
