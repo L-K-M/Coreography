@@ -663,6 +663,7 @@ private struct GPULane: View {
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 Text(GPUText.status(latest, cursor: model.cursorTime)).font(.caption).foregroundStyle(.secondary)
+                ContributorLine(model: model, subsystem: .gpu)
                 ScopedReadingLine(model: model, metric: .gpu)
             }
             .monospacedDigit()
@@ -797,6 +798,7 @@ private struct PowerLane: View {
                 if let awake = PowerText.keptAwake(model.sleepPreventers) {
                     Text(awake).font(.caption).foregroundStyle(.orange)
                 }
+                ContributorLine(model: model, subsystem: .power)
                 Text(system?.reason ?? system?.method ?? "")
                     .font(.caption).foregroundStyle(.secondary)
             }
@@ -1240,6 +1242,7 @@ private struct NetworkLane: View {
                 Text("↑ " + MetricText.rate(sendReading?.numericValue))
                     .font(.system(size: 20, weight: .semibold))
                 interfacePicker
+                ContributorLine(model: model, subsystem: .network)
                 // A scoped app's TCP and UDP, every interface together (plan P8).
                 if let app = model.scopedApp {
                     Text(model.scopedNetworkRate.map { "\(app): \(MetricText.rate($0)) in + out" }
@@ -3000,7 +3003,7 @@ private struct ChartInteraction: View {
     }
 }
 
-private enum ContributorSubsystem { case cpu, memory, disk }
+private enum ContributorSubsystem { case cpu, memory, disk, network, gpu, power }
 
 /// "Top then": the leading apps at the process sample nearest the cursor.
 private struct ContributorLine: View {
@@ -3012,7 +3015,26 @@ private struct ContributorLine: View {
             .font(.caption)
             .foregroundStyle(.secondary)
             .lineLimit(2)
-            .help("Own-user processes grouped by app, from the process sample nearest the cursor")
+            .help(help)
+    }
+
+    /// GPU time and modeled energy can be absent for every app, as on a Mac
+    /// without energy counters; that is not the same as an idle machine.
+    private var emptyNote: String {
+        switch subsystem {
+        case .gpu: String(localized: "no app used GPU time")
+        case .power: String(localized: "no app reported modeled energy")
+        case .cpu, .memory, .disk, .network: String(localized: "no readable activity")
+        }
+    }
+
+    private var help: String {
+        switch subsystem {
+        case .network: String(localized: "TCP and UDP in plus out across every interface, grouped by app, from the process sample nearest the cursor")
+        case .gpu: String(localized: "GPU time per second by app, not a share of the busy percentage; from the process sample nearest the cursor")
+        case .power: String(localized: "CPU power the kernel's energy model gives each app, an estimate without GPU work; from the process sample nearest the cursor")
+        case .cpu, .memory, .disk: String(localized: "Own-user processes grouped by app, from the process sample nearest the cursor")
+        }
     }
 
     private var label: String {
@@ -3025,16 +3047,25 @@ private struct ContributorLine: View {
         case .cpu: snapshot.cpu
         case .memory: snapshot.memory
         case .disk: snapshot.disk
+        case .network: snapshot.network
+        case .gpu: snapshot.gpu
+        case .power: snapshot.power
         }
         let prefix = model.cursorTime == nil
             ? String(localized: "Top")
             : String(localized: "Top at \(snapshot.time.formatted(date: .omitted, time: .standard))")
-        guard !contributors.isEmpty else { return prefix + ": " + String(localized: "no readable activity") }
+        // The stored ledger kept CPU, disk and network per app, nothing else.
+        if snapshot.origin == .storedLedger, [.memory, .gpu, .power].contains(subsystem) {
+            return prefix + ": " + String(localized: "not kept in stored history")
+        }
+        guard !contributors.isEmpty else { return prefix + ": " + emptyNote }
         let items = contributors.map { contributor in
             let value = switch subsystem {
             case .cpu: MetricText.percent(contributor.value)
             case .memory: MetricText.bytes(contributor.value)
-            case .disk: MetricText.rate(contributor.value)
+            case .disk, .network: MetricText.rate(contributor.value)
+            case .gpu: ProcessText.gpuTime(contributor.value) + " ms/s"
+            case .power: ProcessText.power(contributor.value)
             }
             return contributor.name + " " + value + (contributor.isEstimate ? " " + String(localized: "est.") : "")
         }
