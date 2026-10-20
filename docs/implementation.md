@@ -950,7 +950,7 @@ implemented and listed above; native behavior still awaits the
 | M4 | `log show` sleep and wake import; `pmset` history covers sleep and wake today |
 | M5 | What needs the privileged helper, now installable from Settings in Developer ID builds: other users' processes, spindump, not-responding detection, login and background items, raising priority, exit status. Separately, connections grouped by domain |
 | M6 / S9 | Frame rate: `metalperftrace` capture, the HUD's frame-rate slot, FPS in sessions and the performance view |
-| M7 | Localization, integration, soak and performance checks, the updater, Developer ID signing and notarized releases |
+| M7 | Translations (English only for now), integration, soak and performance checks, the updater, Developer ID signing and notarized releases |
 | Deferred by the plan | Desktop widget, Control Center control, per-file tracing, ES launch timeline, Prometheus export, Wi-Fi details |
 
 ## Owner Mac checks
@@ -1169,6 +1169,13 @@ empty virtual-machine inventory does not validate hardware rates.
   launch daemon only from a properly signed app, so these builds show
   that the helper needs a Developer ID build. The helper also refuses to
   listen without a team ID, since an identifier alone pins nothing.
+- The app ships English only by owner decision (2026-10-20). The app
+  target has an English string catalog. Building in the Xcode IDE adds
+  SwiftUI literals, such as `Text("Delete history…")`, to it;
+  `xcodebuild` compiles the catalog without updating it. Text built
+  in CoreographyServices and CoreographyKit, such as error messages,
+  reaches views as plain `String` and is not extracted; it needs
+  `String(localized:bundle:)` and package resources before a translation.
 - Network parent integration: derive numeric-cell tooltips from reading
   provenance, show interface inventory issues/capacity, and remove the
   unused selected-interface accessor. These low-risk local-review notes
