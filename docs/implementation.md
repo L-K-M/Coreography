@@ -554,7 +554,12 @@ Implemented:
 - The app ledger on disk: every two-second process interval, idle ones
   included, is written with the sample batches as per-app CPU-seconds,
   disk bytes and a lower-bound flag, under the same 6-hour and size
-  caps. App names are interned and swept hourly once their intervals age
+  caps. Each interval also keeps every app's modeled CPU energy (its
+  processes' estimated watts times the interval) and whether any process
+  had an energy counter then; totals over intervals without one are
+  unknown, not zero, and partly covered ones are lower bounds. Range
+  reports, `get_top_processes` (`energy`, in joules) and the per-day app
+  totals carry it. App names are interned and swept hourly once their intervals age
   out, and one-click deletion clears them. `coreo apps --json` totals the
   recorded apps over the last N minutes. The size cap now counts live
   pages only and, once exceeded, prunes the oldest tenths of samples and

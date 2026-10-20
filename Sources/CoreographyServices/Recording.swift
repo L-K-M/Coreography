@@ -25,7 +25,35 @@ public enum Recording {
         public let cpuSeconds: Double
         public let diskBytes: Double
         public let networkBytes: Double
+        public let energyJoules: Double
         public let isLowerBound: Bool
+
+        init(
+            app: String, cpuSeconds: Double, diskBytes: Double, networkBytes: Double,
+            energyJoules: Double = 0, isLowerBound: Bool
+        ) {
+            self.app = app
+            self.cpuSeconds = cpuSeconds
+            self.diskBytes = diskBytes
+            self.networkBytes = networkBytes
+            self.energyJoules = energyJoules
+            self.isLowerBound = isLowerBound
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case app, cpuSeconds, diskBytes, networkBytes, energyJoules, isLowerBound
+        }
+
+        /// Recordings saved before energy was kept have no `energyJoules`.
+        public init(from decoder: any Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            app = try container.decode(String.self, forKey: .app)
+            cpuSeconds = try container.decode(Double.self, forKey: .cpuSeconds)
+            diskBytes = try container.decode(Double.self, forKey: .diskBytes)
+            networkBytes = try container.decode(Double.self, forKey: .networkBytes)
+            energyJoules = try container.decodeIfPresent(Double.self, forKey: .energyJoules) ?? 0
+            isLowerBound = try container.decode(Bool.self, forKey: .isLowerBound)
+        }
     }
 
     public struct Interval: Codable, Equatable, Sendable {
@@ -33,7 +61,32 @@ public enum Recording {
         public let end: Date
         public let cores: Double
         public let coversNetwork: Bool
+        public let coversEnergy: Bool
         public let entries: [Entry]
+
+        init(start: Date, end: Date, cores: Double, coversNetwork: Bool, coversEnergy: Bool = false, entries: [Entry]) {
+            self.start = start
+            self.end = end
+            self.cores = cores
+            self.coversNetwork = coversNetwork
+            self.coversEnergy = coversEnergy
+            self.entries = entries
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case start, end, cores, coversNetwork, coversEnergy, entries
+        }
+
+        /// Recordings saved before energy was kept have no `coversEnergy`.
+        public init(from decoder: any Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            start = try container.decode(Date.self, forKey: .start)
+            end = try container.decode(Date.self, forKey: .end)
+            cores = try container.decode(Double.self, forKey: .cores)
+            coversNetwork = try container.decode(Bool.self, forKey: .coversNetwork)
+            coversEnergy = try container.decodeIfPresent(Bool.self, forKey: .coversEnergy) ?? false
+            entries = try container.decode([Entry].self, forKey: .entries)
+        }
     }
 
     public struct Marker: Codable, Equatable, Sendable {
@@ -94,9 +147,10 @@ public enum Recording {
             ledger: intervals.map { interval in
                 Interval(
                     start: interval.start, end: interval.end, cores: interval.cores, coversNetwork: interval.coversNetwork,
+                    coversEnergy: interval.coversEnergy,
                     entries: interval.entries.map {
                         Entry(app: rename[$0.app] ?? $0.app, cpuSeconds: $0.cpuSeconds, diskBytes: $0.diskBytes,
-                              networkBytes: $0.networkBytes, isLowerBound: $0.isLowerBound)
+                              networkBytes: $0.networkBytes, energyJoules: $0.energyJoules, isLowerBound: $0.isLowerBound)
                     }
                 )
             },
@@ -149,9 +203,10 @@ extension AppLedger {
         intervals.filter { range.contains($0.start.addingTimeInterval($0.end.timeIntervalSince($0.start) / 2)) }.map { interval in
             LedgerInterval(
                 start: interval.start, end: interval.end, cores: interval.cores, coversNetwork: interval.coversNetwork,
+                coversEnergy: interval.coversEnergy,
                 entries: interval.entries.map {
                     LedgerEntry(app: names[$0.app], cpuSeconds: $0.cpuSeconds, diskBytes: $0.diskBytes,
-                                networkBytes: $0.networkBytes, isLowerBound: $0.isLowerBound)
+                                networkBytes: $0.networkBytes, energyJoules: $0.energyJoules, isLowerBound: $0.isLowerBound)
                 }
             )
         }

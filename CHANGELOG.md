@@ -38,6 +38,8 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
 
 ### Added
 - The lanes mark apps starting and exiting, such as "Mail started".
+- The app ledger keeps each app's modeled CPU energy: range reports,
+  per-day app totals and `get_top_processes` rank apps by it.
 - A sampling rate in the toolbar: every second or every two seconds.
 - An opt-in Threads column and sort in the process table, and the
   header's thread total. `coreo top --sort threads` ranks by them.

@@ -9,36 +9,46 @@ public struct AppRangeTotal: Identifiable, Codable, Sendable {
     public let diskBytes: Double
     /// TCP and UDP bytes in and out; nil when no interval in the range read network.
     public let networkBytes: Double?
+    /// Modeled CPU energy in joules; nil when no interval in the range covered energy.
+    public let energyJoules: Double?
     /// Some member was unreadable in some sample, so the CPU and disk totals are lower bounds.
     public let isLowerBound: Bool
     /// Some interval in the range did not read network, so `networkBytes` is a lower bound.
     public let networkIsLowerBound: Bool
+    /// Some interval in the range did not cover energy, so `energyJoules` is a lower bound.
+    public let energyIsLowerBound: Bool
 
     init(
-        name: String, cpuSeconds: Double, diskBytes: Double, networkBytes: Double? = nil, isLowerBound: Bool,
-        networkIsLowerBound: Bool = false
+        name: String, cpuSeconds: Double, diskBytes: Double, networkBytes: Double? = nil,
+        energyJoules: Double? = nil, isLowerBound: Bool,
+        networkIsLowerBound: Bool = false, energyIsLowerBound: Bool = false
     ) {
         self.name = name
         self.cpuSeconds = cpuSeconds
         self.diskBytes = diskBytes
         self.networkBytes = networkBytes
+        self.energyJoules = energyJoules
         self.isLowerBound = isLowerBound
         self.networkIsLowerBound = networkIsLowerBound
+        self.energyIsLowerBound = energyIsLowerBound
     }
 
     private enum CodingKeys: String, CodingKey {
-        case name, cpuSeconds, diskBytes, networkBytes, isLowerBound, networkIsLowerBound
+        case name, cpuSeconds, diskBytes, networkBytes, energyJoules, isLowerBound, networkIsLowerBound, energyIsLowerBound
     }
 
-    /// Sessions saved before network bounds existed have no `networkIsLowerBound`.
+    /// Sessions saved before network bounds existed have no `networkIsLowerBound`,
+    /// and ones saved before energy was kept have no `energyJoules`.
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         name = try container.decode(String.self, forKey: .name)
         cpuSeconds = try container.decode(Double.self, forKey: .cpuSeconds)
         diskBytes = try container.decode(Double.self, forKey: .diskBytes)
         networkBytes = try container.decodeIfPresent(Double.self, forKey: .networkBytes)
+        energyJoules = try container.decodeIfPresent(Double.self, forKey: .energyJoules)
         isLowerBound = try container.decode(Bool.self, forKey: .isLowerBound)
         networkIsLowerBound = try container.decodeIfPresent(Bool.self, forKey: .networkIsLowerBound) ?? false
+        energyIsLowerBound = try container.decodeIfPresent(Bool.self, forKey: .energyIsLowerBound) ?? false
     }
 }
 
@@ -57,6 +67,7 @@ struct AppLedger: Sendable {
         let cpuSeconds: Double
         let diskBytes: Double
         var networkBytes: Double = 0
+        var energyJoules: Double = 0
         let isLowerBound: Bool
     }
 
@@ -65,6 +76,7 @@ struct AppLedger: Sendable {
         let end: Date
         let cores: Double
         var coversNetwork = false
+        var coversEnergy = false
         let entries: [Entry]
     }
 
@@ -84,11 +96,12 @@ struct AppLedger: Sendable {
             let entries = interval.entries.map {
                 Entry(
                     app: index(of: $0.app), cpuSeconds: $0.cpuSeconds, diskBytes: $0.diskBytes,
-                    networkBytes: $0.networkBytes, isLowerBound: $0.isLowerBound
+                    networkBytes: $0.networkBytes, energyJoules: $0.energyJoules, isLowerBound: $0.isLowerBound
                 )
             }
             intervals.append(Interval(
-                start: interval.start, end: interval.end, cores: interval.cores, coversNetwork: interval.coversNetwork, entries: entries
+                start: interval.start, end: interval.end, cores: interval.cores, coversNetwork: interval.coversNetwork,
+                coversEnergy: interval.coversEnergy, entries: entries
             ))
         }
         previousTime = stored.last?.end
@@ -100,6 +113,11 @@ struct AppLedger: Sendable {
     /// opened no interval (the first one, or one after an interruption).
     /// Network counts only with a traffic sample of the same moment; a
     /// process's first interval with traffic has no rate yet and adds nothing.
+    /// Energy comes with the process sample itself: a process without an
+    /// energy counter adds nothing, and a sample with none covers no energy.
+    /// Coverage is per sample because the counter is: energy comes from the
+    /// same usage read as CPU, so a process missing it misses CPU too and is
+    /// counted the way CPU counts it.
     @discardableResult
     mutating func record(
         _ processes: CapturedProcesses, traffic: CapturedTraffic? = nil, logicalCPUCount: Int?
@@ -112,6 +130,7 @@ struct AppLedger: Sendable {
 
         var entries: [Entry] = []
         let coversNetwork = traffic.map { $0.unavailableReason == nil } ?? false
+        let coversEnergy = processes.processes.contains { $0.cpuPowerWatts.numericValue != nil }
         let rows = ProcessGroups.rows(
             in: processes, matching: "", sortedBy: .name, grouping: .app,
             facts: ProcessFacts(traffic: coversNetwork ? traffic : nil)
@@ -124,21 +143,25 @@ struct AppLedger: Sendable {
             let diskBytes = (disk.numericValue ?? 0) * seconds
             let network = coversNetwork
                 ? (ProcessNetwork.total(row.networkReceivedBytesPerSecond, row.networkSentBytesPerSecond) ?? 0) * seconds : 0
-            guard cpuSeconds > 0 || diskBytes > 0 || share > 0 || network > 0 else { continue }
+            let energy = (row.cpuPowerWatts.numericValue ?? 0) * seconds
+            guard cpuSeconds > 0 || diskBytes > 0 || share > 0 || network > 0 || energy > 0 else { continue }
             entries.append(Entry(
                 app: index(of: row.name), cpuSeconds: cpuSeconds, diskBytes: diskBytes, networkBytes: network,
+                energyJoules: energy,
                 isLowerBound: cores <= 0 || row.cpuPercentOfMachine.availability != .measured
                     || disk.availability != .measured
             ))
         }
-        intervals.append(Interval(start: start, end: end, cores: cores, coversNetwork: coversNetwork, entries: entries))
+        intervals.append(Interval(
+            start: start, end: end, cores: cores, coversNetwork: coversNetwork, coversEnergy: coversEnergy, entries: entries
+        ))
         if intervals.count > capacity { intervals.removeFirst(intervals.count - capacity) }
         return LedgerInterval(
-            start: start, end: end, cores: cores, coversNetwork: coversNetwork,
+            start: start, end: end, cores: cores, coversNetwork: coversNetwork, coversEnergy: coversEnergy,
             entries: entries.map {
                 LedgerEntry(
                     app: names[$0.app], cpuSeconds: $0.cpuSeconds, diskBytes: $0.diskBytes,
-                    networkBytes: $0.networkBytes, isLowerBound: $0.isLowerBound
+                    networkBytes: $0.networkBytes, energyJoules: $0.energyJoules, isLowerBound: $0.isLowerBound
                 )
             }
         )
@@ -157,22 +180,27 @@ struct AppLedger: Sendable {
         var cpu: [Int: Double] = [:]
         var disk: [Int: Double] = [:]
         var network: [Int: Double] = [:]
+        var energy: [Int: Double] = [:]
         var lowerBound: Set<Int> = []
         for entry in included.flatMap(\.entries) {
             cpu[entry.app, default: 0] += entry.cpuSeconds
             disk[entry.app, default: 0] += entry.diskBytes
             network[entry.app, default: 0] += entry.networkBytes
+            energy[entry.app, default: 0] += entry.energyJoules
             if entry.isLowerBound { lowerBound.insert(entry.app) }
         }
         // Without one interval that read network, zero would be a claim the ledger cannot make;
-        // with some but not all, the sum is a lower bound.
+        // with some but not all, the sum is a lower bound. Energy follows the same rule.
         let coversNetwork = included.contains(where: \.coversNetwork)
         let partialNetwork = coversNetwork && !included.allSatisfy(\.coversNetwork)
+        let coversEnergy = included.contains(where: \.coversEnergy)
+        let partialEnergy = coversEnergy && !included.allSatisfy(\.coversEnergy)
         let apps = Set(cpu.keys).union(disk.keys).map { app in
             AppRangeTotal(
                 name: names[app], cpuSeconds: cpu[app] ?? 0, diskBytes: disk[app] ?? 0,
-                networkBytes: coversNetwork ? network[app] ?? 0 : nil, isLowerBound: lowerBound.contains(app),
-                networkIsLowerBound: partialNetwork
+                networkBytes: coversNetwork ? network[app] ?? 0 : nil,
+                energyJoules: coversEnergy ? energy[app] ?? 0 : nil, isLowerBound: lowerBound.contains(app),
+                networkIsLowerBound: partialNetwork, energyIsLowerBound: partialEnergy
             )
         }
         return (apps, first.start...last.end)
@@ -264,9 +292,14 @@ struct AppLedger: Sendable {
         // Totals read network for every app or none, so one app tells for its side. A side
         // with intervals but no network reading (or no app at all, which says nothing)
         // leaves the other side's bytes a lower bound; a side without intervals changes nothing.
-        let reads = [older, newer].filter { $0.covered != nil }.map { $0.apps.contains { $0.networkBytes != nil } }
+        // Energy coverage combines the same way.
+        let coveredParts = [older, newer].filter { $0.covered != nil }
+        let reads = coveredParts.map { $0.apps.contains { $0.networkBytes != nil } }
         let readsNetwork = reads.contains(true)
         let partialNetwork = readsNetwork && reads.contains(false)
+        let withEnergy = coveredParts.map { $0.apps.contains { $0.energyJoules != nil } }
+        let readsEnergy = withEnergy.contains(true)
+        let partialEnergy = readsEnergy && withEnergy.contains(false)
         var merged: [String: AppRangeTotal] = [:]
         for app in older.apps + newer.apps {
             let existing = merged[app.name]
@@ -274,8 +307,10 @@ struct AppLedger: Sendable {
                 name: app.name, cpuSeconds: (existing?.cpuSeconds ?? 0) + app.cpuSeconds,
                 diskBytes: (existing?.diskBytes ?? 0) + app.diskBytes,
                 networkBytes: readsNetwork ? (existing?.networkBytes ?? 0) + (app.networkBytes ?? 0) : nil,
+                energyJoules: readsEnergy ? (existing?.energyJoules ?? 0) + (app.energyJoules ?? 0) : nil,
                 isLowerBound: (existing?.isLowerBound ?? false) || app.isLowerBound,
-                networkIsLowerBound: partialNetwork || (existing?.networkIsLowerBound ?? false) || app.networkIsLowerBound
+                networkIsLowerBound: partialNetwork || (existing?.networkIsLowerBound ?? false) || app.networkIsLowerBound,
+                energyIsLowerBound: partialEnergy || (existing?.energyIsLowerBound ?? false) || app.energyIsLowerBound
             )
         }
         let spans = [older.covered, newer.covered].compactMap { $0 }

@@ -30,6 +30,9 @@ final class RecordingTests: XCTestCase {
         XCTAssertTrue(read.ledger.allSatisfy { interval in interval.entries.first { $0.app == "App 1" }?.cpuSeconds == 4 },
                       "the same app keeps one placeholder, ranked by CPU")
         XCTAssertTrue(read.ledger.allSatisfy { interval in interval.entries.first { $0.app == "App 2" }?.cpuSeconds == 0.8 })
+        XCTAssertTrue(read.ledger.allSatisfy(\.coversEnergy))
+        XCTAssertTrue(read.ledger.allSatisfy { interval in interval.entries.first { $0.app == "App 1" }?.energyJoules == 4 },
+                      "2 W over each two-second interval")
         XCTAssertEqual(read.markers.map(\.label), ["Marker", "Sleep"])
         XCTAssertEqual(read.markers.map(\.kind), [.note, .system], "a marker keeps its kind")
 
@@ -52,6 +55,16 @@ final class RecordingTests: XCTestCase {
         let json = encoded.replacingOccurrences(of: "\"start\":\"2023-11-14T22:13:20Z\"", with: "\"start\":\"2024-11-14T22:13:20Z\"")
         XCTAssertNotEqual(json, encoded, "the fixture moved the start past the end")
         XCTAssertThrowsError(try Recording.decode(Data(json.utf8))) { XCTAssertEqual($0 as? Recording.Failure, .invalidRange) }
+    }
+
+    /// A recording saved before energy was kept decodes with no coverage and no joules.
+    func testARecordingSavedBeforeEnergyStillDecodes() throws {
+        let saved = #"{"start":"2023-11-14T22:13:20Z","end":"2023-11-14T22:13:22Z","cores":4,"coversNetwork":true,"entries":[{"app":"Safari","cpuSeconds":1,"diskBytes":0,"networkBytes":2,"isLowerBound":false}]}"#
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let interval = try decoder.decode(Recording.Interval.self, from: Data(saved.utf8))
+        XCTAssertFalse(interval.coversEnergy)
+        XCTAssertEqual(interval.entries.first?.energyJoules, 0)
     }
 
     @MainActor
@@ -131,6 +144,7 @@ final class RecordingTests: XCTestCase {
                 id: try ProcessIdentity(pid: Int32(100 + offset), startSeconds: 1, startMicroseconds: 0), parentPID: 1, uid: 501,
                 name: row.0, stamp: stamp, cpuPercentOfMachine: try .measured(row.1), memoryFootprintBytes: try .measured(1),
                 diskReadBytesPerSecond: try .measured(0), diskWriteBytesPerSecond: try .measured(0),
+                cpuPowerWatts: try .estimated(2, method: "Energy model"),
                 executablePath: nil, responsiblePID: nil
             )
         }

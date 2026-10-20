@@ -24,6 +24,8 @@ public struct DiagnosisReport: Codable, Sendable {
     public let topDiskApps: TopAppsPage
     /// Absent when per-process network could not be read.
     public let topNetworkApps: TopAppsPage?
+    /// Absent when no process in the range had an energy counter.
+    public let topEnergyApps: TopAppsPage?
     public let dataSources: [DataSourceStatus]
 }
 
@@ -59,6 +61,8 @@ public struct StoredAppDaysReport: Codable, Sendable {
         public let cpuSeconds: Double
         public let diskBytes: Double
         public let networkBytes: Double
+        /// Modeled CPU energy over the day's energy-covered intervals.
+        public let energyJoules: Double
         /// Some interval counted only readable members.
         public let isLowerBound: Bool
     }
@@ -254,11 +258,18 @@ public actor DiagnosticService {
         } catch DiagnosticError.unavailable {
             topNetworkApps = nil
         }
+        let topEnergyApps: TopAppsPage?
+        do {
+            topEnergyApps = try DiagnosticTools.topApps(snapshot, metric: .energy)
+        } catch DiagnosticError.unavailable {
+            topEnergyApps = nil
+        }
         return DiagnosisReport(
             summary: DiagnosticTools.summary(snapshot),
             topCPUApps: try DiagnosticTools.topApps(snapshot, metric: .cpu),
             topDiskApps: try DiagnosticTools.topApps(snapshot, metric: .disk),
             topNetworkApps: topNetworkApps,
+            topEnergyApps: topEnergyApps,
             dataSources: DiagnosticTools.dataSources(snapshot)
         )
     }
@@ -346,7 +357,7 @@ public actor DiagnosticService {
                     .prefix(Self.maximumStoredApps)
                     .map { .init(
                         app: $0.app, cpuSeconds: $0.cpuSeconds, diskBytes: $0.diskBytes, networkBytes: $0.networkBytes,
-                        isLowerBound: $0.isLowerBound
+                        energyJoules: $0.energyJoules, isLowerBound: $0.isLowerBound
                     ) })
             }
         )
