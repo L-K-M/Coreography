@@ -111,7 +111,12 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
   both sum per app and sort the table.
 - Save Recording… keeps a selected range as a `.coreotrace` file that
   opens back in Coreography (Command-O, Finder or the Dock) for replay,
-  range reports and comparison; redacted by default.
+  range reports and comparison; redacted by default. A range reaching
+  before the live hour carries the stored tier's raw series for every
+  stored metric and the app ledger for the earlier part, so its replay
+  draws lines, the memory stack and the pressure bands as the window
+  did; the save is refused only when that history is unavailable, with
+  the reason shown.
 - The inspector shows the selected process's thread count and its CPU
   and footprint since it was selected.
 - Settings > Menu bar shows up to three readings (CPU, memory, GPU,

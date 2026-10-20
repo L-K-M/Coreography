@@ -278,6 +278,9 @@ public final class DashboardModel {
     @ObservationIgnored private var startupLoad: Task<Void, Never>?
     /// The on-disk part of a range longer than live history; nil otherwise.
     private var storedHistory: StoredHistory?
+    /// The open recording's stored part as raw data, so saving a range of
+    /// the replay carries it; the store's history is not the file's.
+    @ObservationIgnored private var openStoredData: StoredHistory.RawData?
     @ObservationIgnored private var storedLoad: Task<Void, Never>?
     @ObservationIgnored private var storedLoadedAt: Date?
     @ObservationIgnored private var recordedSources = RecordedSources()
@@ -713,21 +716,61 @@ public final class DashboardModel {
     }
 
     /// The selected range as a `.coreotrace` recording of displayed data,
-    /// the live hour or an open recording; nil without a selection inside it.
-    public func recordingData(name: String) -> Data? {
-        guard let selection, let liveStart = frames.first?.stamp.wallTime else { return nil }
-        let start = max(selection.lowerBound, liveStart)
-        guard start <= selection.upperBound else { return nil }
+    /// the live hour or an open recording, plus the stored history covering
+    /// an earlier part. Throws why when that earlier part has no stored
+    /// history; the recording is never trimmed to live data silently.
+    /// The stored part is re-read from the store at save time: a loaded
+    /// history keeps only the reduced form, not the raw series a file
+    /// carries.
+    public func recordingData(name: String) async throws(Recording.Failure) -> Data {
+        guard let selection, let liveStart = frames.first?.stamp.wallTime else { throw .invalidRange }
+        // The frames and ledger are captured before the store read suspends,
+        // so the document stays one instant's snapshot.
+        let frames = DashboardFrames(
+            host: frames, network: networkFrames, disks: diskFrames, gpu: gpuFrames, power: powerFrames, sensors: sensorFrames
+        )
+        let ledger = ledger
+        let markers = ownMarkers
+        var stored: StoredHistory.RawData?
+        if selection.lowerBound < liveStart {
+            guard let history = storedHistory else {
+                throw .missingHistory(storedHistoryProblem ?? "The stored part is still loading; try again in a moment.")
+            }
+            guard history.start <= selection.lowerBound else {
+                throw .missingHistory(
+                    "Stored history reaches back only to \(history.start.formatted(date: .abbreviated, time: .shortened))."
+                )
+            }
+            if let openStoredData {
+                stored = openStoredData
+            } else {
+                guard let historyRecorder else {
+                    throw .missingHistory(storedHistoryProblem ?? "History is not being recorded.")
+                }
+                // Under the tier the window's load selected: the replayed
+                // file then draws the stored part as the window did.
+                do {
+                    stored = try await StoredHistory.rawData(
+                        from: historyRecorder, tier: history.tier,
+                        start: selection.lowerBound, end: selection.upperBound
+                    )
+                } catch {
+                    throw .missingHistory("Stored history could not be read: \(error)")
+                }
+            }
+        }
+        // With stored history the recording starts at the selection; without
+        // it, at the first live frame as before.
+        let start = stored == nil ? max(selection.lowerBound, liveStart) : selection.lowerBound
+        guard start <= selection.upperBound else { throw .invalidRange }
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         let document = Recording.make(
             name: trimmed.isEmpty ? "Recording \(start.formatted(date: .abbreviated, time: .shortened))" : trimmed,
             range: start...selection.upperBound,
-            frames: DashboardFrames(
-                host: frames, network: networkFrames, disks: diskFrames, gpu: gpuFrames, power: powerFrames, sensors: sensorFrames
-            ),
-            ledger: ledger, markers: ownMarkers, naming: exportNaming
+            frames: frames,
+            ledger: ledger, stored: stored, markers: markers, naming: exportNaming
         )
-        return try? Recording.encode(document)
+        return try Recording.encode(document)
     }
 
     /// A recording file the app could not read at all.
@@ -787,6 +830,17 @@ public final class DashboardModel {
         clearSelection()
         let duration = document.end.timeIntervalSince(document.start)
         timeRange = TimeRange.allCases.first { $0.seconds >= duration && !$0.reachesStoredHistory } ?? .hour
+        // A live load still in flight must not land over the recording's stored part.
+        storedLoad?.cancel()
+        storedLoad = nil
+        storedLoadedAt = nil
+        storedScopedCache = nil
+        storedHistoryProblem = nil
+        let storedData = document.stored.map {
+            StoredHistory.RawData(replaying: $0, range: document.start...document.end)
+        }
+        openStoredData = storedData
+        storedHistory = storedData.map { StoredHistory(reducing: $0) }
         refreshSystemMarkers()
         return nil
     }
@@ -824,8 +878,10 @@ public final class DashboardModel {
 
     /// Load the stored part of a long range, or drop it for a short one. A
     /// held display keeps the prefix it has; a failed read retries at the
-    /// reload interval rather than every sample.
+    /// reload interval rather than every sample. An open recording's own
+    /// stored part stands in for history and is never loaded over.
     private func refreshStoredHistory(now: Date = Date()) {
+        guard openRecording == nil else { return }
         guard timeRange.reachesStoredHistory, let historyRecorder else {
             storedLoad?.cancel()
             storedLoad = nil
@@ -897,11 +953,15 @@ public final class DashboardModel {
         Task { await historyRecorder.setRetention(plan) }
     }
 
+    /// A recording's stored part leaves only with the recording, not on a
+    /// range or retention change.
     private func dropStoredHistory() {
+        guard openRecording == nil else { return }
         storedLoad?.cancel()
         storedLoad = nil
         storedLoadedAt = nil
         storedHistory = nil
+        openStoredData = nil
         storedScopedCache = nil
     }
 
@@ -910,12 +970,15 @@ public final class DashboardModel {
         guard let historyRecorder else { return "History is not being recorded." }
         do {
             try await historyRecorder.deleteAll()
-            // Deleted history leaves the screen now, even while the display is held.
-            storedLoad?.cancel()
-            storedLoad = nil
-            storedLoadedAt = nil
-            storedHistory = nil
-            storedScopedCache = nil
+            // Deleted history leaves the screen now, even while the display
+            // is held; an open recording's stored part is not the store's.
+            if openRecording == nil {
+                storedLoad?.cancel()
+                storedLoad = nil
+                storedLoadedAt = nil
+                storedHistory = nil
+                storedScopedCache = nil
+            }
             if timeRange.reachesStoredHistory { refreshStoredHistory() }
             return nil
         } catch HistoryStoreError.storage(let reason) {
@@ -2008,9 +2071,12 @@ public final class DashboardModel {
         }
         displayMode = .live
         panOffset = 0
+        let hadRecording = openRecording != nil
         openRecording = nil
         recordingOpening = nil
         recordingMarkers = []
+        // A recording's stored part leaves with it; live-loaded history stays.
+        if hadRecording { dropStoredHistory() }
         frames = liveFrames
         processSnapshot = liveProcesses
         contributorHistory = liveContributorHistory

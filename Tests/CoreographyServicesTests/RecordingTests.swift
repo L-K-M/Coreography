@@ -9,9 +9,9 @@ final class RecordingTests: XCTestCase {
 
     func testARecordingRoundTripsAndRedactsAppsConsistently() throws {
         var ledger = AppLedger(capacity: 10)
-        ledger.record(try processes(at: 0, [("Secret Project", 50), ("Mail", 10)]), logicalCPUCount: 4)
-        ledger.record(try processes(at: 2, [("Secret Project", 50), ("Mail", 10)]), logicalCPUCount: 4)
-        ledger.record(try processes(at: 4, [("Secret Project", 50), ("Mail", 10)]), logicalCPUCount: 4)
+        ledger.record(try Self.processes(at: 0, epoch: epoch, [("Secret Project", 50), ("Mail", 10)]), logicalCPUCount: 4)
+        ledger.record(try Self.processes(at: 2, epoch: epoch, [("Secret Project", 50), ("Mail", 10)]), logicalCPUCount: 4)
+        ledger.record(try Self.processes(at: 4, epoch: epoch, [("Secret Project", 50), ("Mail", 10)]), logicalCPUCount: 4)
         let range = epoch...epoch.addingTimeInterval(10)
         let frames = DashboardFrames(host: [], network: [], disks: [], gpu: [], power: [], sensors: [])
         let markers = [
@@ -79,7 +79,7 @@ final class RecordingTests: XCTestCase {
         model.selection = start...end
         model.addMarker(named: "Here", at: start.addingTimeInterval(1))
         model.exportNaming = .named
-        let data = try XCTUnwrap(model.recordingData(name: "Saved"))
+        let data = try await model.recordingData(name: "Saved")
         model.returnToNow()
 
         let opened = await model.openRecording(data, fileName: "Build log")
@@ -135,9 +135,198 @@ final class RecordingTests: XCTestCase {
         XCTAssertNil(model.openRecording?.name == "Late" ? model.openRecording : nil, "a dismissed open does not land")
     }
 
+    /// A version 1 file has no stored section; it decodes exactly as saved.
+    func testAVersion1RecordingStillDecodesWithoutAStoredPart() throws {
+        var ledger = AppLedger(capacity: 10)
+        ledger.record(try Self.processes(at: 0, epoch: epoch, [("Mail", 10)]), logicalCPUCount: 4)
+        ledger.record(try Self.processes(at: 2, epoch: epoch, [("Mail", 10)]), logicalCPUCount: 4)
+        let frames = DashboardFrames(host: [], network: [], disks: [], gpu: [], power: [], sensors: [])
+        let document = Recording.make(
+            name: "Build", range: epoch...epoch.addingTimeInterval(10), frames: frames, ledger: ledger,
+            markers: [], naming: .named
+        )
+        let encoded = try XCTUnwrap(String(data: try Recording.encode(document), encoding: .utf8))
+        let version1 = encoded.replacingOccurrences(of: "\"schemaVersion\":2", with: "\"schemaVersion\":1")
+        XCTAssertNotEqual(version1, encoded, "the fixture pinned the version field")
+
+        let read = try Recording.decode(Data(version1.utf8))
+        XCTAssertEqual(read.schemaVersion, 1)
+        XCTAssertNil(read.stored)
+        XCTAssertEqual(read.ledger.count, 1)
+        XCTAssertEqual(read.ledger.first?.entries.first?.app, "Mail")
+    }
+
+    /// The part of a range before the first live frame carries its stored
+    /// values and ledger, the values keyed by the metric's on-disk code.
+    func testARecordingSpanningStoredAndLiveHistoryCarriesTheStoredPart() async throws {
+        let (document, storedStart) = try await Self.spanningDocument(naming: .named, at: epoch)
+        let read = try Recording.decode(try Recording.encode(document))
+
+        let section = try XCTUnwrap(read.stored)
+        XCTAssertEqual(section.tier, .recent)
+        let values = try XCTUnwrap(section.series[HistoryMetric.cpu.recordingKey], "CPU readings are kept")
+        XCTAssertEqual(values.count, 10)
+        XCTAssertTrue(values.allSatisfy { $0.value == 40 })
+        // Every stored metric a lane, stack or band is drawn from is carried.
+        for metric in [
+            HistoryMetric.networkReceived, .networkSent, .memoryApp, .memoryWired,
+            .memoryCompressed, .memoryCached, .memoryPressure, .thermalPressure
+        ] {
+            XCTAssertEqual(section.series[metric.recordingKey]?.count, 10, "\(metric) readings are kept")
+        }
+        XCTAssertEqual(section.ledger.first?.entries.map(\.app), ["Archive", "Shared"],
+                       "the stored ledger keeps its attribution")
+        XCTAssertEqual(read.ledger.count, 1, "the live part is unchanged")
+        XCTAssertEqual(read.start, storedStart, "the recording starts where the selection did")
+    }
+
+    /// Stored and live apps share one placeholder ranking over the whole
+    /// range, so an app keeps its number across the seam.
+    func testRedactionRanksStoredAndLiveAppsInOneOrder() async throws {
+        let (document, _) = try await Self.spanningDocument(naming: .redacted, at: epoch)
+        let data = try Recording.encode(document)
+        let json = String(decoding: data, as: UTF8.self)
+        XCTAssertFalse(json.contains("Archive"), "no stored app name leaves a redacted recording")
+        XCTAssertFalse(json.contains("Shared"))
+
+        let read = try Recording.decode(data)
+        // Archive's 100 stored CPU-seconds outrank Shared's 2 stored + 4 live.
+        XCTAssertEqual(read.stored?.ledger.first?.entries.map(\.app), ["App 1", "App 2"])
+        XCTAssertEqual(read.ledger.first?.entries.map(\.app), ["App 2"],
+                       "the same app keeps its placeholder across the seam")
+    }
+
+    /// A saved stored part opens back as stored history: lanes draw it and
+    /// a range report over the earlier part reads it, until returning live.
+    @MainActor
+    func testOpeningARecordingWithAStoredPartReplaysIt() async throws {
+        let (document, storedStart) = try await Self.spanningDocument(naming: .named, at: epoch)
+        let data = try Recording.encode(document)
+        let model = DashboardModel(monitor: try SystemMonitor(driver: Host()), interval: .milliseconds(10))
+
+        let refused = await model.openRecording(data, fileName: "Shift")
+        XCTAssertNil(refused)
+        XCTAssertTrue(model.points(for: .cpu).contains { $0.time < epoch }, "the stored part draws behind live data")
+        XCTAssertTrue(model.points(for: .networkReceived).contains { $0.time < epoch },
+                      "a stored network line replays")
+        XCTAssertTrue(model.memoryStack().contains { $0.time < epoch }, "the stored memory stack replays")
+        XCTAssertTrue(model.memoryPressureSpans().contains { $0.start < epoch },
+                      "a stored pressure band replays")
+
+        model.selection = storedStart...storedStart.addingTimeInterval(10)
+        let report = try XCTUnwrap(model.rangeReport)
+        XCTAssertEqual(report.cpuMeanPercent ?? 0, 40, accuracy: 1e-9, "ten stored readings of 40%")
+        XCTAssertEqual(report.topCPUApps.first?.name, "Archive")
+
+        model.toggleDisplayHold()
+        XCTAssertNil(model.openRecording)
+        XCTAssertNil(model.rangeReport?.cpuMeanPercent, "returning to live discards the replayed stored part")
+    }
+
+    /// A stored part saved from the Day tier keeps each bucket's minimum
+    /// and maximum, so the replayed line draws both extremes where the
+    /// window drew them: the minimum at the bucket's start, the maximum
+    /// mid-bucket.
+    func testADayTierStoredPartReplaysBucketExtremes() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("coreo-rec-day-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = try HistoryStore(directory: directory)
+        // One 10 s bucket holding a 10% floor and a 90% spike; bucket
+        // times align to ten seconds.
+        let bucketStart = Date(timeIntervalSince1970: (epoch.timeIntervalSince1970 / 10).rounded(.down) * 10)
+        let samples = [
+            HistorySample(metric: .cpu, time: bucketStart.addingTimeInterval(1), value: 10, availability: .measured),
+            HistorySample(metric: .cpu, time: bucketStart.addingTimeInterval(6), value: 90, availability: .measured)
+        ]
+        let end = bucketStart.addingTimeInterval(100)
+        try await store.append(samples, now: end)
+        let stored = try await StoredHistory.rawData(
+            from: HistoryRecorder(store: store), tier: .day, start: bucketStart, end: end
+        )
+        let document = Recording.make(
+            name: "Day", range: bucketStart...end,
+            frames: DashboardFrames(host: [], network: [], disks: [], gpu: [], power: [], sensors: []),
+            ledger: AppLedger(capacity: 1), stored: stored, markers: [], naming: .named
+        )
+
+        let read = try Recording.decode(try Recording.encode(document))
+        let section = try XCTUnwrap(read.stored)
+        XCTAssertEqual(section.tier, .day)
+        let history = StoredHistory(replaying: section, range: read.start...read.end)
+        let cpu = try XCTUnwrap(history.lines[.cpu])
+        XCTAssertTrue(cpu.contains { $0.time == bucketStart && $0.value == 10 },
+                      "a bucket's minimum draws at its start")
+        XCTAssertTrue(
+            cpu.contains { $0.time == bucketStart.addingTimeInterval(HistoryStore.dayBucket / 2) && $0.value == 90 },
+            "a bucket's maximum draws mid-bucket"
+        )
+        let report = try XCTUnwrap(history.values(.cpu, in: read.start...read.end, before: .distantFuture).first)
+        XCTAssertEqual(report.mean, 50, accuracy: 1e-9)
+        XCTAssertEqual(report.maximum, 90)
+        XCTAssertEqual(report.count, 2)
+    }
+
     // MARK: Fixtures
 
-    private func processes(at second: TimeInterval, _ rows: [(String, Double)]) throws -> CapturedProcesses {
+    /// A recording whose range begins 100 s before the first live frame at
+    /// epoch: ten stored readings for CPU, both network rates, the memory
+    /// stack layers and both pressure bands, and a stored ledger interval
+    /// behind two live host frames and one live ledger interval.
+    private static func spanningDocument(
+        naming: ExportNaming, at epoch: Date
+    ) async throws -> (document: Recording.Document, storedStart: Date) {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("coreo-rec-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = try HistoryStore(directory: directory)
+        let storedStart = epoch.addingTimeInterval(-100)
+        var samples: [HistorySample] = []
+        for second in 0..<10 {
+            let time = storedStart.addingTimeInterval(Double(second))
+            func sample(_ metric: HistoryMetric, _ value: Double) {
+                samples.append(HistorySample(metric: metric, time: time, value: value, availability: .measured))
+            }
+            sample(.cpu, 40)
+            sample(.networkReceived, 1000)
+            sample(.networkSent, 500)
+            sample(.memoryApp, 1)
+            sample(.memoryWired, 2)
+            sample(.memoryCompressed, 3)
+            sample(.memoryCached, 4)
+            // The bands rise halfway through the stored part.
+            sample(.memoryPressure, second < 5 ? 0 : 1)
+            sample(.thermalPressure, second < 5 ? 0 : 1)
+        }
+        let storedInterval = LedgerInterval(
+            start: storedStart, end: storedStart.addingTimeInterval(2), cores: 4,
+            entries: [
+                LedgerEntry(app: "Archive", cpuSeconds: 100, diskBytes: 0, isLowerBound: false),
+                LedgerEntry(app: "Shared", cpuSeconds: 2, diskBytes: 0, isLowerBound: false)
+            ]
+        )
+        try await store.append(samples, ledger: [storedInterval], now: epoch)
+        let stored = try await StoredHistory.rawData(
+            from: HistoryRecorder(store: store), tier: .recent,
+            start: storedStart, end: epoch.addingTimeInterval(4)
+        )
+
+        let monitor = try SystemMonitor(driver: Host())
+        var frames: [CapturedSnapshot] = []
+        for _ in 0..<2 { frames.append(try await monitor.sample()) }
+        var ledger = AppLedger(capacity: 10)
+        ledger.record(try Self.processes(at: 0, epoch: epoch, [("Shared", 50)]), logicalCPUCount: 4)
+        ledger.record(try Self.processes(at: 2, epoch: epoch, [("Shared", 50)]), logicalCPUCount: 4)
+
+        let document = Recording.make(
+            name: "Shift", range: storedStart...epoch.addingTimeInterval(4),
+            frames: DashboardFrames(host: frames, network: [], disks: [], gpu: [], power: [], sensors: []),
+            ledger: ledger, stored: stored, markers: [], naming: naming
+        )
+        return (document, storedStart)
+    }
+
+    private static func processes(
+        at second: TimeInterval, epoch: Date, _ rows: [(String, Double)]
+    ) throws -> CapturedProcesses {
         let stamp = SampleStamp(clockID: UUID(), monotonicNanoseconds: UInt64(1 + second * 1e9), wallTime: epoch.addingTimeInterval(second))
         let readings = try rows.enumerated().map { offset, row in
             ProcessReading(

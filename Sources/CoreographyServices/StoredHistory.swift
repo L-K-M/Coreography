@@ -15,15 +15,42 @@ import CoreographyKit
 /// automatic storage device and the first GPU.
 /// One stored reading, or one Day-tier bucket, for range reports: means
 /// combine by count, peaks by maximum.
-struct StoredValue: Sendable {
+struct StoredValue: Codable, Equatable, Sendable {
     let time: Date
     let mean: Double
     let maximum: Double
     let count: Int
 }
 
+/// One stored reading or rollup bucket, the raw form a `StoredHistory`
+/// reduces and a recording's stored section serializes. The tier says
+/// which shape an entry takes: under `recent` it is a reading — `time`
+/// and `value`, the value absent where the reading was a gap; under
+/// `day` or `month` it is a bucket — `time`, `minimum`, `maximum`,
+/// `mean` and `count`.
+struct StoredPoint: Codable, Equatable, Sendable {
+    let time: Date
+    let value: Double?
+    let minimum: Double?
+    let maximum: Double?
+    let mean: Double?
+    let count: Int?
+
+    init(
+        time: Date, value: Double? = nil, minimum: Double? = nil,
+        maximum: Double? = nil, mean: Double? = nil, count: Int? = nil
+    ) {
+        self.time = time
+        self.value = value
+        self.minimum = minimum
+        self.maximum = maximum
+        self.mean = mean
+        self.count = count
+    }
+}
+
 /// Which stored tier a range reads.
-enum StoredTier: Sendable {
+enum StoredTier: String, Codable, Sendable {
     /// 1 s readings for six hours.
     case recent
     /// 10 s buckets with minimum, maximum and mean for a week.
@@ -77,6 +104,10 @@ struct StoredHistory: Sendable {
     private static let stackMetrics: [(MemoryCategory, HistoryMetric)] = [
         (.app, .memoryApp), (.wired, .memoryWired), (.compressed, .memoryCompressed), (.cached, .memoryCached)
     ]
+    /// Every metric the reduction reads: the lane lines, the memory stack
+    /// layers and the two pressure bands.
+    private static let storedMetrics: [HistoryMetric] =
+        lineMetrics + stackMetrics.map(\.1) + [.memoryPressure, .thermalPressure]
 
     let start: Date
     let end: Date
@@ -90,6 +121,69 @@ struct StoredHistory: Sendable {
     /// The stored app ledger, for range totals and scoped apps before the live hour.
     private(set) var ledger = AppLedger(capacity: 1)
 
+    /// The raw stored data behind one range under one tier: every metric's
+    /// series (Recent-tier readings, Day- or Month-tier buckets) and the
+    /// app ledger. `load` reads it from the store, a save reads it there
+    /// again to serialize it, and a recording's stored section carries it;
+    /// `init(reducing:)` is the one reduction all three share, so
+    /// identical data draws and reports identically.
+    struct RawData: Equatable, Sendable {
+        let start: Date
+        let end: Date
+        let tier: StoredTier
+        let series: [HistoryMetric: [StoredPoint]]
+        let ledger: [LedgerInterval]
+
+        init(
+            start: Date, end: Date, tier: StoredTier,
+            series: [HistoryMetric: [StoredPoint]], ledger: [LedgerInterval]
+        ) {
+            self.start = start
+            self.end = end
+            self.tier = tier
+            self.series = series
+            self.ledger = ledger
+        }
+
+        /// Raw data as a recording's stored section carries it, over the
+        /// recording's range.
+        init(replaying stored: Recording.Stored, range: ClosedRange<Date>) {
+            self.init(
+                start: range.lowerBound, end: range.upperBound, tier: stored.tier,
+                series: stored.series.reduce(into: [:]) { series, pair in
+                    guard let metric = HistoryMetric(recordingKey: pair.key) else { return }
+                    series[metric] = pair.value
+                },
+                ledger: stored.ledger.map { interval in
+                    LedgerInterval(
+                        start: interval.start, end: interval.end, cores: interval.cores,
+                        coversNetwork: interval.coversNetwork, coversEnergy: interval.coversEnergy,
+                        entries: interval.entries.map {
+                            LedgerEntry(
+                                app: $0.app, cpuSeconds: $0.cpuSeconds, diskBytes: $0.diskBytes,
+                                networkBytes: $0.networkBytes, energyJoules: $0.energyJoules,
+                                isLowerBound: $0.isLowerBound
+                            )
+                        }
+                    )
+                }
+            )
+        }
+
+        /// The metric's readings or buckets in the range that predate
+        /// `cutoff`, where live data takes over — the rule `values` cuts
+        /// report values by.
+        func points(_ metric: HistoryMetric, in range: ClosedRange<Date>, before cutoff: Date) -> [StoredPoint] {
+            (series[metric] ?? []).filter { StoredHistory.includes($0.time, in: range, before: cutoff, span: tier.span) }
+        }
+    }
+
+    init(start: Date, end: Date, tier: StoredTier) {
+        self.start = start
+        self.end = end
+        self.tier = tier
+    }
+
     /// Read and reduce every lane's series; runs off the main actor. Ranges
     /// beyond the Recent tier's six hours read the Day tier, and beyond the
     /// Day tier's week the Month tier.
@@ -98,36 +192,89 @@ struct StoredHistory: Sendable {
         dayRetention: TimeInterval = HistoryStore.dayRetention
     ) async throws -> StoredHistory {
         let tier = StoredTier.reading(end.timeIntervalSince(start), recentRetention: recentRetention, dayRetention: dayRetention)
-        let gap = tier.maximumGap
-        var history = StoredHistory(start: start, end: end, tier: tier)
-        for metric in lineMetrics {
-            let series = try await series(metric, tier: tier, recorder: recorder, start: start, end: end)
-            history.lines[metric] = Decimation.points(points(series.drawn, maximumGap: gap), start: start, end: end)
-            if reportMetrics.contains(metric) { history.reportValues[metric] = series.report }
-        }
-        // The ledger is kept in the Recent tier only, so longer ranges total its six hours.
-        history.ledger = AppLedger(stored: try await recorder.ledger(from: start, to: end))
-
-        var layers: [MemoryCategory: [HistorySample]] = [:]
-        for (category, metric) in stackMetrics {
-            layers[category] = try await series(metric, tier: tier, recorder: recorder, start: start, end: end).means
-        }
-        history.memoryStack = Decimation.stack(stack(layers, maximumGap: gap), start: start, end: end)
-
-        let memory = try await series(.memoryPressure, tier: tier, recorder: recorder, start: start, end: end)
-        history.memoryPressure = levelSpans(memory.peaks, maximumGap: gap).compactMap { span in
-            MemoryPressureLevel(rawValue: span.level)
-                .map { MemoryPressureSpan(id: UUID(), start: span.start, end: span.end, level: $0) }
-        }
-        let thermal = try await series(.thermalPressure, tier: tier, recorder: recorder, start: start, end: end)
-        history.thermalPressure = levelSpans(thermal.peaks, maximumGap: gap).compactMap { span in
-            ThermalPressureLevel(rawValue: span.level)
-                .map { ThermalPressureSpan(id: UUID(), start: span.start, end: span.end, level: $0) }
-        }
-        return history
+        return StoredHistory(reducing: try await rawData(from: recorder, tier: tier, start: start, end: end))
     }
 
-    /// One metric's stored readings in each form the lanes and reports need.
+    /// The raw data a range's stored part reduces or a recording
+    /// serializes: every stored metric's series and the stored ledger,
+    /// read through the recorder under the given tier.
+    static func rawData(
+        from recorder: HistoryRecorder, tier: StoredTier, start: Date, end: Date
+    ) async throws -> RawData {
+        var series: [HistoryMetric: [StoredPoint]] = [:]
+        for metric in storedMetrics {
+            series[metric] = try await rawSeries(metric, tier: tier, recorder: recorder, start: start, end: end)
+        }
+        // The ledger is kept in the Recent tier only, so longer ranges total its six hours.
+        return RawData(
+            start: start, end: end, tier: tier, series: series,
+            ledger: try await recorder.ledger(from: start, to: end)
+        )
+    }
+
+    /// One metric's raw series under the tier: Recent readings or rollup buckets.
+    private static func rawSeries(
+        _ metric: HistoryMetric, tier: StoredTier, recorder: HistoryRecorder, start: Date, end: Date
+    ) async throws -> [StoredPoint] {
+        switch tier {
+        case .recent:
+            return try await recorder.samples(metric, from: start, to: end).map {
+                StoredPoint(time: $0.time, value: $0.value)
+            }
+        case .day, .month:
+            return try await recorder.rollups(metric, tier: tier.rollupTier ?? .day, from: start, to: end).map {
+                StoredPoint(time: $0.time, minimum: $0.minimum, maximum: $0.maximum, mean: $0.mean, count: $0.count)
+            }
+        }
+    }
+
+    /// The stored part of an open recording, rebuilt from its saved series
+    /// and ledger intervals through the same reduction a live load runs,
+    /// so lanes, reports and contributors read the earlier part in replay
+    /// as they do live.
+    init(replaying stored: Recording.Stored, range: ClosedRange<Date>) {
+        self.init(reducing: RawData(replaying: stored, range: range))
+    }
+
+    /// Reduce the raw data to the lines, report values, memory stack,
+    /// pressure spans and ledger the lanes and reports read.
+    init(reducing raw: RawData) {
+        self.init(start: raw.start, end: raw.end, tier: raw.tier)
+        let gap = raw.tier.maximumGap
+        for metric in Self.lineMetrics {
+            guard let points = raw.series[metric] else { continue }
+            let series = Self.series(points, for: metric, tier: raw.tier)
+            lines[metric] = Decimation.points(Self.points(series.drawn, maximumGap: gap), start: raw.start, end: raw.end)
+            if Self.reportMetrics.contains(metric) { reportValues[metric] = series.report }
+        }
+        ledger = AppLedger(stored: raw.ledger)
+
+        var layers: [MemoryCategory: [HistorySample]] = [:]
+        for (category, metric) in Self.stackMetrics {
+            guard let points = raw.series[metric] else { continue }
+            layers[category] = Self.series(points, for: metric, tier: raw.tier).means
+        }
+        memoryStack = Decimation.stack(Self.stack(layers, maximumGap: gap), start: raw.start, end: raw.end)
+
+        if let points = raw.series[.memoryPressure] {
+            memoryPressure = Self.levelSpans(
+                Self.series(points, for: .memoryPressure, tier: raw.tier).peaks, maximumGap: gap
+            ).compactMap { span in
+                MemoryPressureLevel(rawValue: span.level)
+                    .map { MemoryPressureSpan(id: UUID(), start: span.start, end: span.end, level: $0) }
+            }
+        }
+        if let points = raw.series[.thermalPressure] {
+            thermalPressure = Self.levelSpans(
+                Self.series(points, for: .thermalPressure, tier: raw.tier).peaks, maximumGap: gap
+            ).compactMap { span in
+                ThermalPressureLevel(rawValue: span.level)
+                    .map { ThermalPressureSpan(id: UUID(), start: span.start, end: span.end, level: $0) }
+            }
+        }
+    }
+
+    /// One metric's raw series in each form the lanes and reports need.
     private struct Series {
         /// Every extreme in time order, for lines.
         let drawn: [HistorySample]
@@ -138,29 +285,42 @@ struct StoredHistory: Sendable {
         let report: [StoredValue]
     }
 
-    private static func series(
-        _ metric: HistoryMetric, tier: StoredTier, recorder: HistoryRecorder, start: Date, end: Date
-    ) async throws -> Series {
+    /// Reduce one metric's raw series under its tier. A reading is one
+    /// point, a gap kept by its absent value; a bucket draws its minimum
+    /// at its start and its maximum mid-bucket, so both extremes survive.
+    private static func series(_ points: [StoredPoint], for metric: HistoryMetric, tier: StoredTier) -> Series {
         switch tier {
         case .recent:
-            let samples = try await recorder.samples(metric, from: start, to: end)
-            let report = samples.compactMap { sample in
-                sample.value.map { StoredValue(time: sample.time, mean: $0, maximum: $0, count: 1) }
+            let samples = points.map {
+                HistorySample(
+                    metric: metric, time: $0.time, value: $0.value,
+                    availability: $0.value == nil ? .gap : .measured
+                )
             }
-            return Series(drawn: samples, means: samples, peaks: samples, report: report)
+            return Series(
+                drawn: samples, means: samples, peaks: samples,
+                report: points.compactMap { point in
+                    point.value.map { StoredValue(time: point.time, mean: $0, maximum: $0, count: 1) }
+                }
+            )
         case .day, .month:
-            // A bucket draws its minimum at its start and its maximum mid-bucket, so both extremes survive.
-            let rollupTier = tier.rollupTier ?? .day
-            let rollups = try await recorder.rollups(metric, tier: rollupTier, from: start, to: end)
-            let middle = rollupTier.bucket / 2
+            let middle = tier.span / 2
             func sample(_ time: Date, _ value: Double) -> HistorySample {
                 HistorySample(metric: metric, time: time, value: value, availability: .measured)
             }
+            // A saved bucket missing a field cannot be drawn; skip it.
+            let buckets = points.compactMap { point -> (time: Date, minimum: Double, maximum: Double, mean: Double, count: Int)? in
+                guard let minimum = point.minimum, let maximum = point.maximum,
+                      let mean = point.mean, let count = point.count else { return nil }
+                return (point.time, minimum, maximum, mean, count)
+            }
             return Series(
-                drawn: rollups.flatMap { [sample($0.time, $0.minimum), sample($0.time.addingTimeInterval(middle), $0.maximum)] },
-                means: rollups.map { sample($0.time, $0.mean) },
-                peaks: rollups.map { sample($0.time, $0.maximum) },
-                report: rollups.map { StoredValue(time: $0.time, mean: $0.mean, maximum: $0.maximum, count: $0.count) }
+                drawn: buckets.flatMap {
+                    [sample($0.time, $0.minimum), sample($0.time.addingTimeInterval(middle), $0.maximum)]
+                },
+                means: buckets.map { sample($0.time, $0.mean) },
+                peaks: buckets.map { sample($0.time, $0.maximum) },
+                report: buckets.map { StoredValue(time: $0.time, mean: $0.mean, maximum: $0.maximum, count: $0.count) }
             )
         }
     }
@@ -168,10 +328,14 @@ struct StoredHistory: Sendable {
     /// Readings or buckets in the range that predate `cutoff`, where live data takes over.
     /// A bucket counts only if it ends before live data starts, or its readings would count twice.
     func values(_ metric: HistoryMetric, in range: ClosedRange<Date>, before cutoff: Date) -> [StoredValue] {
-        let span = tier.span
-        return (reportValues[metric] ?? []).filter {
-            range.contains($0.time) && (span == 0 ? $0.time < cutoff : $0.time.addingTimeInterval(span) <= cutoff)
-        }
+        (reportValues[metric] ?? []).filter { Self.includes($0.time, in: range, before: cutoff, span: tier.span) }
+    }
+
+    /// A reading counts where it starts; a bucket counts only when it ends
+    /// before live data takes over — the bound both report values and
+    /// series saved into a recording are cut at.
+    static func includes(_ time: Date, in range: ClosedRange<Date>, before cutoff: Date, span: TimeInterval) -> Bool {
+        range.contains(time) && (span == 0 ? time < cutoff : time.addingTimeInterval(span) <= cutoff)
     }
 
     /// Missing readings and silences longer than `maximumGap` start new segments.
