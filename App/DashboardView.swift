@@ -2902,7 +2902,8 @@ private enum RangeText {
     private static let joulesPerWattHour = 3600.0
     private static let wattHoursPerKilowattHour = 1_000.0
 
-    /// Joules below one watt-hour, then watt-hours. Example: 5400 J is "1.5 Wh".
+    /// Joules below one watt-hour, then watt-hours, then kilowatt-hours.
+    /// Example: 5400 J is "1.5 Wh", 3600000 J is "1.00 kWh".
     static func energy(_ joules: Double?) -> String {
         guard let joules, joules.isFinite else { return "–" }
         // Below 10 J one decimal, so a small figure is not shown as 0 J.
