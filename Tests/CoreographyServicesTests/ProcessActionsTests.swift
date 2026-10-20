@@ -34,14 +34,19 @@ final class ProcessActionsTests: XCTestCase {
         }
     }
 
-    func testUserAndInfoSignalsDoNotEndASession() throws {
+    /// SIGUSR1 and SIGUSR2 terminate a program that does not handle them,
+    /// so sent to the window server they log you out; SIGINFO is ignored.
+    func testUserSignalsEndASessionAndInfoDoesNot() throws {
         let windowServer = try process(pid: 80, name: "WindowServer")
         let snapshot = try self.snapshot([windowServer])
-        for action in [ProcessAction.user1, .user2, .info] {
+        for action in [ProcessAction.user1, .user2] {
             let request = ProcessActions.request(for: windowServer, action: action, in: snapshot)
-            XCTAssertFalse(request.endsSession, "\(action)")
-            XCTAssertFalse(request.consequences.contains("This logs you out; unsaved work in every app is lost."), "\(action)")
+            XCTAssertTrue(request.endsSession, "\(action)")
+            XCTAssertTrue(request.consequences.contains("This logs you out; unsaved work in every app is lost."), "\(action)")
         }
+        let info = ProcessActions.request(for: windowServer, action: .info, in: snapshot)
+        XCTAssertFalse(info.endsSession)
+        XCTAssertFalse(info.consequences.contains("This logs you out; unsaved work in every app is lost."))
     }
 
     func testUserAndInfoSignalsStateTheirEffect() throws {
@@ -50,8 +55,7 @@ final class ProcessActionsTests: XCTestCase {
         for action in [ProcessAction.user1, .user2] {
             let request = ProcessActions.request(for: worker, action: action, in: snapshot)
             XCTAssertEqual(request.consequences, [
-                "Its effect is defined by the program; many programs ignore it.",
-                "A program that does not handle it terminates, which is the signal's default action."
+                "Each program defines its effect; one that does not handle it terminates, which is the signal's default action."
             ], "\(action)")
         }
         let info = ProcessActions.request(for: worker, action: .info, in: snapshot)

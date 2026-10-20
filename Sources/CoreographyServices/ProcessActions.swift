@@ -117,9 +117,9 @@ enum ProcessActions {
             if endsSession { consequences.append("This logs you out; unsaved work in every app is lost.") }
             consequences.append("As Control-C: most command-line tools stop.")
         case .user1, .user2:
-            // Each program defines these itself; left unhandled, they terminate.
-            consequences.append("Its effect is defined by the program; many programs ignore it.")
-            consequences.append("A program that does not handle it terminates, which is the signal's default action.")
+            // Each program defines these itself; left unhandled, they terminate, a session process included.
+            if endsSession { consequences.append("This logs you out; unsaved work in every app is lost.") }
+            consequences.append("Each program defines its effect; one that does not handle it terminates, which is the signal's default action.")
         case .info:
             consequences.append("Its effect is defined by the program; tools often print status, and most programs ignore it.")
         case .lowerPriority:
@@ -127,7 +127,7 @@ enum ProcessActions {
         }
         return ProcessActionRequest(
             target: process.id, name: process.name, action: action, consequences: consequences,
-            endsSession: endsSession && [.quit, .forceQuit, .hangUp, .interrupt].contains(action), refusal: refusal
+            endsSession: endsSession && [.quit, .forceQuit, .hangUp, .interrupt, .user1, .user2].contains(action), refusal: refusal
         )
     }
 
