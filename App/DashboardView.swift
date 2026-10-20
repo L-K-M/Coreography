@@ -223,9 +223,11 @@ struct DashboardView: View {
                 }
             }
             ToolbarItem(placement: .principal) {
+                // The toolbar's capsule hugs plain text; give the label room inside it.
                 Text(ToolbarText.status(model))
                     .font(.caption)
                     .monospacedDigit()
+                    .padding(.horizontal, 10)
                     .help(model.storedHistoryProblem ?? "")
             }
             if let app = model.scopedApp {
