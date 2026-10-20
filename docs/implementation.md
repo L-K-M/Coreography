@@ -402,8 +402,10 @@ Implemented:
   processes. An opt-in Signed by column names Apple, the developer team
   or Unsigned; signatures are checked off the main actor once per
   program, four at a time, starting only while the column shows, and an
-  app lists each signer.
-  QoS, instructions and ports columns remain.
+  app lists each signer. An opt-in Ports column lists the local ports
+  each process, or an app's members, listens on; connections are read
+  while it shows, for your own processes only, and "–" means not read.
+  QoS and instructions columns remain.
 - The memory lane stacks the composition under the physical-memory line,
   draws a pressure band above it, and has a ten-column numeric table and
   per-layer chart accessibility. `coreo snapshot` exports the same detail.

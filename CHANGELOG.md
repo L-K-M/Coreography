@@ -40,6 +40,8 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
 - Lanes with nothing to draw show a lock for readings permissions
   withhold and a dashed "Not available on this Mac" frame for sources
   this Mac lacks; disk and network say "no activity" over measured zeros.
+- An opt-in Ports column in the process table lists the ports each
+  process or app listens on.
 - The lanes mark apps starting and exiting, such as "Mail started".
 - The app ledger keeps each app's modeled CPU energy: range reports,
   per-day app totals and `get_top_processes` rank apps by it.

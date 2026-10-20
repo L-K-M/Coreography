@@ -1869,6 +1869,12 @@ private struct ProcessPane: View {
                         }
                         .customizationID(ProcessColumns.signerID)
                         .defaultVisibility(.hidden)
+                        TableColumn("Ports") { (row: ProcessRow) in
+                            Text(ProcessText.ports(row.listeningPorts))
+                                .help(String(localized: "Ports it listens on, read while this column shows; other users' processes need the helper"))
+                        }
+                        .customizationID(ProcessColumns.portsID)
+                        .defaultVisibility(.hidden)
                     }
                 }
                 .frame(height: 260)
@@ -1877,6 +1883,7 @@ private struct ProcessPane: View {
                 // column shows. `.automatic` is the column's hidden default.
                 .onChange(of: columns, initial: true) { _, chosen in
                     model.showsSigners = chosen[visibility: ProcessColumns.signerID] == .visible
+                    model.showsPorts = chosen[visibility: ProcessColumns.portsID] == .visible
                 }
                 .textSelection(.enabled)
 
@@ -2349,6 +2356,7 @@ private enum AppIcons {
 private enum ProcessColumns {
     private static let defaultsKey = "processColumns"
     static let signerID = "signer"
+    static let portsID = "ports"
 
     static func saved() -> TableColumnCustomization<ProcessRow> {
         guard let data = UserDefaults.standard.data(forKey: defaultsKey),
@@ -2388,6 +2396,12 @@ private enum ProcessText {
     }
 
     /// Example: "Apple, team ABCDE12345"; "–" until checked.
+    /// Example: "443, 8080"; "–" until connections are read, blank for none.
+    static func ports(_ ports: Set<UInt16>?) -> String {
+        guard let ports else { return "–" }
+        return ports.sorted().map(String.init).joined(separator: ", ")
+    }
+
     static func signers(_ signers: Set<CapturedSigner>) -> String {
         guard !signers.isEmpty else { return "–" }
         return signers.map(signer).sorted().joined(separator: ", ")

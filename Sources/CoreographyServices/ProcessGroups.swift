@@ -64,6 +64,9 @@ public struct ProcessRow: Identifiable, Sendable {
     public let architectures: Set<ProcessArchitecture>
     /// Who signed its programs; empty until checked or when none could be.
     public let signers: Set<CapturedSigner>
+    /// The local ports its processes listen on; nil until connections are
+    /// read, which covers your own processes only.
+    public let listeningPorts: Set<UInt16>?
     /// When the process started; for a group, its first member.
     public let started: Date?
     /// Member rows for a group, or child processes in the tree; nil for a
@@ -285,6 +288,7 @@ enum ProcessGroups {
             threadCount: total(members.map(\.threadCount), overlap: nil),
             architectures: Set(members.compactMap(\.architecture)),
             signers: Set(members.compactMap { $0.executablePath.flatMap { facts.signers[$0] } }),
+            listeningPorts: facts.sockets.map { sockets in members.reduce(into: []) { $0.formUnion(sockets.listeningPorts[$1.id] ?? []) } },
             started: members.map(\.id.startTime).min(),
             children: children
         )
@@ -371,6 +375,7 @@ enum ProcessGroups {
             threadCount: process.threadCount,
             architectures: Set([process.architecture].compactMap { $0 }),
             signers: Set([process.executablePath.flatMap { facts.signers[$0] }].compactMap { $0 }),
+            listeningPorts: facts.sockets.map { $0.listeningPorts[process.id] ?? [] },
             started: process.id.startTime,
             children: nil
         )
@@ -463,7 +468,8 @@ extension ProcessRow {
             wakeupsPerSecond: wakeupsPerSecond, networkReceivedBytesPerSecond: networkReceivedBytesPerSecond,
             networkSentBytesPerSecond: networkSentBytesPerSecond, gpuMillisecondsPerSecond: gpuMillisecondsPerSecond,
             cpuPowerWatts: cpuPowerWatts, cpuTimeSeconds: cpuTimeSeconds, threadCount: threadCount,
-            architectures: architectures, signers: signers, started: started, children: children
+            architectures: architectures, signers: signers, listeningPorts: listeningPorts, started: started,
+            children: children
         )
     }
 }
