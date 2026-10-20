@@ -2,6 +2,8 @@ import Foundation
 import Observation
 import CoreographyKit
 
+public typealias HelperInstallState = HelperState
+
 /// Settings' view of the optional privileged helper: its state, and
 /// installing or removing it on request, never at launch (plan: offer it
 /// at the moment of need).

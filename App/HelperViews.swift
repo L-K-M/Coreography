@@ -28,7 +28,7 @@ struct HelperSection: View {
     }
 
     @ViewBuilder
-    private func actions(for state: HelperState) -> some View {
+    private func actions(for state: HelperInstallState) -> some View {
         switch state {
         case .needsSignedBuild, .missingFromApp:
             EmptyView()
@@ -50,7 +50,7 @@ struct HelperSection: View {
             .disabled(access.isBusy)
     }
 
-    private static func summary(_ state: HelperState) -> LocalizedStringKey {
+    private static func summary(_ state: HelperInstallState) -> LocalizedStringKey {
         switch state {
         case .needsSignedBuild: "This build is not signed with a Developer ID, so macOS will not run the helper."
         case .missingFromApp: "The helper is missing from this copy of Coreography. Reinstall the app."
