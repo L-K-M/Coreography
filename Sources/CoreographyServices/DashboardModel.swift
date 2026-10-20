@@ -876,7 +876,7 @@ public final class DashboardModel {
         let samples = HistorySamples.latest(
             host: liveFrames.last, network: liveNetworkFrames.last, disks: liveDiskFrames.last,
             gpu: liveGPUFrames.last, power: livePowerFrames.last, sensors: liveSensorFrames.last,
-            sources: &recordedSources
+            silicon: liveSiliconFrames.last, sources: &recordedSources
         )
         sessionRecording?.record(samples)
         guard let historyRecorder else { return }
@@ -1119,7 +1119,7 @@ public final class DashboardModel {
             var sources = RecordedSources()
             let samples = HistorySamples.latest(
                 host: host, network: liveNetworkFrames.last, disks: liveDiskFrames.last, gpu: liveGPUFrames.last,
-                power: power, sensors: liveSensorFrames.last, sources: &sources
+                power: power, sensors: liveSensorFrames.last, silicon: liveSiliconFrames.last, sources: &sources
             )
             readings = AlertReadings.latest(samples, now: now)
         }
@@ -2384,6 +2384,40 @@ public final class DashboardModel {
             result.append(DashboardPoint(
                 id: frame.id, time: frame.stamp.wallTime, value: value, segment: segment
             ))
+        }
+        return result
+    }
+
+    /// Efficiency- and performance-cluster activity for the CPU lane's
+    /// detail, stored behind live as the lanes are. Every point is an
+    /// IOReport residency estimate; missing kinds and dropped frames break
+    /// segments rather than bridge them.
+    public func clusterActivityPoints() -> (efficiency: [DashboardPoint], performance: [DashboardPoint]) {
+        let liveStart = siliconFrames.first?.stamp.wallTime
+        return (
+            prefixed(
+                liveClusterPoints(kind: .e), stored: storedHistory?.lines[.efficiencyClusterActivePercent],
+                liveStart: liveStart
+            ),
+            prefixed(
+                liveClusterPoints(kind: .p), stored: storedHistory?.lines[.performanceClusterActivePercent],
+                liveStart: liveStart
+            )
+        )
+    }
+
+    /// One point per frame per tier kind, folded like the stored series.
+    private func liveClusterPoints(kind: CPUTierKind) -> [DashboardPoint] {
+        var result: [DashboardPoint] = []
+        var segment = 0
+        for frame in siliconFrames {
+            if frame.continuity == .interrupted { segment += 1 }
+            guard let value = HistorySamples.clusterMean(frame.cpuTiers, kind: kind, \.activePercent)?.numericValue
+            else {
+                segment += 1
+                continue
+            }
+            result.append(DashboardPoint(id: frame.id, time: frame.stamp.wallTime, value: value, segment: segment))
         }
         return result
     }

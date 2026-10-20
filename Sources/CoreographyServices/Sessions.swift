@@ -9,6 +9,7 @@ public enum SessionUnit: String, Codable, Sendable {
     case bytesPerSecond = "bytes/s"
     case watts = "W"
     case celsius = "°C"
+    case megahertz = "MHz"
 }
 
 /// One metric over a recorded session (plan P19: minimum, maximum and
@@ -54,7 +55,9 @@ struct SessionRecording: Sendable {
     static let metrics: [(HistoryMetric, SessionUnit)] = [
         (.cpu, .percentOfMachine), (.memoryUsed, .bytes), (.gpuBusy, .percent), (.systemPower, .watts),
         (.hottestCelsius, .celsius), (.networkReceived, .bytesPerSecond), (.networkSent, .bytesPerSecond),
-        (.diskRead, .bytesPerSecond), (.diskWritten, .bytesPerSecond)
+        (.diskRead, .bytesPerSecond), (.diskWritten, .bytesPerSecond),
+        (.efficiencyClusterActivePercent, .percent), (.performanceClusterActivePercent, .percent),
+        (.efficiencyClusterFrequencyMHz, .megahertz), (.performanceClusterFrequencyMHz, .megahertz)
     ]
     static let topAppLimit = 10
 

@@ -207,6 +207,45 @@ final class DashboardModelTests: XCTestCase {
         XCTAssertTrue(model.points(for: .cpu).allSatisfy { $0.time >= now }, "leaving the range drops the stored part")
     }
 
+    /// The CPU detail's cluster series put stored readings behind live ones, the seam a break, not a bridge.
+    func testClusterActivityShowsStoredBehindLiveWithoutBridgingTheSeam() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("coreo-cluster-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = try HistoryStore(directory: directory)
+        let now = Date()
+        let threeHoursAgo = now.addingTimeInterval(-3 * 3600)
+        try await store.append((0..<60).map {
+            HistorySample(
+                metric: .efficiencyClusterActivePercent, time: threeHoursAgo.addingTimeInterval(Double($0)),
+                value: 20, availability: .measured
+            )
+        }, now: now)
+
+        let model = DashboardModel(
+            monitor: try SystemMonitor(driver: IncreasingHostDriver(origin: now)), interval: .milliseconds(10),
+            siliconMonitor: try SiliconMonitor(driver: ScriptedSilicon(origin: now)),
+            historyRecorder: HistoryRecorder(store: store)
+        )
+        model.start()
+        defer { model.stop() }
+        model.timeRange = .sixHours
+        try await eventually {
+            let efficiency = model.clusterActivityPoints().efficiency
+            return efficiency.contains { $0.time < now } && efficiency.contains { $0.time >= now }
+        }
+
+        let points = model.clusterActivityPoints().efficiency
+        let older = points.filter { $0.time < now }
+        let live = points.filter { $0.time >= now }
+        XCTAssertFalse(older.isEmpty)
+        XCTAssertFalse(live.isEmpty)
+        XCTAssertTrue(older.allSatisfy { $0.value == 20 })
+        XCTAssertTrue(Set(older.map(\.segment)).isDisjoint(with: live.map(\.segment)), "no line joins stored and live")
+        let gap = try XCTUnwrap(live.map(\.time).min()).timeIntervalSince(older.map(\.time).max() ?? now)
+        XCTAssertGreaterThan(gap, 3600, "the hours between stored and live stay a gap")
+        XCTAssertFalse(model.clusterActivityPoints().performance.isEmpty)
+    }
+
     /// A longer range reads further back at once, not after the last range's reload interval.
     func testSwitchingToALongerRangeLoadsItsHistoryAtOnce() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("coreo-ranges-\(UUID().uuidString)")
@@ -871,5 +910,35 @@ private actor IncreasingHostDriver: HostSampleReading {
             memoryPressure: readCount.isMultiple(of: 2) ? .success(.warning) : .success(.normal),
             thermalPressure: readCount.isMultiple(of: 3) ? .success(.moderate) : .success(.nominal)
         )
+    }
+}
+
+/// One E core at 50 % and one P core at 75 % active residency, no frequency
+/// table: the first read only opens the interval, so it leaves a gap.
+private actor ScriptedSilicon: SiliconReportReading {
+    private let clock = UUID()
+    private let origin: Date
+    private var reads: UInt64 = 0
+
+    init(origin: Date) { self.origin = origin }
+
+    func read() async -> RawSiliconSample {
+        reads += 1
+        func core(_ name: String, _ states: [Int64]) -> RawReportChannel {
+            RawReportChannel(
+                group: "CPU Stats", subgroup: "CPU Core Performance States", name: name, unit: "", value: nil,
+                states: zip(["IDLE", "V0P1"], states).map { RawReportState(name: $0, residency: $1) }
+            )
+        }
+        return RawSiliconSample(
+            clockID: clock, monotonicNanoseconds: reads * 1_000_000_000,
+            wallTime: origin.addingTimeInterval(Double(reads)),
+            intervalNanoseconds: reads == 1 ? nil : 1_000_000_000,
+            channels: .success([core("ECPU0", [50, 50]), core("PCPU0", [25, 75])])
+        )
+    }
+
+    func frequencyTables() async -> Result<RawFrequencyTables, SiliconDriverError> {
+        .success(RawFrequencyTables(tables: [:], clusters: []))
     }
 }

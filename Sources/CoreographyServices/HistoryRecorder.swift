@@ -137,7 +137,7 @@ struct RecordedSources: Equatable, Sendable {
 enum HistorySamples {
     static func latest(
         host: CapturedSnapshot?, network: CapturedNetwork?, disks: CapturedDisks?, gpu: CapturedGPU?,
-        power: CapturedPower?, sensors: CapturedSensors?, sources: inout RecordedSources
+        power: CapturedPower?, sensors: CapturedSensors?, silicon: CapturedSilicon?, sources: inout RecordedSources
     ) -> [HistorySample] {
         var samples: [HistorySample] = []
         func add(_ metric: HistoryMetric, _ reading: MetricReading?, at time: Date?) {
@@ -183,6 +183,17 @@ enum HistorySamples {
                 add(.gpuBusy, device.utilizationPercent, at: gpu.stamp.wallTime)
             }
         }
+        // Cluster activity and frequency are stored per tier kind, not per
+        // cluster: Pro, Max and Ultra chips carry several clusters of a kind.
+        // No silicon frame, or one without the kind (Intel, VM, IOReport
+        // unavailable), writes nothing, so the series gaps rather than reads 0.
+        if let silicon {
+            let time = silicon.stamp.wallTime
+            for (kind, active, frequency) in Self.clusterKinds {
+                add(active, clusterMean(silicon.cpuTiers, kind: kind, \.activePercent), at: time)
+                add(frequency, clusterMean(silicon.cpuTiers, kind: kind, \.frequencyMHz), at: time)
+            }
+        }
         if let power { add(.batteryCharge, power.batteryChargePercent, at: power.stamp.wallTime) }
         if let sensors {
             if let hottest = sensors.hottest, sources.changed(\.sensor, to: hottest.key) {
@@ -200,5 +211,40 @@ enum HistorySamples {
             add(.systemPower, sensors.systemPowerWatts, at: sensors.stamp.wallTime)
         }
         return samples
+    }
+
+    /// (kind, activity metric, frequency metric): E feeds the efficiency
+    /// series and P the performance one. The M tier of newer chips has no
+    /// series of its own yet and is left out.
+    private static let clusterKinds: [(CPUTierKind, HistoryMetric, HistoryMetric)] = [
+        (.e, .efficiencyClusterActivePercent, .efficiencyClusterFrequencyMHz),
+        (.p, .performanceClusterActivePercent, .performanceClusterFrequencyMHz)
+    ]
+
+    private static let clusterMeanMethod = "Core-weighted mean of the kind's clusters"
+
+    /// One stored reading per tier kind: the mean across the kind's clusters,
+    /// weighted by each entry's core count (0 counts as 1). A frame carries
+    /// one entry per kind today, so the weighting only matters if several
+    /// appear. A kind absent from the frame gives no reading at all.
+    static func clusterMean(
+        _ tiers: [CPUTierReading], kind: CPUTierKind, _ reading: KeyPath<CPUTierReading, MetricReading>
+    ) -> MetricReading? {
+        let members = tiers.filter { $0.kind == kind }
+        guard let first = members.first else { return nil }
+        // A lone cluster's entry is the kind's reading and keeps its own
+        // availability; only a fold of several stores as estimated.
+        guard members.count > 1 else { return first[keyPath: reading] }
+        let weighted = members.compactMap { tier -> (value: Double, cores: Int)? in
+            guard let value = tier[keyPath: reading].numericValue else { return nil }
+            return (value, max(tier.cores, 1))
+        }
+        // With every entry valueless, the first's state stands for the kind's.
+        guard !weighted.isEmpty else { return first[keyPath: reading] }
+        let cores = weighted.reduce(0) { $0 + $1.cores }
+        let mean = weighted.reduce(0.0) { $0 + $1.value * Double($1.cores) } / Double(cores)
+        let head = first[keyPath: reading]
+        // A folded mean is derived, so it stores as estimated whatever the entries carried.
+        return try? .estimated(mean, method: Self.clusterMeanMethod, source: head.source)
     }
 }

@@ -320,6 +320,9 @@ struct DashboardView: View {
         // The lane's detail (plan: double-click expands it): every core's activity.
         let showsCores = metric == .cpu && model.expandedLanes.contains(.cpu)
         let cores = showsCores ? model.coreHeatCells(in: start...end, maximumColumns: Layout.coreColumns) : []
+        let clusters = showsCores
+            ? model.clusterActivityPoints()
+            : (efficiency: [DashboardPoint](), performance: [DashboardPoint]())
 
         return HStack(alignment: .top, spacing: 24) {
             VStack(alignment: .leading, spacing: 10) {
@@ -437,6 +440,9 @@ struct DashboardView: View {
                         TierStrip(cells: tiers, tiers: tierRows, range: start...end)
                     }
                     if showsCores {
+                        ClusterActivityChart(
+                            efficiency: clusters.efficiency, performance: clusters.performance, range: start...end
+                        )
                         CoreStrip(cells: cores, coreCount: model.latest?.inventory.logicalCPUCount ?? 0, range: start...end)
                     }
                 }
@@ -2805,7 +2811,7 @@ private enum SessionText {
         switch unit {
         case .bytes: return MetricText.bytes(value)
         case .bytesPerSecond: return MetricText.bytes(value) + "/s"
-        case .percentOfMachine, .percent, .watts, .celsius:
+        case .percentOfMachine, .percent, .watts, .celsius, .megahertz:
             return value.formatted(.number.precision(.fractionLength(1))) + " " + unit.rawValue
         }
     }
@@ -3854,6 +3860,74 @@ private struct TierStrip: View {
         .chartLegend(.hidden)
         .frame(height: CGFloat(tiers.count) * Self.rowHeight)
         .accessibilityLabel(String(localized: "Core tier activity over the visible range"))
+    }
+}
+
+/// The CPU detail's cluster chart: efficiency and performance tier activity
+/// over the visible range, stored behind live like the lane above. Every
+/// point is an IOReport residency estimate; gaps stay gaps.
+private struct ClusterActivityChart: View {
+    /// Two strip rows tall, so the detail stays compact.
+    private static let chartHeight: CGFloat = 36
+    let efficiency: [DashboardPoint]
+    let performance: [DashboardPoint]
+    let range: ClosedRange<Date>
+
+    var body: some View {
+        let efficiency = visiblePoints(efficiency, range.lowerBound, range.upperBound)
+        let performance = visiblePoints(performance, range.lowerBound, range.upperBound)
+        if efficiency.isEmpty && performance.isEmpty {
+            LaneEmptyState(
+                reading: .unsupported(reason: String(localized: "Cluster activity needs Apple silicon")),
+                height: Self.chartHeight
+            )
+        } else {
+            VStack(alignment: .leading, spacing: 2) {
+                Chart {
+                    ForEach(efficiency) { point in
+                        LineMark(
+                            x: .value("Time", point.time), y: .value("E", point.value),
+                            series: .value("Segment", "e-\(point.segment)")
+                        )
+                        .foregroundStyle(Color.teal)
+                        .interpolationMethod(.linear)
+                    }
+                    ForEach(performance) { point in
+                        LineMark(
+                            x: .value("Time", point.time), y: .value("P", point.value),
+                            series: .value("Segment", "p-\(point.segment)")
+                        )
+                        .foregroundStyle(Color.blue)
+                        .interpolationMethod(.linear)
+                    }
+                }
+                .chartXScale(domain: range)
+                .chartYScale(domain: 0...MetricText.percentScale)
+                .chartXAxis(.hidden)
+                // Labels share the main chart's trailing column, so the plots keep one time axis.
+                .chartYAxis {
+                    AxisMarks(position: .trailing, values: [0, MetricText.percentScale]) { value in
+                        AxisValueLabel {
+                            if let number = value.as(Double.self) {
+                                Text(MetricText.percent(number))
+                                    .frame(width: Layout.axisLabelWidth, alignment: .leading)
+                            }
+                        }
+                    }
+                }
+                .chartLegend(.hidden)
+                .frame(height: Self.chartHeight)
+                .accessibilityLabel(String(localized: "Efficiency and performance cluster activity over the visible range"))
+                HStack(spacing: 8) {
+                    Circle().fill(Color.teal).frame(width: 6, height: 6)
+                    Text("E")
+                    Circle().fill(Color.blue).frame(width: 6, height: 6)
+                    Text("P")
+                    Text("cluster activity, estimated (IOReport residency)").foregroundStyle(.secondary)
+                }
+                .font(.caption)
+            }
+        }
     }
 }
 

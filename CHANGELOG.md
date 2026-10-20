@@ -39,6 +39,12 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
   after the store first exceeds it.
 
 ### Added
+- History keeps each Apple Silicon cluster kind's activity and frequency:
+  efficiency and performance series per frame, folded to core-weighted
+  means and rolled up like every series, with gaps where no silicon frame
+  exists. The CPU lane's detail draws both activity lines, stored history
+  behind live, labelled as estimated IOReport residency, and sessions
+  record them too.
 - Send Signal can also send SIGUSR1, SIGUSR2 and SIGINFO, each
   identity-checked and confirmed with what the signal does when the
   program does not handle it.

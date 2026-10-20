@@ -287,8 +287,8 @@ Implemented:
   frozen rather than read as zero. The CPU lane shows tiers, the Power
   lane block watts, the HUD the top tier and GPU clock; diagnostics add
   them to the summary and data sources; `coreo silicon --once --json`
-  prints one interval. The CLPC and PMP fallback rungs, per-cluster
-  history and S1 validation against `powermetrics` remain.
+  prints one interval. The CLPC and PMP fallback rungs and S1 validation
+  against `powermetrics` remain.
 
 - Command palette (Command-Shift-P): every window action by name:
   inspector, hold, recording, HUD, Settings, each range, pane, grouping
@@ -563,11 +563,18 @@ Implemented:
   data (`#listening`, `#not-responding`, `#preventing-sleep`) and
   unreadable terms are named under the field rather than dropped; saved
   filter chips and reverse lookup remain.
-- On-disk history, first part: the app records 17 system series (CPU,
+- On-disk history, first part: the app records 21 system series (CPU,
   memory composition and pressure, swap, thermal, GPU, battery, system
-  power, hottest sensor, primary network, automatic disk) to the system
-  SQLite in WAL mode, in a 0700 directory with a 0600 file excluded from
-  backups. Readings keep their availability, so gaps replay as gaps.
+  power, hottest sensor, primary network, automatic disk, and per-cluster
+  activity and frequency) to the system SQLite in WAL mode, in a 0700
+  directory with a 0600 file excluded from backups. Readings keep their
+  availability, so gaps replay as gaps. The cluster series come from each
+  silicon frame per tier kind, not per cluster: every E-tier cluster
+  feeds the efficiency series and every P-tier cluster the performance
+  series, several clusters of a kind combining into a core-weighted mean;
+  the M tier is not recorded. A frame without tiers
+  (Intel, a VM, IOReport unavailable) writes nothing for them, so the
+  series gaps rather than reads zero.
   Writes batch into one transaction every 30 s; each batch also enforces
   the 6-hour time cap and a 256 MB size cap. Settings deletes history in
   one click; `coreo history --json METRIC` reads it, `coreo stats --json`
@@ -766,7 +773,13 @@ Implemented:
   `PROCESSOR_CPU_LOAD_INFO`), so it holds across cadences; a change in
   the core count or an interruption starts over, and a core without a
   reading leaves a hole. Rows follow CPU numbers: grouping them by
-  cluster needs the CPU-to-cluster map, which remains. Native CI checks
+  cluster needs the CPU-to-cluster map, which remains. Above the strip,
+  a small chart draws the efficiency- and performance-cluster activity
+  series, stored history behind live frames with the same unbridged
+  breaks, labelled as estimated IOReport residency; with neither source
+  it shows the shared empty state naming Apple silicon. The frequency
+  series are recorded but not charted; `coreo history --json` reads them.
+  Native CI checks
   one measured 0-100 share per core.
 - Network and disk lane details: Show Interfaces or Show Devices in the
   lane's menu, or a double-click on its title, adds one small mirrored
