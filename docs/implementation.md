@@ -622,8 +622,11 @@ Implemented:
   samples without a reading leave holes, and a compact lane sheds it.
 - Low Power Mode: every sampling cadence halves while it is on (2 s
   for the lanes, 4 s for processes), within each monitor's gap limit, and
-  the window says so. The 10-second record-only cadence for when nothing
-  is visible remains.
+  the window says so. The toolbar's sampling rate picks 1 s or 2 s and is
+  kept; the slower of it and Low Power Mode applies, never both, since
+  2 s is as slow as the host monitors' 3 s gap limit allows. The
+  10-second record-only cadence for when nothing is visible has no
+  reachable state yet: the menu bar extra always shows a live value.
 - Volume capacity: the Disk lane lists every visible mounted volume,
   startup first, with its used share and space available for important
   use (purgeable files count as available, as in Finder), read once a

@@ -1311,7 +1311,7 @@ public final class DashboardModel {
         // The interval spans a few host samples; the newest suffice.
         let host = frames.suffix(Self.attributionHostFrames).map { (time: $0.stamp.wallTime, cpu: $0.cpuPercentOfMachine) }
         return ProcessAttribution.unattributedCPU(
-            host: host, processes: processSnapshot, interval: Self.seconds(processInterval * samplingCadence.multiplier)
+            host: host, processes: processSnapshot, interval: processSamplingSeconds
         )
     }
 
@@ -1773,6 +1773,7 @@ public final class DashboardModel {
             while !Task.isCancelled {
                 // Low Power Mode halves every cadence (plan: sampling); the window says so.
                 let cadence: SamplingCadence = energyMode?.current() == .lowPower ? .lowPower : .normal
+                let pace = (self?.samplingRate ?? .oneSecond).multiplier(with: cadence)
                 do {
                     _ = try await monitor.sample()
                     let history = await monitor.history()
@@ -1817,7 +1818,7 @@ public final class DashboardModel {
                         traffic = try await trafficMonitor?.sample()
                         // One call to powerd; read beside processes so PIDs match the same moment.
                         assertions = await assertionReader?.read()
-                        nextProcessSample = ContinuousClock.now.advanced(by: processInterval * cadence.multiplier)
+                        nextProcessSample = ContinuousClock.now.advanced(by: processInterval * pace)
                     }
                     guard let self, self.generation == run, !Task.isCancelled else { return }
                     if self.samplingCadence != cadence { self.samplingCadence = cadence }
@@ -1877,7 +1878,7 @@ public final class DashboardModel {
                         if let silicon { self.siliconFrames = silicon }
                         self.refreshSystemMarkers()
                     }
-                    try await Task.sleep(for: self.interval * cadence.multiplier)
+                    try await Task.sleep(for: self.interval * pace)
                 } catch is CancellationError {
                     return
                 } catch {
@@ -1892,13 +1893,19 @@ public final class DashboardModel {
     /// How fast sampling runs now; Low Power Mode halves it.
     public private(set) var samplingCadence: SamplingCadence = .normal
 
+    /// The person's choice; the next sample follows it.
+    public var samplingRate = SamplingRate.saved() {
+        didSet { samplingRate.save() }
+    }
+
     /// Seconds between whole-machine samples at the current cadence.
-    public var samplingSeconds: Double { Self.seconds(interval * samplingCadence.multiplier) }
+    public var samplingSeconds: Double { Self.seconds(interval * samplingRate.multiplier(with: samplingCadence)) }
+
+    /// Seconds between process samples at the current cadence.
+    public var processSamplingSeconds: Double { Self.seconds(processInterval * samplingRate.multiplier(with: samplingCadence)) }
 
     /// How far back the selected process's history reaches at the current cadence.
-    public var selectedHistorySpan: TimeInterval {
-        Double(Self.contributorCapacity) * Self.seconds(processInterval * samplingCadence.multiplier)
-    }
+    public var selectedHistorySpan: TimeInterval { Double(Self.contributorCapacity) * processSamplingSeconds }
 
     private static func seconds(_ duration: Duration) -> Double {
         let (seconds, attoseconds) = duration.components
