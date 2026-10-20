@@ -133,6 +133,9 @@ public enum CommandPalette {
         case .resume: "Resume \(name)"
         case .hangUp: "Send Hang-Up to \(name)…"
         case .interrupt: "Interrupt \(name)…"
+        case .user1: "Send SIGUSR1 to \(name)…"
+        case .user2: "Send SIGUSR2 to \(name)…"
+        case .info: "Send SIGINFO to \(name)…"
         case .lowerPriority: "Lower Priority of \(name)…"
         }
     }

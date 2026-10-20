@@ -45,6 +45,9 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
   exists. The CPU lane's detail draws both activity lines, stored history
   behind live, labelled as estimated IOReport residency, and sessions
   record them too.
+- Send Signal can also send SIGUSR1, SIGUSR2 and SIGINFO, each
+  identity-checked and confirmed with what the signal does when the
+  program does not handle it.
 - Lanes with nothing to draw show a lock for readings permissions
   withhold and a dashed "Not available on this Mac" frame for sources
   this Mac lacks; disk and network say "no activity" over measured zeros.
