@@ -2842,6 +2842,7 @@ private struct RangePanel: View {
     @State private var exportFile: ExportFile?
     @State private var exportType: UTType = .json
     @State private var exportError: String?
+    @State private var savingRecording = false
     @State private var annotation = ""
 
     var body: some View {
@@ -2864,7 +2865,7 @@ private struct RangePanel: View {
                 .help(RangeText.exportScope(document, requested: report.requested))
                 // A selection inside the stored part has no export document but records fine.
                 Button("Save Recording…") { Task { await saveRecording() } }
-                    .disabled(model.selection == nil)
+                    .disabled(model.selection == nil || savingRecording)
                     .help("A .coreotrace file that opens back in Coreography for replay")
                 Button("Annotate…") { model.annotationPromptShown = true }
                     .help("Name this range; the name marks where it starts and ends on every lane")
@@ -2935,6 +2936,10 @@ private struct RangePanel: View {
 
 private extension RangePanel {
     func saveRecording() async {
+        // One save at a time: a second tap would race the first to the panel.
+        guard !savingRecording else { return }
+        savingRecording = true
+        defer { savingRecording = false }
         do {
             let data = try await model.recordingData(name: "")
             exportError = nil
