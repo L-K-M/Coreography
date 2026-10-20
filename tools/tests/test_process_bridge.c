@@ -366,7 +366,7 @@ test_qos_split(void)
     uint64_t qos_total = 0;
     uint64_t cpu_total;
     /* Bucketing happens on a bookkeeping boundary, not exactly when
-       user+system is added up; allow one scheduling tick of slop. */
+       user+system is added up; allow 1 ms of slop. */
     const uint64_t qos_slack_nanoseconds = 1000000;
 
     assert(coreo_process_read((int32_t)getpid(), &self) == 0);
@@ -380,6 +380,10 @@ test_qos_split(void)
 
     assert(coreo_process_read((int32_t)getpid(), &again) == 0);
     assert(again.instructions >= self.instructions);
+    /* Each bucket is cumulative too; a shrinking one means a mis-indexed class. */
+    for (int i = 0; i < COREO_QOS_COUNT; i++) {
+        assert(again.qos_cpu_nanoseconds[i] >= self.qos_cpu_nanoseconds[i]);
+    }
 }
 
 /* This process has at least its main thread; a wrong start time must not read. */

@@ -417,12 +417,16 @@ enum ProcessGroups {
     }
 
     /// A group's split sums each class across members, a member without
-    /// counters counting as an unreadable share, not zero. Nil when no
-    /// member's counters could be read at all.
+    /// counters counting as an unreadable share, not zero: its CPU reading
+    /// says why (restricted, collecting), and the sum is a lower bound. Nil
+    /// when no member's counters could be read at all.
     private static func qosTotal(_ members: [ObservedProcess]) -> [ProcessQoS: MetricReading]? {
         guard members.contains(where: { $0.qosCPUPercent != nil }) else { return nil }
         return Dictionary(uniqueKeysWithValues: ProcessQoS.allCases.map { qosClass in
-            (qosClass, total(members.map { $0.qosCPUPercent?[qosClass] ?? .collecting() }, overlap: nil))
+            (qosClass, total(members.map { member in
+                member.qosCPUPercent?[qosClass]
+                    ?? (member.cpuPercentOfMachine.numericValue == nil ? member.cpuPercentOfMachine : .collecting())
+            }, overlap: nil))
         })
     }
 

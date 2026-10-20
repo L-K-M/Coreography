@@ -160,6 +160,13 @@ final class ProcessMonitorTests: XCTestCase {
         XCTAssertEqual(idle?.numericValue, 0)
     }
 
+    /// The driver's classes follow the bridge's COREO_QOS_* order; Kit's
+    /// must name the same classes in the same order.
+    func testQoSClassesMatchTheDriverOrder() {
+        XCTAssertEqual(ProcessQoS.allCases.map(\.rawValue), ProcessQoSClass.allCases.map(\.rawValue))
+        XCTAssertEqual(ProcessQoSClass.allCases.map { ProcessQoS($0) }, ProcessQoS.allCases)
+    }
+
     func testTheQOSSplitSumsEachClassOverTheInterval() async throws {
         let monitor = try makeMonitor([
             fixture(time: 1, rows: [row(time: 1, cpu: 1_000_000_000, qos: [.default: 1_000_000_000])]),
