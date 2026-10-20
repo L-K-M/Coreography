@@ -381,7 +381,9 @@ Implemented:
   main actor with `getpwuid_r` and kept; a UID without an account
   keeps its number, and a lookup the user database could not answer is
   tried again on a later refresh). A filter or app
-  scope in the tree keeps the parents leading to each match. The
+  scope in the tree keeps the parents leading to each match. A row
+  running from an app bundle shows the outermost bundle's icon, read
+  once per app; others keep a blank space so names align. The
   table's columns can be shown, hidden and reordered from the header
   and the choice is kept; CPU time (user plus system over each
   process's life, summed for an app) and start time are opt-in columns

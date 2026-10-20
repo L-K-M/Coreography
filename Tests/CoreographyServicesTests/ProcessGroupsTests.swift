@@ -172,6 +172,24 @@ final class ProcessGroupsTests: XCTestCase {
         XCTAssertEqual(contributors.power.first?.isEstimate, true, "modeled energy is an estimate")
     }
 
+    /// Plan: app icons beside app rows. A helper outside the bundle does not hide it.
+    func testARowFindsTheAppBundleOfItsFirstMemberInOne() throws {
+        let processes = try snapshot([safari, webContent(responsible: 100), standaloneDaemon])
+        let rows = ProcessGroups.rows(in: processes, matching: "", sortedBy: .cpu, grouping: .app)
+        XCTAssertEqual(rows.first { $0.name == "Safari" }?.appBundlePath, "/Applications/Safari.app")
+        XCTAssertNil(rows.first { $0.name == "mds" }?.appBundlePath)
+    }
+
+    /// The outermost bundle wins, in any case: volumes are usually case-insensitive.
+    func testTheIconBundleIsTheOutermostInAnyCase() throws {
+        let old = try process(pid: 600, name: "Old", cpu: 1, path: "/Applications/Old.APP/Contents/MacOS/Old")
+        let plugIn = try process(pid: 700, name: "Bar", cpu: 1, path: "/Applications/Foo.app/Contents/PlugIns/Bar.app/Contents/MacOS/Bar")
+        let rows = ProcessGroups.rows(in: try snapshot([old, plugIn]), matching: "", sortedBy: .cpu, grouping: .flat)
+        XCTAssertEqual(rows.first { $0.name == "Old" }?.appBundlePath, "/Applications/Old.APP")
+        XCTAssertEqual(rows.first { $0.name == "Bar" }?.appBundlePath, "/Applications/Foo.app")
+        XCTAssertTrue(ProcessFilter.parse("#apps", currentUser: 501).matches(old, isNew: false, currentUser: 501))
+    }
+
     /// Plan: opt-in CPU time and start time columns, sortable.
     func testGroupsTotalCPUTimeAndStartWithTheirFirstMember() throws {
         let processes = try snapshot([safari, webContent(responsible: 100), standaloneDaemon])

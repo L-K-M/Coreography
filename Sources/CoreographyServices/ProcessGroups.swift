@@ -330,11 +330,12 @@ enum ProcessGroups {
 
     /// Outermost bundle, so nested helper apps fold into their host app.
     /// Example: `/Applications/Foo.app/Contents/Helpers/Bar.app/…` -> Foo.
-    private static func appBundle(of process: ObservedProcess) -> (path: String, name: String)? {
+    static func appBundle(of process: ObservedProcess) -> (path: String, name: String)? {
         guard let path = process.executablePath else { return nil }
         let components = path.split(separator: "/", omittingEmptySubsequences: false)
+        // Volumes are usually case-insensitive, so "Old.APP" is a bundle too.
         guard let index = components.firstIndex(where: {
-            $0.count > appBundleSuffix.count && $0.hasSuffix(appBundleSuffix)
+            $0.count > appBundleSuffix.count && $0.lowercased().hasSuffix(appBundleSuffix)
         }) else { return nil }
         let bundle = components[index]
         return (
@@ -440,6 +441,19 @@ enum ProcessGroups {
 }
 
 extension ProcessRow {
+    /// The outermost app bundle its program, or its first member's, runs
+    /// from, for the row's icon; nil outside a bundle.
+    /// Example: ".../Safari.app/Contents/MacOS/Safari" is "/Applications/Safari.app".
+    public var appBundlePath: String? {
+        var pending = [self]
+        while !pending.isEmpty {
+            let row = pending.removeFirst()
+            if let process = row.process, let bundle = ProcessGroups.appBundle(of: process) { return bundle.path }
+            pending += row.children ?? []
+        }
+        return nil
+    }
+
     /// The same row over other children, for the tree and scope to prune.
     func replacingChildren(_ children: [ProcessRow]?) -> ProcessRow {
         ProcessRow(

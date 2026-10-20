@@ -7,6 +7,8 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
 ## [Unreleased]
 
 ### Fixed
+- App grouping and `#apps` recognize bundles whose extension is not
+  lowercase, such as `Old.APP`.
 - A user name the account database failed to read is asked for again,
   instead of showing a bare UID until the view is chosen again.
 - A percentage between 0 and 1 reads "<1%" instead of a decimal that
@@ -49,6 +51,7 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
 - An opt-in Signed by column: Apple, the developer team, or Unsigned.
 - The process pane shows how much CPU and network no readable process
   accounts for.
+- Process rows show their app's icon.
 - With an app shown in the lanes, the network lane names its traffic, in
   plus out, as the CPU and disk lanes do.
 - With an app shown in the lanes, the memory and GPU lanes name its

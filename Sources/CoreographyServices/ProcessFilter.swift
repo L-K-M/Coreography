@@ -232,7 +232,7 @@ public struct ProcessFilter: Equatable, Sendable {
             case .userName(let name):
                 return facts.accountNames[process.uid]?.caseInsensitiveCompare(name) == .orderedSame
             case .token(.apps):
-                return process.executablePath?.contains(".app/") ?? false
+                return ProcessGroups.appBundle(of: process) != nil
             case .token(.mine):
                 return process.uid == currentUser
             case .token(.root):
