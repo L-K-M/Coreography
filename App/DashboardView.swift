@@ -3072,7 +3072,15 @@ private struct ContributorLine: View {
     }
 
     private var help: String {
-        switch subsystem {
+        // Before the live samples, CPU, disk and network come from the stored app ledger.
+        if model.displayedContributors?.origin == .storedLedger {
+            switch subsystem {
+            case .network: return String(localized: "TCP and UDP in plus out across every interface, grouped by app, from the stored interval nearest the cursor")
+            case .cpu, .disk: return String(localized: "Own-user processes grouped by app, from the stored interval nearest the cursor")
+            case .memory, .gpu, .power: break
+            }
+        }
+        return switch subsystem {
         case .network: String(localized: "TCP and UDP in plus out across every interface, grouped by app, from the process sample nearest the cursor")
         case .gpu: String(localized: "GPU time per second by app, not a share of the busy percentage; from the process sample nearest the cursor")
         case .power: String(localized: "CPU power the kernel's energy model gives each app, an estimate without GPU work; from the process sample nearest the cursor")
