@@ -340,6 +340,23 @@ final class DashboardModelTests: XCTestCase {
         XCTAssertEqual(model.appConnections.first?.connected.count, 1)
     }
 
+    /// The ports column reads connections while it shows, like the pane.
+    func testThePortsColumnReadsConnectionsWhileItShows() async throws {
+        let model = DashboardModel(
+            monitor: try SystemMonitor(driver: IncreasingHostDriver()), interval: .milliseconds(10),
+            processMonitor: try ProcessMonitor(driver: IncreasingProcessDriver()), processInterval: .milliseconds(10),
+            connectionMonitor: ConnectionMonitor(driver: ScriptedSockets())
+        )
+        model.start()
+        defer { model.stop() }
+        try await eventually { model.processSnapshot != nil }
+        XCTAssertNil(model.visibleProcessRows.first?.listeningPorts)
+
+        model.showsPorts = true
+        try await eventually { model.connectionSnapshot != nil }
+        XCTAssertEqual(model.visibleProcessRows.first?.listeningPorts, [8080])
+    }
+
     func testNothingExportsBeforeTheFirstLiveSample() async throws {
         let model = DashboardModel(monitor: try SystemMonitor(driver: IncreasingHostDriver()), interval: .milliseconds(10))
         model.selection = Date().addingTimeInterval(-60)...Date()

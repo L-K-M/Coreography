@@ -69,6 +69,9 @@ public struct ProcessRow: Identifiable, Sendable {
     public let architectures: Set<ProcessArchitecture>
     /// Who signed its programs; empty until checked or when none could be.
     public let signers: Set<CapturedSigner>
+    /// The local ports its processes listen on; nil until connections are
+    /// read, which covers your own processes only.
+    public let listeningPorts: Set<UInt16>?
     /// When the process started; for a group, its first member.
     public let started: Date?
     /// Member rows for a group, or child processes in the tree; nil for a
@@ -292,6 +295,7 @@ enum ProcessGroups {
             qosCPUPercent: qosTotal(members),
             architectures: Set(members.compactMap(\.architecture)),
             signers: Set(members.compactMap { $0.executablePath.flatMap { facts.signers[$0] } }),
+            listeningPorts: groupPorts(members, facts.sockets),
             started: members.map(\.id.startTime).min(),
             children: children
         )
@@ -380,6 +384,7 @@ enum ProcessGroups {
             qosCPUPercent: process.qosCPUPercent,
             architectures: Set([process.architecture].compactMap { $0 }),
             signers: Set([process.executablePath.flatMap { facts.signers[$0] }].compactMap { $0 }),
+            listeningPorts: listeningPorts(process, facts.sockets),
             started: process.id.startTime,
             children: nil
         )
@@ -414,6 +419,19 @@ enum ProcessGroups {
                 source: source
             )
         return reading ?? .gap(reason: "Non-finite total", source: source)
+    }
+
+    /// The ports a process listens on; nil before connections are read and
+    /// for one whose sockets cannot be: the read is same-user, like usage.
+    private static func listeningPorts(_ process: ObservedProcess, _ sockets: SocketFacts?) -> Set<UInt16>? {
+        guard let sockets, process.cpuPercentOfMachine.availability != .restricted else { return nil }
+        return sockets.listeningPorts[process.id] ?? []
+    }
+
+    /// The readable members' ports together; nil when no member was read.
+    private static func groupPorts(_ members: [ObservedProcess], _ sockets: SocketFacts?) -> Set<UInt16>? {
+        let read = members.compactMap { listeningPorts($0, sockets) }
+        return read.isEmpty ? nil : read.reduce(into: []) { $0.formUnion($1) }
     }
 
     /// A group's split sums each class across members, a member without
@@ -490,7 +508,8 @@ extension ProcessRow {
             networkSentBytesPerSecond: networkSentBytesPerSecond, gpuMillisecondsPerSecond: gpuMillisecondsPerSecond,
             cpuPowerWatts: cpuPowerWatts, cpuTimeSeconds: cpuTimeSeconds, threadCount: threadCount,
             instructionsPerSecond: instructionsPerSecond, qosCPUPercent: qosCPUPercent,
-            architectures: architectures, signers: signers, started: started, children: children
+            architectures: architectures, signers: signers, listeningPorts: listeningPorts, started: started,
+            children: children
         )
     }
 }

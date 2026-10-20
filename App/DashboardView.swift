@@ -1885,6 +1885,12 @@ private struct ProcessPane: View {
                         }
                         .customizationID(ProcessColumns.signerID)
                         .defaultVisibility(.hidden)
+                        TableColumn("Ports") { (row: ProcessRow) in
+                            Text(ProcessText.ports(row.listeningPorts))
+                                .help(String(localized: "Ports it listens on, read while this column shows; other users' processes need the helper"))
+                        }
+                        .customizationID(ProcessColumns.portsID)
+                        .defaultVisibility(.hidden)
                     }
                 }
                 .frame(height: 260)
@@ -1893,6 +1899,7 @@ private struct ProcessPane: View {
                 // column shows. `.automatic` is the column's hidden default.
                 .onChange(of: columns, initial: true) { _, chosen in
                     model.showsSigners = chosen[visibility: ProcessColumns.signerID] == .visible
+                    model.showsPorts = chosen[visibility: ProcessColumns.portsID] == .visible
                 }
                 .textSelection(.enabled)
 
@@ -1910,7 +1917,7 @@ private struct ProcessPane: View {
                         .help("Exit status is not available without the helper")
                 }
 
-                Text("\(ProcessText.cpuScaleNote(model.processCPUScaleInEffect)) App totals sum their members; footprint sums can count shared memory twice. Process sampling: \(model.processSamplingSeconds.formatted()) s; short-lived processes can be missed. Right-click a column header for wakeups, CPU time, start time, threads, instructions, QoS, architecture and signer.")
+                Text("\(ProcessText.cpuScaleNote(model.processCPUScaleInEffect)) App totals sum their members; footprint sums can count shared memory twice. Process sampling: \(model.processSamplingSeconds.formatted()) s; short-lived processes can be missed. Right-click a column header for wakeups, CPU time, start time, threads, instructions, QoS, architecture, signer and ports.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -2371,6 +2378,7 @@ private enum AppIcons {
 private enum ProcessColumns {
     private static let defaultsKey = "processColumns"
     static let signerID = "signer"
+    static let portsID = "ports"
 
     static func saved() -> TableColumnCustomization<ProcessRow> {
         guard let data = UserDefaults.standard.data(forKey: defaultsKey),
@@ -2407,6 +2415,13 @@ private enum ProcessText {
         guard !kinds.isEmpty else { return "–" }
         let order: [ObservedArchitecture] = [.appleSilicon, .intel, .intelTranslated]
         return order.filter(kinds.contains).map(architecture).joined(separator: ", ")
+    }
+
+    /// Example: "443, 8080"; "–" until connections are read or for another
+    /// user's process, blank for none.
+    static func ports(_ ports: Set<UInt16>?) -> String {
+        guard let ports else { return "–" }
+        return ports.sorted().map(String.init).joined(separator: ", ")
     }
 
     /// Example: "Apple, team ABCDE12345"; "–" until checked.
@@ -2946,6 +2961,7 @@ private struct RangePanel: View {
     @State private var exportFile: ExportFile?
     @State private var exportType: UTType = .json
     @State private var exportError: String?
+    @State private var savingRecording = false
     @State private var annotation = ""
 
     var body: some View {
@@ -2963,11 +2979,13 @@ private struct RangePanel: View {
                 Group {
                     Button("Export JSON…") { export(as: .json) }
                     Button("Export CSV…") { export(as: .commaSeparatedText) }
-                    Button("Save Recording…") { saveRecording() }
-                        .help("A .coreotrace file that opens back in Coreography for replay")
                 }
                 .disabled(document == nil)
                 .help(RangeText.exportScope(document, requested: report.requested))
+                // A selection inside the stored part has no export document but records fine.
+                Button("Save Recording…") { Task { await saveRecording() } }
+                    .disabled(model.selection == nil || savingRecording)
+                    .help("A .coreotrace file that opens back in Coreography for replay")
                 Button("Annotate…") { model.annotationPromptShown = true }
                     .help("Name this range; the name marks where it starts and ends on every lane")
                 Button("Clear selection") { model.clearSelection() }
@@ -3036,14 +3054,19 @@ private struct RangePanel: View {
 }
 
 private extension RangePanel {
-    func saveRecording() {
-        guard let data = model.recordingData(name: "") else {
-            exportError = String(localized: "Only the live hour can be recorded")
-            return
+    func saveRecording() async {
+        // One save at a time: a second tap would race the first to the panel.
+        guard !savingRecording else { return }
+        savingRecording = true
+        defer { savingRecording = false }
+        do {
+            let data = try await model.recordingData(name: "")
+            exportError = nil
+            exportType = .coreographyRecording
+            exportFile = ExportFile(data: data)
+        } catch {
+            exportError = error.message
         }
-        exportError = nil
-        exportType = .coreographyRecording
-        exportFile = ExportFile(data: data)
     }
 
     /// Build the file from displayed data; failures are shown, not swallowed.
