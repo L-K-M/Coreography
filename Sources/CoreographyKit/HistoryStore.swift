@@ -20,6 +20,14 @@ public enum HistoryMetric: Int, CaseIterable, Sendable {
     case networkSent = 15
     case diskRead = 16
     case diskWritten = 17
+    /// Mean busy share of the efficiency-tier core clusters, 0-100.
+    case efficiencyClusterActivePercent = 18
+    /// Mean busy share of the performance-tier core clusters, 0-100.
+    case performanceClusterActivePercent = 19
+    /// Mean frequency of the efficiency-tier clusters while active, in MHz.
+    case efficiencyClusterFrequencyMHz = 20
+    /// Mean frequency of the performance-tier clusters while active, in MHz.
+    case performanceClusterFrequencyMHz = 21
 }
 
 /// One stored reading. A missing value keeps its availability, so a gap

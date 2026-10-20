@@ -35,7 +35,7 @@ final class HistoryRecorderTests: XCTestCase {
         let host = try await monitor.sample()
         var sources = RecordedSources()
         let samples = HistorySamples.latest(
-            host: host, network: nil, disks: nil, gpu: nil, power: nil, sensors: nil, sources: &sources
+            host: host, network: nil, disks: nil, gpu: nil, power: nil, sensors: nil, silicon: nil, sources: &sources
         )
         XCTAssertEqual(Set(samples.map(\.metric)), [
             .cpu, .memoryUsed, .memoryApp, .memoryWired, .memoryCompressed, .memoryCached,
@@ -53,11 +53,92 @@ final class HistoryRecorderTests: XCTestCase {
         let power = try await monitor.sample()
         var sources = RecordedSources()
         let samples = HistorySamples.latest(
-            host: nil, network: nil, disks: nil, gpu: nil, power: power, sensors: nil, sources: &sources
+            host: nil, network: nil, disks: nil, gpu: nil, power: power, sensors: nil, silicon: nil, sources: &sources
         )
         let system = try XCTUnwrap(samples.first { $0.metric == .systemPower })
         XCTAssertEqual(system.value ?? 0, 12, accuracy: 1e-9)
         XCTAssertEqual(system.time, power.stamp.wallTime)
+    }
+
+    /// Each tier kind folds to one stored mean, weighted by its clusters' core counts.
+    func testSiliconFrameRecordsClusterKindsAsWeightedMeans() throws {
+        var sources = RecordedSources()
+        let samples = HistorySamples.latest(
+            host: nil, network: nil, disks: nil, gpu: nil, power: nil, sensors: nil,
+            silicon: try siliconFrame(tiers: [
+                tier(.e, cores: 4, active: 10, mhz: 1000),
+                tier(.p, cores: 4, active: 50, mhz: 2000),
+                tier(.p, cores: 8, active: 80, mhz: 3000)
+            ]),
+            sources: &sources
+        )
+        let byMetric = Dictionary(grouping: samples, by: \.metric)
+        XCTAssertEqual(byMetric.count, 4, "only the four cluster series record")
+        XCTAssertEqual(byMetric[.efficiencyClusterActivePercent]?.first?.value ?? 0, 10, accuracy: 1e-9)
+        // (4·50 + 8·80) / 12 cores: a kind's mean is weighted by core count.
+        XCTAssertEqual(byMetric[.performanceClusterActivePercent]?.first?.value ?? 0, 70, accuracy: 1e-9)
+        XCTAssertEqual(byMetric[.efficiencyClusterFrequencyMHz]?.first?.value ?? 0, 1000, accuracy: 1e-9)
+        XCTAssertEqual(byMetric[.performanceClusterFrequencyMHz]?.first?.value ?? 0, 8000.0 / 3.0, accuracy: 1e-9)
+        XCTAssertEqual(byMetric[.performanceClusterActivePercent]?.first?.availability, .estimated)
+        XCTAssertEqual(byMetric[.efficiencyClusterActivePercent]?.first?.time, epoch)
+    }
+
+    /// No silicon frame, or one without tiers, writes nothing: a gap, never zero.
+    func testNoSiliconFrameWritesNoClusterSeries() throws {
+        var sources = RecordedSources()
+        let cluster: Set<HistoryMetric> = [
+            .efficiencyClusterActivePercent, .performanceClusterActivePercent,
+            .efficiencyClusterFrequencyMHz, .performanceClusterFrequencyMHz
+        ]
+        for frame in [nil, try siliconFrame(tiers: [])] {
+            let samples = HistorySamples.latest(
+                host: nil, network: nil, disks: nil, gpu: nil, power: nil, sensors: nil,
+                silicon: frame, sources: &sources
+            )
+            XCTAssertTrue(samples.allSatisfy { !cluster.contains($0.metric) })
+        }
+    }
+
+    /// Day-tier buckets keep a cluster series' extremes and mean.
+    func testClusterSamplesRollUpMinMaxAndMean() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("coreo-cluster-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = try HistoryStore(directory: directory)
+        let recorder = HistoryRecorder(store: store)
+        for (index, value) in [10.0, 30.0].enumerated() {
+            await recorder.record([HistorySample(
+                metric: .performanceClusterActivePercent, time: epoch.addingTimeInterval(Double(index)),
+                value: value, availability: .measured
+            )], at: epoch.addingTimeInterval(Double(index)))
+        }
+        await recorder.flush(now: epoch.addingTimeInterval(2))
+
+        let rollups = try await store.rollups(
+            .performanceClusterActivePercent, tier: .day, from: epoch, to: epoch.addingTimeInterval(60)
+        )
+        let rollup = try XCTUnwrap(rollups.first)
+        XCTAssertEqual(rollup.minimum, 10)
+        XCTAssertEqual(rollup.maximum, 30)
+        XCTAssertEqual(rollup.mean, 20, accuracy: 1e-9)
+        XCTAssertEqual(rollup.count, 2)
+    }
+
+    private func tier(_ kind: CPUTierKind, cores: Int, active: Double, mhz: Double) throws -> CPUTierReading {
+        CPUTierReading(
+            kind: kind, cores: cores,
+            activePercent: try .estimated(active, method: "fixture"),
+            frequencyMHz: try .estimated(mhz, method: "fixture"),
+            maximumMHz: nil
+        )
+    }
+
+    private func siliconFrame(tiers: [CPUTierReading]) throws -> CapturedSilicon {
+        SiliconSnapshot(
+            id: UUID(), stamp: SampleStamp(clockID: UUID(), monotonicNanoseconds: 1, wallTime: epoch),
+            cpuPowerWatts: .unsupported(), gpuPowerWatts: .unsupported(), anePowerWatts: .unsupported(),
+            dramPowerWatts: .unsupported(), cpuTiers: tiers,
+            gpuActivePercent: .unsupported(), gpuFrequencyMHz: .unsupported(), continuity: .continuous
+        )
     }
 
     func testLedgerIntervalsReachTheStoreAndRebuildTheSameTotals() async throws {

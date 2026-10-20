@@ -70,7 +70,9 @@ enum StoredTier: Sendable {
 struct StoredHistory: Sendable {
     private static let lineMetrics: [HistoryMetric] = [
         .cpu, .memoryUsed, .networkReceived, .networkSent, .diskRead, .diskWritten,
-        .gpuBusy, .batteryCharge, .hottestCelsius
+        .gpuBusy, .batteryCharge, .hottestCelsius,
+        .efficiencyClusterActivePercent, .performanceClusterActivePercent,
+        .efficiencyClusterFrequencyMHz, .performanceClusterFrequencyMHz
     ]
     /// Range reports need true means and peaks, not the drawn extremes.
     private static let reportMetrics: Set<HistoryMetric> = [.cpu, .memoryUsed, .gpuBusy, .hottestCelsius]
