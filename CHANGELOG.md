@@ -38,6 +38,7 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
 
 ### Added
 - The lanes mark apps starting and exiting, such as "Mail started".
+- A sampling rate in the toolbar: every second or every two seconds.
 - An opt-in Threads column and sort in the process table, and the
   header's thread total. `coreo top --sort threads` ranks by them.
 - The network lane names its top apps by traffic, live and under the
