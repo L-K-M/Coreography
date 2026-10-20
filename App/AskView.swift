@@ -57,7 +57,7 @@ struct AskPanel: View {
                 // Plan: links to the processes and time ranges used as evidence.
                 HStack {
                     Text("Show:").font(.caption).foregroundStyle(.secondary)
-                    ForEach(answer.evidence, id: \.self) { evidence in
+                    ForEach(answer.evidence.prefix(AskText.linkLimit), id: \.self) { evidence in
                         Button(AskText.label(evidence)) { model.follow(evidence) }
                             .buttonStyle(.link)
                             .font(.caption)
@@ -76,13 +76,19 @@ struct AskPanel: View {
 }
 
 private enum AskText {
-    /// Examples: "PID 42", "Safari", "14:02:10–14:12:10".
+    /// Links that fit one line of the panel; the first cited come first.
+    static let linkLimit = 6
+
+    /// Examples: "PID 42", "Safari", "14:02:10–14:12:10"; a range across
+    /// midnight names both days.
     static func label(_ evidence: AskEvidence) -> String {
         switch evidence {
-        case .process(let pid): String(localized: "PID \(pid.formatted(.number.grouping(.never)))")
-        case .app(let name): name
+        case .process(let pid): return String(localized: "PID \(pid.formatted(.number.grouping(.never)))")
+        case .app(let name): return name
         case .range(let range):
-            range.lowerBound.formatted(date: .omitted, time: .standard) + "–" + range.upperBound.formatted(date: .omitted, time: .standard)
+            let sameDay = Calendar.current.isDate(range.lowerBound, inSameDayAs: range.upperBound)
+            let style = Date.FormatStyle(date: sameDay ? .omitted : .abbreviated, time: .standard)
+            return range.lowerBound.formatted(style) + "–" + range.upperBound.formatted(style)
         }
     }
 }

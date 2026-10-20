@@ -1174,8 +1174,9 @@ public final class DashboardModel {
         case .range(let range):
             selection = range
         case .process(let pid):
-            guard case .answered(let answer) = askState,
-                  let process = AskEvidence.process(pid, in: processSnapshot, askedAt: answer.takenAt) else {
+            // A link from an answer no longer shown does nothing.
+            guard case .answered(let answer) = askState else { return }
+            guard let process = AskEvidence.process(pid, in: processSnapshot, askedAt: answer.takenAt) else {
                 actionMessage = "PID \(pid) is no longer running"
                 return
             }
