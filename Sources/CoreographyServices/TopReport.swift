@@ -24,6 +24,8 @@ public struct TopReport: Codable, Sendable {
         public let cpuTimeSeconds: MetricReading
         /// Threads now, summed for an app; the threads sort's value.
         public let threadCount: MetricReading
+        /// Retired instructions per second, summed for an app; the instructions sort's value.
+        public let instructionsPerSecond: MetricReading
         /// When it started; an app's first process. The started sort's value.
         public let started: Date?
     }
@@ -50,7 +52,8 @@ public struct TopReport: Codable, Sendable {
                     networkReceivedBytesPerSecond: row.networkReceivedBytesPerSecond,
                     networkSentBytesPerSecond: row.networkSentBytesPerSecond,
                     gpuMillisecondsPerSecond: row.gpuMillisecondsPerSecond, cpuPowerWatts: row.cpuPowerWatts,
-                    cpuTimeSeconds: row.cpuTimeSeconds, threadCount: row.threadCount, started: row.started
+                    cpuTimeSeconds: row.cpuTimeSeconds, threadCount: row.threadCount,
+                    instructionsPerSecond: row.instructionsPerSecond, started: row.started
                 )
             },
             total: rows.count, restrictedProcesses: processes.restrictedUsageCount

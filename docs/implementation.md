@@ -405,8 +405,12 @@ Implemented:
   processes. An opt-in Signed by column names Apple, the developer team
   or Unsigned; signatures are checked off the main actor once per
   program, four at a time, starting only while the column shows, and an
-  app lists each signer.
-  QoS, instructions and ports columns remain.
+  app lists each signer. Instructions and QoS are opt-in columns too:
+  instructions retired per second over the sample interval, unsupported
+  where the CPU or a VM keeps no counter, and a sort ranking by them;
+  QoS names the classes holding at least a tenth of the row's CPU time,
+  largest first, or a dash where the counters cannot be read. Ports
+  columns remain.
 - The memory lane stacks the composition under the physical-memory line,
   draws a pressure band above it, and has a ten-column numeric table and
   per-layer chart accessibility. `coreo snapshot` exports the same detail.
