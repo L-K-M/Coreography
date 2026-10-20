@@ -461,6 +461,7 @@ private struct MemoryLane: View {
                 Text("Memory").font(.caption.weight(.medium)).foregroundStyle(.secondary)
                     .onTapGesture(count: 2) { model.toggleDetail(.memory) }
                     .help(String(localized: "Double-click to show or hide swap and page-ins over time"))
+                    .accessibilityAction(named: Text("Show or hide detail")) { model.toggleDetail(.memory) }
                 Text(MetricText.bytes(used?.numericValue))
                     .font(.system(size: 30, weight: .semibold))
                 Text("of \(MetricText.bytes(capacity)) used, estimated").font(.caption)
@@ -801,6 +802,7 @@ private struct PowerLane: View {
                 Text("Power").font(.caption.weight(.medium)).foregroundStyle(.secondary)
                     .onTapGesture(count: 2) { model.toggleDetail(.power) }
                     .help(String(localized: "Double-click to show or hide battery capacity and sleep assertions"))
+                    .accessibilityAction(named: Text("Show or hide detail")) { model.toggleDetail(.power) }
                 Text(MetricText.watts(system?.numericValue) + (system?.availability == .estimated ? " est." : ""))
                     .font(.system(size: 30, weight: .semibold))
                 Text(PowerText.systemSource(system)).font(.caption)
@@ -1258,6 +1260,7 @@ private struct NetworkLane: View {
                 Text("Network").font(.caption.weight(.medium)).foregroundStyle(.secondary)
                     .onTapGesture(count: 2) { model.toggleDetail(.network) }
                     .help(String(localized: "Double-click to show or hide each interface"))
+                    .accessibilityAction(named: Text("Show or hide detail")) { model.toggleDetail(.network) }
                 Text("↓ " + MetricText.rate(receiveReading?.numericValue))
                     .font(.system(size: 24, weight: .semibold))
                 Text("↑ " + MetricText.rate(sendReading?.numericValue))
@@ -1349,6 +1352,7 @@ private struct DiskLane: View {
                 Text("Disk").font(.caption.weight(.medium)).foregroundStyle(.secondary)
                     .onTapGesture(count: 2) { model.toggleDetail(.disk) }
                     .help(String(localized: "Double-click to show or hide each device"))
+                    .accessibilityAction(named: Text("Show or hide detail")) { model.toggleDetail(.disk) }
                 Text("↓ " + MetricText.rate(model.reading(for: .diskRead)?.numericValue))
                     .font(.system(size: 24, weight: .semibold))
                 Text("↑ " + MetricText.rate(model.reading(for: .diskWritten)?.numericValue))
@@ -1478,7 +1482,8 @@ private struct TransferMultiples: View {
     let idleNote: String
 
     var body: some View {
-        let active = series.filter(\.isActive).sorted { total($0) > total($1) }
+        // Ties fall back to the name so equal rows keep their places between ticks.
+        let active = series.filter(\.isActive).sorted { (total($0), $1.name) > (total($1), $0.name) }
         let shown = active.prefix(Self.limit)
         VStack(alignment: .leading, spacing: 4) {
             if shown.isEmpty {
@@ -1503,7 +1508,10 @@ private struct TransferMultiples: View {
                     .chartXAxis(.hidden)
                     .chartYAxis(.hidden)
                     .frame(height: Self.chartHeight)
-                    Text("↓ \(MetricText.rate(item.above.last?.value))  ↑ \(MetricText.rate(item.below.last?.value))")
+                    // A one-way series, such as page-ins, shows no second direction.
+                    Text(item.below.isEmpty
+                        ? "↓ \(MetricText.rate(item.above.last?.value))"
+                        : "↓ \(MetricText.rate(item.above.last?.value))  ↑ \(MetricText.rate(item.below.last?.value))")
                         .font(.caption).monospacedDigit()
                         .frame(width: Self.rateWidth, alignment: .trailing)
                 }
