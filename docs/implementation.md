@@ -732,8 +732,21 @@ Implemented:
   `PROCESSOR_CPU_LOAD_INFO`), so it holds across cadences; a change in
   the core count or an interruption starts over, and a core without a
   reading leaves a hole. Rows follow CPU numbers: grouping them by
-  cluster needs the CPU-to-cluster map, which remains, as do the other
-  lanes' detail views. Native CI checks one measured 0-100 share per core.
+  cluster needs the CPU-to-cluster map, which remains. Native CI checks
+  one measured 0-100 share per core.
+- Network and disk lane details: Show Interfaces or Show Devices in the
+  lane's menu, or a double-click on its title, adds one small mirrored
+  chart per interface or device that moved data in the shown range,
+  busiest first and at most six, with the rest counted. A device absent
+  from a sample, an unreadable direction or an interruption breaks its
+  line; devices are never summed. The memory lane expands the same way
+  (Show Paging) into swap in above and out below, and page-ins from
+  files. The power lane expands into the battery's capacity as nested
+  bars (design capacity, full-charge capacity, current charge) and
+  every sleep assertion held. Per-app traffic, capacity, cumulative
+  writes and SMART, and the GPU and thermal details remain; the Sensors
+  tab shows sensors by region with current, minimum, maximum and
+  average.
 - Lane inspector: a lane's menu shows its static facts (chip, model,
   logical CPUs and core tiers; physical memory; each GPU; storage devices
   and volume sizes; primary and observed interfaces; adapter rating,

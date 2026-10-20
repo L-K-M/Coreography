@@ -55,6 +55,10 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
 - Process rows show their app's icon.
 - Ask Coreography answers link to their evidence: the range read, the
   apps ranked and the processes looked up.
+- The network and disk lanes expand into one small chart per interface
+  or storage device that moved data, the memory lane into swap and
+  page-ins over time, and the power lane into battery capacity bars and
+  the sleep assertions held.
 - With an app shown in the lanes, the network lane names its traffic, in
   plus out, as the CPU and disk lanes do.
 - With an app shown in the lanes, the memory and GPU lanes name its
