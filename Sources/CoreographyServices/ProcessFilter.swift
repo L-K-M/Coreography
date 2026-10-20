@@ -41,15 +41,22 @@ struct SocketFacts: Sendable {
     let listening: Set<ProcessIdentity>
     /// Every local and remote port of each process's sockets.
     let ports: [ProcessIdentity: Set<UInt16>]
+    /// The local ports each process listens on, for the ports column.
+    let listeningPorts: [ProcessIdentity: Set<UInt16>]
 
     init(_ snapshot: CapturedConnections) {
         listening = snapshot.listeningProcesses
         var ports: [ProcessIdentity: Set<UInt16>] = [:]
+        var listeningPorts: [ProcessIdentity: Set<UInt16>] = [:]
         for connection in snapshot.connections {
             if connection.local.port != 0 { ports[connection.process, default: []].insert(connection.local.port) }
             if let remote = connection.remote { ports[connection.process, default: []].insert(remote.port) }
+            if connection.isListening, connection.local.port != 0 {
+                listeningPorts[connection.process, default: []].insert(connection.local.port)
+            }
         }
         self.ports = ports
+        self.listeningPorts = listeningPorts
     }
 }
 

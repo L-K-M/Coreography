@@ -1383,6 +1383,11 @@ public final class DashboardModel {
         didSet { if showsSigners, !oldValue { signersAsked = [] } }
     }
 
+    /// Whether the table shows its ports column; connections are read while it does.
+    public var showsPorts = false {
+        didSet { if showsPorts, !oldValue { sampleConnections() } }
+    }
+
     /// The signers known now; programs not yet checked are checked in the
     /// background, and their rows show no signer until the answers arrive.
     private func knownSigners() -> [String: CapturedSigner] {
@@ -1504,7 +1509,7 @@ public final class DashboardModel {
     }
 
     private var wantsConnections: Bool {
-        detailPane == .connections || ProcessFilter.parse(processFilter).usesSockets
+        detailPane == .connections || showsPorts || ProcessFilter.parse(processFilter).usesSockets
     }
 
     /// Apply a link or Shortcut command (plan: automation); returns, and

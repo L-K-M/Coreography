@@ -9,7 +9,9 @@
  * - proc_pid_rusage(RUSAGE_INFO_V6) is same-uid checked (EPERM for other
  *   users, ESRCH once reaped) and reports CPU times in Mach timebase
  *   ticks, not nanoseconds (rm_time_mach); convert via
- *   mach_timebase_info(). ri_energy_nj is already in nanojoules.
+ *   mach_timebase_info(). ri_cpu_time_qos_* share the tick units.
+ *   ri_energy_nj is already in nanojoules; ri_instructions is a count,
+ *   zero where the CPU or a VM keeps no instruction counter.
  * - PROC_PIDLISTFDS and proc_pidfdinfo(PROC_PIDFDSOCKETINFO) are public
  *   and same-uid checked; socket_fdinfo carries family, kind (TCP or plain
  *   internet), TCP state and endpoints with ports in network byte order.
@@ -227,7 +229,18 @@ coreo_process_read(int32_t pid, coreo_process_sample *sample)
         mach_timebase_info_data_t timebase;
         uint64_t user_ns = 0;
         uint64_t system_ns = 0;
+        uint64_t qos_ns[COREO_QOS_COUNT] = {0};
+        const uint64_t qos_ticks[COREO_QOS_COUNT] = {
+            usage.ri_cpu_time_qos_user_interactive,
+            usage.ri_cpu_time_qos_user_initiated,
+            usage.ri_cpu_time_qos_default,
+            usage.ri_cpu_time_qos_utility,
+            usage.ri_cpu_time_qos_background,
+            usage.ri_cpu_time_qos_maintenance,
+            usage.ri_cpu_time_qos_legacy
+        };
         int32_t conv;
+        int i;
 
         if (mach_timebase_info(&timebase) != KERN_SUCCESS ||
             timebase.numer == 0 || timebase.denom == 0) {
@@ -238,6 +251,10 @@ coreo_process_read(int32_t pid, coreo_process_sample *sample)
             if (conv == 0) {
                 conv = coreo_ticks_to_ns(usage.ri_system_time, timebase.numer,
                                          timebase.denom, &system_ns);
+            }
+            for (i = 0; i < COREO_QOS_COUNT && conv == 0; i++) {
+                conv = coreo_ticks_to_ns(qos_ticks[i], timebase.numer,
+                                         timebase.denom, &qos_ns[i]);
             }
         }
         if (conv != 0) {
@@ -252,6 +269,8 @@ coreo_process_read(int32_t pid, coreo_process_sample *sample)
             sample->disk_write_bytes = usage.ri_diskio_byteswritten;
             sample->wakeups = usage.ri_pkg_idle_wkups + usage.ri_interrupt_wkups;
             sample->energy_nanojoules = usage.ri_energy_nj;
+            sample->instructions = usage.ri_instructions;
+            memcpy(sample->qos_cpu_nanoseconds, qos_ns, sizeof(qos_ns));
         }
     }
     return 0;

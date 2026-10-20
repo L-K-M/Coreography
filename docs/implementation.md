@@ -335,7 +335,10 @@ Implemented:
   notes qualified by name and a system executable path. Missing paths and
   writable `/usr/local` paths get no note; PID 0 identifies `kernel_task`
   without a path. Quitting guidance names possible interruption, never
-  guarantees safety. Signature/version matching remains pending.
+  guarantees safety. Once the inspector has read the signature, one by
+  another developer or none withdraws the note, except that PID 0 still
+  names `kernel_task`; an unreadable one leaves the path to decide.
+  Version matching remains pending: no entry needs it.
 - `get_sleep_history` and `coreo sleep` include up to 200 current
   sleep-preventing assertions, their read time, omitted count and explicit
   unavailable reasons. Names that may contain private paths or document
@@ -367,9 +370,14 @@ Implemented:
   history. Automatic selection requires a single device and complete
   inventory. Physical and virtual driver counters are kept separate.
 - `coreo disks --once --json` captures available storage rates and failures.
-- Disk and network share a mirrored chart and accessibility renderer.
-  Native scanning actors share an executor implementation while each owns
-  a serial queue and retains its task's cancellation context.
+- Disk and network share a mirrored chart and accessibility renderer; a
+  range of measured zeros reads "no activity", unlike a gap. A lane with
+  nothing to draw shows a lock and the reason when permissions withhold
+  it, and a dashed "Not available on this Mac" frame when the Mac lacks
+  the source, at the graph's height. No helper exists, so no Install
+  button is offered. Native scanning actors share an executor
+  implementation while each owns a serial queue and retains its task's
+  cancellation context.
 - Memory composition from the same `HOST_VM_INFO64` read: app, wired,
   compressed and cached bytes, compression ratio, and page-in, swap-in
   and swap-out byte rates over the real interval. Swap use comes from
@@ -403,8 +411,15 @@ Implemented:
   processes. An opt-in Signed by column names Apple, the developer team
   or Unsigned; signatures are checked off the main actor once per
   program, four at a time, starting only while the column shows, and an
-  app lists each signer.
-  QoS, instructions and ports columns remain.
+  app lists each signer. Instructions and QoS are opt-in columns too:
+  instructions retired per second over the sample interval, unsupported
+  where the CPU or a VM keeps no counter, and a sort ranking by them;
+  QoS names the classes holding at least a tenth of the row's CPU time,
+  largest first, or a dash where the counters cannot be read. An opt-in
+  Ports column lists the local ports each process, or an app's members,
+  listens on; connections are read while it shows, for your own
+  processes only; "–" means not read, as for another user's process,
+  and blank means none.
 - The memory lane stacks the composition under the physical-memory line,
   draws a pressure band above it, and has a ten-column numeric table and
   per-layer chart accessibility. `coreo snapshot` exports the same detail.
@@ -705,7 +720,10 @@ Implemented:
   upsert, and readings without values are left out, so an empty bucket
   stays a gap. The 24 h range draws each bucket's minimum and maximum,
   so spikes survive, and range reports weigh bucket means by count, so
-  means stay exact; percentiles are never taken from rollups. The app
+  means stay exact; percentiles are never taken from rollups. A range
+  report gives CPU's nearest-rank median and 95th percentile from raw
+  readings, live and Recent tier, and none once the range reaches a
+  rolled-up bucket. The app
   ledger stays in the Recent tier, so app totals over 24 h cover its
   six hours, which the report's coverage states. The Month tier follows below.
 - Automatic markers: memory and thermal pressure transitions, power

@@ -173,6 +173,50 @@ final class ProcessGroupsTests: XCTestCase {
     }
 
     /// Plan: app icons beside app rows. A helper outside the bundle does not hide it.
+    /// Plan: an opt-in ports column. An app lists the ports its members
+    /// listen on; a connection out is not a listening port.
+    func testARowListsThePortsItsMembersListenOn() throws {
+        let helper = try webContent(responsible: 100)
+        let processes = try snapshot([safari, helper, standaloneDaemon])
+        let socket = { (process: ObservedProcess, state: TCPState, port: UInt16) in
+            ConnectionReading(
+                process: process.id, processName: process.name, descriptor: 3, transport: .tcp, state: state,
+                local: ConnectionEndpoint(address: "0.0.0.0", port: port),
+                remote: state == .listen ? nil : ConnectionEndpoint(address: "1.1.1.1", port: 443)
+            )
+        }
+        let connections = ConnectionSnapshot(
+            takenAt: Date(), connections: [
+                socket(processes.processes[0], .listen, 8080), socket(processes.processes[1], .listen, 5000),
+                socket(processes.processes[1], .established, 50000)
+            ],
+            restrictedProcesses: 0, truncatedProcesses: 0, failedProcesses: 0, unavailableReason: nil
+        )
+        let rows = ProcessGroups.rows(
+            in: processes, matching: "", sortedBy: .cpu, grouping: .app, facts: ProcessFacts(sockets: SocketFacts(connections))
+        )
+        XCTAssertEqual(rows.first { $0.name == "Safari" }?.listeningPorts, [5000, 8080])
+        XCTAssertEqual(rows.first { $0.name == "mds" }?.listeningPorts, [], "read and listening on nothing")
+
+        let unread = ProcessGroups.rows(in: processes, matching: "", sortedBy: .cpu, grouping: .app)
+        XCTAssertNil(unread.first { $0.name == "Safari" }?.listeningPorts, "no connection data is not no ports")
+
+        // Another user's process was never read, so it has no answer rather than none;
+        // a socket still binding (port 0) is no port.
+        let other = try process(pid: 400, name: "postgres", cpu: nil, path: "/usr/local/bin/postgres", uid: 0)
+        let mine = try process(pid: 500, name: "server", cpu: 1, path: "/usr/local/bin/server")
+        let mixed = try snapshot([other, mine])
+        let binding = ConnectionSnapshot(
+            takenAt: Date(), connections: [socket(mine, .listen, 0)],
+            restrictedProcesses: 1, truncatedProcesses: 0, failedProcesses: 0, unavailableReason: nil
+        )
+        let read = ProcessGroups.rows(
+            in: mixed, matching: "", sortedBy: .cpu, grouping: .flat, facts: ProcessFacts(sockets: SocketFacts(binding))
+        )
+        XCTAssertNil(read.first { $0.name == "postgres" }?.listeningPorts)
+        XCTAssertEqual(read.first { $0.name == "server" }?.listeningPorts, [])
+    }
+
     func testARowFindsTheAppBundleOfItsFirstMemberInOne() throws {
         let processes = try snapshot([safari, webContent(responsible: 100), standaloneDaemon])
         let rows = ProcessGroups.rows(in: processes, matching: "", sortedBy: .cpu, grouping: .app)
@@ -219,6 +263,47 @@ final class ProcessGroupsTests: XCTestCase {
         let total = processes.threadTotal
         XCTAssertEqual(total.threads, 65)
         XCTAssertEqual(total.unread, 1)
+    }
+
+    /// Plan: opt-in instructions and QoS columns, both sorted by their sums.
+    func testGroupsSumInstructionsAndEachQoSClass() throws {
+        let safariPath = "/Applications/Safari.app/Contents/MacOS"
+        let processes = try snapshot([
+            try process(pid: 100, name: "Safari", cpu: 9, path: "\(safariPath)/Safari",
+                        instructions: 1e9, qos: [.default: 20, .utility: 5]),
+            try process(pid: 101, name: "helper", cpu: 1, path: "\(safariPath)/helper",
+                        instructions: 5e8, qos: [.default: 0, .utility: 5]),
+            try process(pid: 200, name: "mds", cpu: 1, path: "/usr/sbin/mds", instructions: 2e9),
+            try process(pid: 300, name: "locked", cpu: nil, path: "/usr/sbin/locked")
+        ])
+        let rows = ProcessGroups.rows(in: processes, matching: "", sortedBy: .instructions, grouping: .app)
+        XCTAssertEqual(rows.map(\.name), ["mds", "Safari", "locked"], "most instructions per second first, unread last")
+
+        let safari = try XCTUnwrap(rows[1])
+        XCTAssertEqual(safari.instructionsPerSecond.numericValue, 1.5e9, "an app sums its processes")
+        let qos = try XCTUnwrap(safari.qosCPUPercent)
+        XCTAssertEqual(qos[.default]?.numericValue, 20)
+        XCTAssertEqual(qos[.utility]?.numericValue, 10, "each class sums across members")
+        XCTAssertEqual(qos[.background]?.numericValue, 0)
+
+        let locked = try XCTUnwrap(rows.last)
+        XCTAssertNil(locked.qosCPUPercent, "an unread process has no split")
+        XCTAssertNil(locked.instructionsPerSecond.numericValue)
+    }
+
+    /// An app with an unreadable member still shows its readable members'
+    /// split, as a lower bound, rather than waiting for the unreadable one.
+    func testAnUnreadableMemberLeavesTheSplitALowerBound() throws {
+        let path = "/Applications/Safari.app/Contents/MacOS"
+        let processes = try snapshot([
+            try process(pid: 100, name: "Safari", cpu: 9, path: "\(path)/Safari", qos: [.default: 9]),
+            try process(pid: 101, name: "helper", cpu: nil, path: "\(path)/helper")
+        ])
+        let safari = try XCTUnwrap(ProcessGroups.rows(in: processes, matching: "", sortedBy: .cpu, grouping: .app).first)
+        let share = try XCTUnwrap(safari.qosCPUPercent?[.default])
+        XCTAssertEqual(share.numericValue, 9)
+        XCTAssertEqual(share.availability, .estimated)
+        XCTAssertEqual(share.method, "Lower bound: 1 of 2 members readable")
     }
 
     /// Plan: an opt-in architecture column. An app lists what its members run.
@@ -365,7 +450,8 @@ final class ProcessGroupsTests: XCTestCase {
     private func process(
         pid: Int32, name: String, cpu: Double?, start: UInt64 = 10,
         path: String? = nil, responsible: Int32? = nil, gpu: Double = 0, power: Double? = 0,
-        parent: UInt32 = 1, uid: UInt32 = 501, threads: Double? = 1, architecture: ProcessArchitecture? = nil
+        parent: UInt32 = 1, uid: UInt32 = 501, threads: Double? = 1, architecture: ProcessArchitecture? = nil,
+        instructions: Double? = nil, qos: [ProcessQoS: Double]? = nil
     ) throws -> ObservedProcess {
         let source = MetricSource(provider: "processes", driver: "libproc")
         return ProcessReading(
@@ -381,6 +467,14 @@ final class ProcessGroupsTests: XCTestCase {
                 ?? .unsupported(reason: "No energy counter for this process", source: source),
             cpuTimeSeconds: try cpu.map { try .measured($0, source: source) } ?? .restricted(reason: "EPERM", source: source),
             threadCount: try threads.map { try .measured($0, source: source) } ?? .restricted(reason: "EPERM", source: source),
+            instructionsPerSecond: try instructions.map { try .measured($0, source: source) }
+                ?? (cpu == nil ? .restricted(reason: "EPERM", source: source)
+                    : .unsupported(reason: "This Mac reports no instruction counter", source: source)),
+            qosCPUPercent: try qos.map { split in
+                Dictionary(uniqueKeysWithValues: try ProcessQoS.allCases.map {
+                    ($0, try .measured(split[$0] ?? 0, source: source))
+                })
+            },
             architecture: architecture,
             executablePath: path, responsiblePID: responsible
         )

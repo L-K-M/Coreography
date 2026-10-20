@@ -326,6 +326,9 @@ struct DashboardView: View {
                 Text(title).font(.caption.weight(.medium)).foregroundStyle(.secondary)
                     .onTapGesture(count: 2) { if metric == .cpu { model.toggleDetail(.cpu) } }
                     .help(String(localized: "Double-click to show or hide each core"))
+                    .accessibilityActions {
+                        if metric == .cpu { Button("Show or hide detail") { model.toggleDetail(.cpu) } }
+                    }
                 Text(metric == .cpu
                      ? MetricText.percent(reading?.numericValue)
                      : MetricText.bytes(reading?.numericValue))
@@ -363,10 +366,7 @@ struct DashboardView: View {
             .frame(width: Layout.headerWidth, alignment: .leading)
 
             if points.isEmpty {
-                Text(reading?.reason ?? String(localized: "Collecting samples…"))
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, minHeight: graphHeight)
+                LaneEmptyState(reading: reading, height: graphHeight)
             } else {
                 VStack(alignment: .leading, spacing: 4) {
                     Chart {
@@ -492,9 +492,7 @@ private struct MemoryLane: View {
 
             VStack(alignment: .leading, spacing: 8) {
                 if stack.isEmpty {
-                    Text(used?.reason ?? String(localized: "Collecting samples…"))
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, minHeight: graphHeight)
+                    LaneEmptyState(reading: used, height: graphHeight)
                 } else {
                     chart(stack: stack, pressure: pressure, capacity: capacity, start: start, end: end)
                 }
@@ -745,6 +743,44 @@ private struct GPULane: View {
     }
 }
 
+/// A lane with nothing to draw, in the plan's state grammar: a lock for
+/// what permissions withhold, a dashed frame for what this Mac lacks, so
+/// neither reads as a quiet machine. The frame keeps the graph's height.
+///
+/// ```text
+/// restricted:   [lock] Needs Full Disk Access
+/// unsupported:  ┌ ─ ─ Not available on this Mac ─ ─ ┐
+///               └ ─ ─ ─ ─ ─  reason  ─ ─ ─ ─ ─ ─ ┘
+/// ```
+private struct LaneEmptyState: View {
+    private static let dash: [CGFloat] = [4, 3]
+    let reading: DashboardReading?
+    let height: CGFloat
+
+    var body: some View {
+        content
+            .font(.callout)
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, minHeight: height)
+    }
+
+    @ViewBuilder private var content: some View {
+        switch reading?.availability {
+        case .restricted:
+            Label(reading?.reason ?? String(localized: "Restricted"), systemImage: "lock.fill")
+        case .unavailable, .unsupported:
+            VStack(spacing: 2) {
+                Text("Not available on this Mac")
+                if let reason = reading?.reason { Text(reason).font(.caption) }
+            }
+            .frame(maxWidth: .infinity, minHeight: height)
+            .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(style: StrokeStyle(lineWidth: 1, dash: Self.dash)))
+        case .measured, .estimated, .collecting, .gap, nil:
+            Text(reading?.reason ?? String(localized: "Collecting samples…"))
+        }
+    }
+}
+
 private enum GPUText {
     static func status(_ frame: CapturedGPU?, cursor: Date?) -> String {
         guard let frame else {
@@ -830,9 +866,7 @@ private struct PowerLane: View {
 
             VStack(alignment: .leading, spacing: 8) {
                 if points.isEmpty {
-                    Text(latest?.batteryChargePercent.reason ?? String(localized: "Collecting samples…"))
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, minHeight: graphHeight)
+                    LaneEmptyState(reading: latest?.batteryChargePercent, height: graphHeight)
                 } else {
                     chart(points: points, plugged: plugged, start: start, end: end)
                 }
@@ -1051,9 +1085,7 @@ private struct ThermalLane: View {
             if !temperatures.isEmpty {
                 temperatureChart(temperatures, spans: spans, start: start, end: end)
             } else if spans.isEmpty {
-                Text(reading?.reason ?? String(localized: "Collecting samples…"))
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, minHeight: Layout.bandHeight)
+                LaneEmptyState(reading: reading, height: Layout.bandHeight)
             } else {
                 Chart {
                     ForEach(spans) { span in
@@ -1300,9 +1332,7 @@ private struct NetworkLane: View {
 
             VStack(alignment: .leading, spacing: 8) {
                 if received.isEmpty && sent.isEmpty {
-                    Text(receiveReading?.reason ?? String(localized: "Collecting samples…"))
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, minHeight: graphHeight)
+                    LaneEmptyState(reading: receiveReading, height: graphHeight)
                 } else {
                     TransferChart(
                         title: String(localized: "Network"), aboveLabel: String(localized: "Received"),
@@ -1593,10 +1623,19 @@ private struct TransferChart: View {
             }
         }
         .frame(height: graphHeight)
+        // Plan zero state: a measured flat zero says so, unlike a gap.
+        .overlay {
+            if isIdle { Text("no activity").font(.caption).foregroundStyle(.secondary).allowsHitTesting(false) }
+        }
         .accessibilityChartDescriptor(TransferChartAccessibility(
             title: title, aboveLabel: aboveLabel, belowLabel: belowLabel,
             above: above, below: below, start: start, end: end, maximum: maximum
         ))
+    }
+
+    private var isIdle: Bool {
+        let values = (above + below).map(\.value)
+        return !values.isEmpty && values.allSatisfy { $0 == 0 }
     }
 
     private func rateCeiling(_ value: Double) -> Double {
@@ -1684,6 +1723,7 @@ private struct ProcessPane: View {
                         Text("CPU time").tag(ProcessSort.cpuTime)
                         Text("Newest").tag(ProcessSort.started)
                         Text("Threads").tag(ProcessSort.threads)
+                        Text("Instructions").tag(ProcessSort.instructions)
                         Text("Name").tag(ProcessSort.name)
                     }
                     .frame(width: 180)
@@ -1816,6 +1856,21 @@ private struct ProcessPane: View {
                         }
                         .customizationID("threads")
                         .defaultVisibility(.hidden)
+                        TableColumn("Instructions") { (row: ProcessRow) in
+                            ProcessMetricCell(
+                                reading: row.instructionsPerSecond, format: .instructions,
+                                note: String(localized: "Instructions retired per second; an app sums its processes")
+                            )
+                        }
+                        .customizationID("instructions")
+                        .defaultVisibility(.hidden)
+                        TableColumn("QoS") { (row: ProcessRow) in
+                            Text(ProcessText.qos(row))
+                                .monospacedDigit()
+                                .help(String(localized: "How the row's CPU time splits across QoS classes, showing those with at least 10%; an app sums per class"))
+                        }
+                        .customizationID("qos")
+                        .defaultVisibility(.hidden)
                         TableColumn("Architecture") { (row: ProcessRow) in
                             Text(ProcessText.architectures(row.architectures))
                                 .help(row.architectures.isEmpty
@@ -1830,6 +1885,12 @@ private struct ProcessPane: View {
                         }
                         .customizationID(ProcessColumns.signerID)
                         .defaultVisibility(.hidden)
+                        TableColumn("Ports") { (row: ProcessRow) in
+                            Text(ProcessText.ports(row.listeningPorts))
+                                .help(String(localized: "Ports it listens on, read while this column shows; other users' processes need the helper"))
+                        }
+                        .customizationID(ProcessColumns.portsID)
+                        .defaultVisibility(.hidden)
                     }
                 }
                 .frame(height: 260)
@@ -1838,6 +1899,7 @@ private struct ProcessPane: View {
                 // column shows. `.automatic` is the column's hidden default.
                 .onChange(of: columns, initial: true) { _, chosen in
                     model.showsSigners = chosen[visibility: ProcessColumns.signerID] == .visible
+                    model.showsPorts = chosen[visibility: ProcessColumns.portsID] == .visible
                 }
                 .textSelection(.enabled)
 
@@ -1855,7 +1917,7 @@ private struct ProcessPane: View {
                         .help("Exit status is not available without the helper")
                 }
 
-                Text("\(ProcessText.cpuScaleNote(model.processCPUScaleInEffect)) App totals sum their members; footprint sums can count shared memory twice. Process sampling: \(model.processSamplingSeconds.formatted()) s; short-lived processes can be missed. Right-click a column header for wakeups, CPU time, start time, threads, architecture and signer.")
+                Text("\(ProcessText.cpuScaleNote(model.processCPUScaleInEffect)) App totals sum their members; footprint sums can count shared memory twice. Process sampling: \(model.processSamplingSeconds.formatted()) s; short-lived processes can be missed. Right-click a column header for wakeups, CPU time, start time, threads, instructions, QoS, architecture, signer and ports.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -2310,6 +2372,7 @@ private enum AppIcons {
 private enum ProcessColumns {
     private static let defaultsKey = "processColumns"
     static let signerID = "signer"
+    static let portsID = "ports"
 
     static func saved() -> TableColumnCustomization<ProcessRow> {
         guard let data = UserDefaults.standard.data(forKey: defaultsKey),
@@ -2348,6 +2411,13 @@ private enum ProcessText {
         return order.filter(kinds.contains).map(architecture).joined(separator: ", ")
     }
 
+    /// Example: "443, 8080"; "–" until connections are read or for another
+    /// user's process, blank for none.
+    static func ports(_ ports: Set<UInt16>?) -> String {
+        guard let ports else { return "–" }
+        return ports.sorted().map(String.init).joined(separator: ", ")
+    }
+
     /// Example: "Apple, team ABCDE12345"; "–" until checked.
     static func signers(_ signers: Set<CapturedSigner>) -> String {
         guard !signers.isEmpty else { return "–" }
@@ -2384,6 +2454,48 @@ private enum ProcessText {
     /// Example: "Oct 19, 9:14:03 AM" in English.
     static func started(_ date: Date) -> String {
         date.formatted(.dateTime.month(.abbreviated).day().hour().minute().second())
+    }
+
+    private static let instructionUnits = ["", " K", " M", " G", " T"]
+
+    /// Retired instructions per second. Example: 1_234_000_000 -> "1.2 G/s".
+    static func instructions(_ perSecond: Double) -> String {
+        guard perSecond.isFinite, perSecond >= 0 else { return "–" }
+        var scaled = perSecond
+        var unit = 0
+        while scaled >= 1000, unit < instructionUnits.count - 1 {
+            scaled /= 1000
+            unit += 1
+        }
+        let digits = unit == 0 || scaled >= 100 ? 0 : 1
+        return scaled.formatted(.number.precision(.fractionLength(digits))) + instructionUnits[unit] + "/s"
+    }
+
+    /// A row's largest classes holding at least a tenth of its CPU time.
+    /// Example: "Utility 70% · Default 30%"; "–" when unknown or idle.
+    static func qos(_ row: ProcessRow) -> String {
+        guard let split = row.qosCPUPercent else { return "–" }
+        let total = split.values.compactMap(\.numericValue).reduce(0, +)
+        guard total > 0 else { return "–" }
+        let shares = ObservedQoS.allCases.compactMap { qosClass -> (ObservedQoS, Double)? in
+            guard let value = split[qosClass]?.numericValue, value / total >= 0.1 else { return nil }
+            return (qosClass, value / total)
+        }
+        return shares.sorted { $0.1 > $1.1 }
+            .map { "\(qosName($0.0)) \($0.1.formatted(.percent.precision(.fractionLength(0))))" }
+            .joined(separator: " · ")
+    }
+
+    private static func qosName(_ qosClass: ObservedQoS) -> String {
+        switch qosClass {
+        case .userInteractive: String(localized: "User interactive")
+        case .userInitiated: String(localized: "User initiated")
+        case .default: String(localized: "Default")
+        case .utility: String(localized: "Utility")
+        case .background: String(localized: "Background")
+        case .maintenance: String(localized: "Maintenance")
+        case .legacy: String(localized: "Legacy")
+        }
     }
 
     static func cpuColumn(_ scale: ProcessCPUScale) -> String {
@@ -2790,7 +2902,7 @@ private enum ConnectionText {
 }
 
 private struct ProcessMetricCell: View {
-    enum Format { case percent, bytes, rate, watts, wakeups, gpuTime, processWatts, cpuTime, count }
+    enum Format { case percent, bytes, rate, watts, wakeups, gpuTime, processWatts, cpuTime, count, instructions }
     let reading: DashboardReading
     let format: Format
     /// 0-1 share of the column's largest value; shades the cell in its subsystem hue.
@@ -2831,6 +2943,7 @@ private struct ProcessMetricCell: View {
         case .processWatts: return ProcessText.power(value) + suffix
         case .cpuTime: return ProcessText.cpuTime(value) + suffix
         case .count: return Int(value).formatted() + suffix
+        case .instructions: return ProcessText.instructions(value) + suffix
         }
     }
 }
@@ -3040,7 +3153,13 @@ private enum RangeText {
     static func lanes(_ report: RangeReport) -> String {
         var parts: [String] = []
         if let mean = report.cpuMeanPercent, let peak = report.cpuPeakPercent {
-            parts.append(String(localized: "CPU mean \(MetricText.percent(mean)), peak \(MetricText.percent(peak))"))
+            // Percentiles only where raw readings back them; rolled-up history keeps none.
+            // Whole sentences, so a translation can order them freely.
+            if let median = report.cpuMedianPercent, let p95 = report.cpuP95Percent {
+                parts.append(String(localized: "CPU mean \(MetricText.percent(mean)), median \(MetricText.percent(median)), 95th \(MetricText.percent(p95)), peak \(MetricText.percent(peak))"))
+            } else {
+                parts.append(String(localized: "CPU mean \(MetricText.percent(mean)), peak \(MetricText.percent(peak))"))
+            }
         }
         if let memory = report.memoryPeakBytes {
             parts.append(String(localized: "memory peak \(MetricText.bytes(memory))"))

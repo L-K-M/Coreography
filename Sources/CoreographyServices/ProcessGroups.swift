@@ -59,11 +59,19 @@ public struct ProcessRow: Identifiable, Sendable {
     public let cpuTimeSeconds: MetricReading
     /// Threads now; an app sums its processes.
     public let threadCount: MetricReading
+    /// Retired instructions per second; an app sums its processes.
+    public let instructionsPerSecond: MetricReading
+    /// CPU percent of the machine per QoS class; an app sums per class.
+    /// Nil when no member's counters could be read.
+    public let qosCPUPercent: [ProcessQoS: MetricReading]?
     /// The architectures its processes run; empty when none was read.
     /// Example: a native app with one Rosetta helper has both.
     public let architectures: Set<ProcessArchitecture>
     /// Who signed its programs; empty until checked or when none could be.
     public let signers: Set<CapturedSigner>
+    /// The local ports its processes listen on; nil until connections are
+    /// read, which covers your own processes only.
+    public let listeningPorts: Set<UInt16>?
     /// When the process started; for a group, its first member.
     public let started: Date?
     /// Member rows for a group, or child processes in the tree; nil for a
@@ -283,8 +291,11 @@ enum ProcessGroups {
             cpuPowerWatts: total(members.map(\.cpuPowerWatts), overlap: nil),
             cpuTimeSeconds: total(members.map(\.cpuTimeSeconds), overlap: nil),
             threadCount: total(members.map(\.threadCount), overlap: nil),
+            instructionsPerSecond: total(members.map(\.instructionsPerSecond), overlap: nil),
+            qosCPUPercent: qosTotal(members),
             architectures: Set(members.compactMap(\.architecture)),
             signers: Set(members.compactMap { $0.executablePath.flatMap { facts.signers[$0] } }),
+            listeningPorts: groupPorts(members, facts.sockets),
             started: members.map(\.id.startTime).min(),
             children: children
         )
@@ -369,8 +380,11 @@ enum ProcessGroups {
             cpuPowerWatts: process.cpuPowerWatts,
             cpuTimeSeconds: process.cpuTimeSeconds,
             threadCount: process.threadCount,
+            instructionsPerSecond: process.instructionsPerSecond,
+            qosCPUPercent: process.qosCPUPercent,
             architectures: Set([process.architecture].compactMap { $0 }),
             signers: Set([process.executablePath.flatMap { facts.signers[$0] }].compactMap { $0 }),
+            listeningPorts: listeningPorts(process, facts.sockets),
             started: process.id.startTime,
             children: nil
         )
@@ -407,6 +421,35 @@ enum ProcessGroups {
         return reading ?? .gap(reason: "Non-finite total", source: source)
     }
 
+    /// The ports a process listens on; nil before connections are read and
+    /// for one whose sockets cannot be: the read is same-user, like usage.
+    private static func listeningPorts(_ process: ObservedProcess, _ sockets: SocketFacts?) -> Set<UInt16>? {
+        guard let sockets, process.cpuPercentOfMachine.availability != .restricted else { return nil }
+        return sockets.listeningPorts[process.id] ?? []
+    }
+
+    /// The readable members' ports together; nil when no member was read.
+    private static func groupPorts(_ members: [ObservedProcess], _ sockets: SocketFacts?) -> Set<UInt16>? {
+        let read = members.compactMap { listeningPorts($0, sockets) }
+        return read.isEmpty ? nil : read.reduce(into: []) { $0.formUnion($1) }
+    }
+
+    /// A group's split sums each class across members, a member without
+    /// counters counting as an unreadable share, not zero: its CPU reading
+    /// says why (restricted, collecting), and the sum is a lower bound. Nil
+    /// when no member's counters could be read at all.
+    private static func qosTotal(_ members: [ObservedProcess]) -> [ProcessQoS: MetricReading]? {
+        guard members.contains(where: { $0.qosCPUPercent != nil }) else { return nil }
+        return Dictionary(uniqueKeysWithValues: ProcessQoS.allCases.map { qosClass in
+            (qosClass, total(members.map { member in
+                member.qosCPUPercent?[qosClass]
+                    ?? (member.cpuPercentOfMachine.numericValue == nil
+                        ? member.cpuPercentOfMachine
+                        : .gap(reason: "No QoS counters for this process", source: member.cpuPercentOfMachine.source))
+            }, overlap: nil))
+        })
+    }
+
     private static func sorted(_ rows: [ProcessRow], by sort: ProcessSort) -> [ProcessRow] {
         rows.sorted { lhs, rhs in
             if sort != .name {
@@ -435,6 +478,7 @@ enum ProcessGroups {
         case .cpuTime: row.cpuTimeSeconds.numericValue
         case .started: row.started?.timeIntervalSince1970
         case .threads: row.threadCount.numericValue
+        case .instructions: row.instructionsPerSecond.numericValue
         case .name: nil
         }
     }
@@ -463,7 +507,9 @@ extension ProcessRow {
             wakeupsPerSecond: wakeupsPerSecond, networkReceivedBytesPerSecond: networkReceivedBytesPerSecond,
             networkSentBytesPerSecond: networkSentBytesPerSecond, gpuMillisecondsPerSecond: gpuMillisecondsPerSecond,
             cpuPowerWatts: cpuPowerWatts, cpuTimeSeconds: cpuTimeSeconds, threadCount: threadCount,
-            architectures: architectures, signers: signers, started: started, children: children
+            instructionsPerSecond: instructionsPerSecond, qosCPUPercent: qosCPUPercent,
+            architectures: architectures, signers: signers, listeningPorts: listeningPorts, started: started,
+            children: children
         )
     }
 }
