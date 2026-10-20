@@ -775,7 +775,7 @@ private struct LaneEmptyState: View {
             }
             .frame(maxWidth: .infinity, minHeight: height)
             .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(style: StrokeStyle(lineWidth: 1, dash: Self.dash)))
-        default:
+        case .measured, .estimated, .collecting, .gap, nil:
             Text(reading?.reason ?? String(localized: "Collecting samples…"))
         }
     }
@@ -1625,7 +1625,7 @@ private struct TransferChart: View {
         .frame(height: graphHeight)
         // Plan zero state: a measured flat zero says so, unlike a gap.
         .overlay {
-            if isIdle { Text("no activity").font(.caption).foregroundStyle(.secondary) }
+            if isIdle { Text("no activity").font(.caption).foregroundStyle(.secondary).allowsHitTesting(false) }
         }
         .accessibilityChartDescriptor(TransferChartAccessibility(
             title: title, aboveLabel: aboveLabel, belowLabel: belowLabel,
