@@ -2805,7 +2805,7 @@ private enum SessionText {
         switch unit {
         case .bytes: return MetricText.bytes(value)
         case .bytesPerSecond: return MetricText.bytes(value) + "/s"
-        case .percentOfMachine, .percent, .watts, .celsius:
+        case .percentOfMachine, .percent, .watts, .celsius, .megahertz:
             return value.formatted(.number.precision(.fractionLength(1))) + " " + unit.rawValue
         }
     }
