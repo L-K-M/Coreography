@@ -686,7 +686,8 @@ Implemented:
   Hang-up and interrupt on the window server or login window warn that
   they log you out, as Quit does. The user and info signals' effects are
   defined by the program; the confirmation says a program that does not
-  handle SIGUSR1 or SIGUSR2 terminates, as that is their default action.
+  handle SIGUSR1 or SIGUSR2 terminates, as that is their default action,
+  so on the window server or login window they warn that they log you out.
   Raising priority again needs an administrator and says so. Sample and
   spindump remain.
 - Saved filters: the current process filter can be kept as a chip
