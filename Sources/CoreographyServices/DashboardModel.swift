@@ -2433,6 +2433,57 @@ public final class DashboardModel {
         return result
     }
 
+    /// Every interface's received and sent rates in the shown range, for
+    /// the network lane's detail (plan: per-interface small multiples).
+    public func interfaceSeries(in range: ClosedRange<Date>) -> [TransferSeries] {
+        TransferSeriesBuilder.series(networkFrames.filter { range.contains($0.stamp.wallTime) }.map { frame in
+            TransferSeriesBuilder.Frame(
+                id: frame.id, time: frame.stamp.wallTime, interrupted: frame.continuity == .interrupted,
+                samples: frame.interfaces.map {
+                    TransferSeriesBuilder.Sample(
+                        key: "\($0.id.index)-\($0.id.name)", name: $0.id.name,
+                        above: $0.receivedBytesPerSecond.numericValue, below: $0.sentBytesPerSecond.numericValue
+                    )
+                }
+            )
+        })
+    }
+
+    /// Swap in and out, and page-ins from files, in the shown range, for the
+    /// memory lane's detail (plan: swap rate and page-ins).
+    public func pagingSeries(in range: ClosedRange<Date>) -> [TransferSeries] {
+        TransferSeriesBuilder.series(frames.filter { range.contains($0.stamp.wallTime) }.map { frame in
+            TransferSeriesBuilder.Frame(
+                id: frame.id, time: frame.stamp.wallTime, interrupted: frame.continuity == .interrupted,
+                samples: [
+                    TransferSeriesBuilder.Sample(
+                        key: "swap", name: "Swap", above: frame.memory.swapInBytesPerSecond.numericValue,
+                        below: frame.memory.swapOutBytesPerSecond.numericValue
+                    ),
+                    TransferSeriesBuilder.Sample(
+                        key: "page-ins", name: "Page-ins", above: frame.memory.pageInBytesPerSecond.numericValue, below: nil
+                    )
+                ]
+            )
+        })
+    }
+
+    /// Every storage device's read and write rates in the shown range, for
+    /// the disk lane's detail. Devices are never summed: they can overlap.
+    public func deviceSeries(in range: ClosedRange<Date>) -> [TransferSeries] {
+        TransferSeriesBuilder.series(diskFrames.filter { range.contains($0.stamp.wallTime) }.map { frame in
+            TransferSeriesBuilder.Frame(
+                id: frame.id, time: frame.stamp.wallTime, interrupted: frame.continuity == .interrupted,
+                samples: frame.devices.map {
+                    TransferSeriesBuilder.Sample(
+                        key: "\($0.id.registryEntryID)", name: $0.name,
+                        above: $0.readBytesPerSecond.numericValue, below: $0.writtenBytesPerSecond.numericValue
+                    )
+                }
+            )
+        })
+    }
+
     /// Only a lone GPU is recorded, so stored utilization extends a lone series only.
     public func gpuSeries() -> [GPUSeries] {
         let live = liveGPUSeries()

@@ -467,6 +467,9 @@ private struct MemoryLane: View {
         HStack(alignment: .top, spacing: 24) {
             VStack(alignment: .leading, spacing: 6) {
                 Text("Memory").font(.caption.weight(.medium)).foregroundStyle(.secondary)
+                    .onTapGesture(count: 2) { model.toggleDetail(.memory) }
+                    .help(String(localized: "Double-click to show or hide swap and page-ins over time"))
+                    .accessibilityAction(named: Text("Show or hide detail")) { model.toggleDetail(.memory) }
                 Text(MetricText.bytes(used?.numericValue))
                     .font(.system(size: 30, weight: .semibold))
                 Text("of \(MetricText.bytes(capacity)) used, estimated").font(.caption)
@@ -487,12 +490,21 @@ private struct MemoryLane: View {
             .monospacedDigit()
             .frame(width: Layout.headerWidth, alignment: .leading)
 
-            if stack.isEmpty {
-                Text(used?.reason ?? String(localized: "Collecting samples…"))
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, minHeight: graphHeight)
-            } else {
-                chart(stack: stack, pressure: pressure, capacity: capacity, start: start, end: end)
+            VStack(alignment: .leading, spacing: 8) {
+                if stack.isEmpty {
+                    Text(used?.reason ?? String(localized: "Collecting samples…"))
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, minHeight: graphHeight)
+                } else {
+                    chart(stack: stack, pressure: pressure, capacity: capacity, start: start, end: end)
+                }
+                // The lane's detail (plan: swap rate and page-ins over time).
+                if model.expandedLanes.contains(.memory) {
+                    TransferMultiples(
+                        series: model.pagingSeries(in: start...end), range: start...end,
+                        idleNote: String(localized: "No swapping or page-ins in this range")
+                    )
+                }
             }
         }
         .padding(Layout.padding)
@@ -796,6 +808,9 @@ private struct PowerLane: View {
         HStack(alignment: .top, spacing: 24) {
             VStack(alignment: .leading, spacing: 6) {
                 Text("Power").font(.caption.weight(.medium)).foregroundStyle(.secondary)
+                    .onTapGesture(count: 2) { model.toggleDetail(.power) }
+                    .help(String(localized: "Double-click to show or hide battery capacity and sleep assertions"))
+                    .accessibilityAction(named: Text("Show or hide detail")) { model.toggleDetail(.power) }
                 Text(MetricText.watts(system?.numericValue) + (system?.availability == .estimated ? " est." : ""))
                     .font(.system(size: 30, weight: .semibold))
                 Text(PowerText.systemSource(system)).font(.caption)
@@ -813,12 +828,18 @@ private struct PowerLane: View {
             .monospacedDigit()
             .frame(width: Layout.headerWidth, alignment: .leading)
 
-            if points.isEmpty {
-                Text(latest?.batteryChargePercent.reason ?? String(localized: "Collecting samples…"))
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, minHeight: graphHeight)
-            } else {
-                chart(points: points, plugged: plugged, start: start, end: end)
+            VStack(alignment: .leading, spacing: 8) {
+                if points.isEmpty {
+                    Text(latest?.batteryChargePercent.reason ?? String(localized: "Collecting samples…"))
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, minHeight: graphHeight)
+                } else {
+                    chart(points: points, plugged: plugged, start: start, end: end)
+                }
+                // The lane's detail (plan: battery health as nested bars, assertions).
+                if model.expandedLanes.contains(.power) {
+                    PowerDetail(frame: latest, holders: model.sleepPreventers)
+                }
             }
         }
         .padding(Layout.padding)
@@ -1245,6 +1266,9 @@ private struct NetworkLane: View {
         HStack(alignment: .top, spacing: 24) {
             VStack(alignment: .leading, spacing: 8) {
                 Text("Network").font(.caption.weight(.medium)).foregroundStyle(.secondary)
+                    .onTapGesture(count: 2) { model.toggleDetail(.network) }
+                    .help(String(localized: "Double-click to show or hide each interface"))
+                    .accessibilityAction(named: Text("Show or hide detail")) { model.toggleDetail(.network) }
                 Text("↓ " + MetricText.rate(receiveReading?.numericValue))
                     .font(.system(size: 24, weight: .semibold))
                 Text("↑ " + MetricText.rate(sendReading?.numericValue))
@@ -1274,16 +1298,25 @@ private struct NetworkLane: View {
             .monospacedDigit()
             .frame(width: Layout.headerWidth, alignment: .leading)
 
-            if received.isEmpty && sent.isEmpty {
-                Text(receiveReading?.reason ?? String(localized: "Collecting samples…"))
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, minHeight: graphHeight)
-            } else {
-                TransferChart(
-                    title: String(localized: "Network"), aboveLabel: String(localized: "Received"),
-                    belowLabel: String(localized: "Sent"), above: received, below: sent, start: start, end: end,
-                    model: model
-                )
+            VStack(alignment: .leading, spacing: 8) {
+                if received.isEmpty && sent.isEmpty {
+                    Text(receiveReading?.reason ?? String(localized: "Collecting samples…"))
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, minHeight: graphHeight)
+                } else {
+                    TransferChart(
+                        title: String(localized: "Network"), aboveLabel: String(localized: "Received"),
+                        belowLabel: String(localized: "Sent"), above: received, below: sent, start: start, end: end,
+                        model: model
+                    )
+                }
+                // The lane's detail (plan: per-interface small multiples).
+                if model.expandedLanes.contains(.network) {
+                    TransferMultiples(
+                        series: model.interfaceSeries(in: start...end), range: start...end,
+                        idleNote: String(localized: "No interface moved data in this range")
+                    )
+                }
             }
         }
         .padding(Layout.padding)
@@ -1325,6 +1358,9 @@ private struct DiskLane: View {
         HStack(alignment: .top, spacing: 24) {
             VStack(alignment: .leading, spacing: 8) {
                 Text("Disk").font(.caption.weight(.medium)).foregroundStyle(.secondary)
+                    .onTapGesture(count: 2) { model.toggleDetail(.disk) }
+                    .help(String(localized: "Double-click to show or hide each device"))
+                    .accessibilityAction(named: Text("Show or hide detail")) { model.toggleDetail(.disk) }
                 Text("↓ " + MetricText.rate(model.reading(for: .diskRead)?.numericValue))
                     .font(.system(size: 24, weight: .semibold))
                 Text("↑ " + MetricText.rate(model.reading(for: .diskWritten)?.numericValue))
@@ -1344,15 +1380,24 @@ private struct DiskLane: View {
             }
             .monospacedDigit()
             .frame(width: Layout.headerWidth, alignment: .leading)
-            if read.isEmpty && written.isEmpty {
-                Text(model.storageSelectionMessage).foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, minHeight: graphHeight)
-            } else {
-                TransferChart(
-                    title: String(localized: "Disk"), aboveLabel: String(localized: "Read"),
-                    belowLabel: String(localized: "Written"), above: read, below: written, start: start, end: end,
-                    model: model
-                )
+            VStack(alignment: .leading, spacing: 8) {
+                if read.isEmpty && written.isEmpty {
+                    Text(model.storageSelectionMessage).foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, minHeight: graphHeight)
+                } else {
+                    TransferChart(
+                        title: String(localized: "Disk"), aboveLabel: String(localized: "Read"),
+                        belowLabel: String(localized: "Written"), above: read, below: written, start: start, end: end,
+                        model: model
+                    )
+                }
+                // The lane's detail (plan: per-device small multiples, never summed).
+                if model.expandedLanes.contains(.disk) {
+                    TransferMultiples(
+                        series: model.deviceSeries(in: start...end), range: start...end,
+                        idleNote: String(localized: "No device moved data in this range")
+                    )
+                }
             }
         }
         .padding(Layout.padding)
@@ -1377,6 +1422,119 @@ private struct DiskLane: View {
         }
         .labelsHidden()
         .help("Automatic selection requires one observed device and complete inventory. Drivers are not summed.")
+    }
+}
+
+/// Battery capacity as nested bars, design capacity outermost, then what
+/// the battery holds now (its health), then its charge; and every sleep
+/// assertion held. A Mac without a battery shows the assertions alone.
+///
+/// ```text
+/// [design ##########################]
+/// [holds  ######################    ]  health 87 % est.
+/// [charge ############              ]  charged 55 %
+/// ```
+private struct PowerDetail: View {
+    private static let barWidth: CGFloat = 220
+    private static let barHeight: CGFloat = 8
+    let frame: CapturedPower?
+    let holders: [AssertionHolder]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if let health = frame?.batteryHealthPercent.numericValue {
+                let charge = frame?.batteryChargePercent.numericValue
+                bar(String(localized: "Design"), share: 1)
+                bar(String(localized: "Holds"), share: health / MetricText.percentScale,
+                    note: String(localized: "health \(MetricText.percent(health)) est."))
+                if let charge {
+                    bar(String(localized: "Charge"), share: health / MetricText.percentScale * charge / MetricText.percentScale,
+                        note: String(localized: "charged \(MetricText.percent(charge))"))
+                }
+            }
+            if holders.isEmpty {
+                Text("No sleep assertions held").font(.caption).foregroundStyle(.secondary)
+            }
+            ForEach(holders) { holder in
+                Text("\(holder.processName ?? "PID \(holder.assertion.pid)"): \(PowerText.assertion(holder.assertion))")
+                    .font(.caption)
+            }
+        }
+    }
+
+    private func bar(_ label: String, share: Double, note: String = "") -> some View {
+        HStack(spacing: 8) {
+            Text(label).font(.caption).frame(width: 50, alignment: .leading)
+            ZStack(alignment: .leading) {
+                RoundedRectangle(cornerRadius: 2).strokeBorder(Color.secondary.opacity(0.5))
+                RoundedRectangle(cornerRadius: 2).fill(Color.green.opacity(0.6))
+                    .frame(width: Self.barWidth * min(max(share, 0), 1))
+            }
+            .frame(width: Self.barWidth, height: Self.barHeight)
+            Text(note).font(.caption).foregroundStyle(.secondary)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(label) \(note)")
+    }
+}
+
+/// One small chart per interface or device that moved data, busiest first:
+/// received or read above the line, sent or written below, as in the lane.
+private struct TransferMultiples: View {
+    private static let limit = 6
+    private static let chartHeight: CGFloat = 36
+    private static let nameWidth: CGFloat = 110
+    private static let rateWidth: CGFloat = 170
+    let series: [TransferSeries]
+    let range: ClosedRange<Date>
+    let idleNote: String
+
+    var body: some View {
+        // Ties fall back to the name so equal rows keep their places between ticks.
+        let active = series.filter(\.isActive).sorted { (total($0), $1.name) > (total($1), $0.name) }
+        let shown = active.prefix(Self.limit)
+        VStack(alignment: .leading, spacing: 4) {
+            if shown.isEmpty {
+                Text(idleNote).font(.caption).foregroundStyle(.secondary)
+            }
+            ForEach(shown) { item in
+                HStack(spacing: 8) {
+                    Text(item.name).font(.caption).lineLimit(1).frame(width: Self.nameWidth, alignment: .leading)
+                    Chart {
+                        ForEach(item.above) { point in
+                            LineMark(x: .value("Time", point.time), y: .value("Above", point.value),
+                                     series: .value("Segment", "above-\(point.segment)"))
+                                .foregroundStyle(Color.blue)
+                        }
+                        ForEach(item.below) { point in
+                            LineMark(x: .value("Time", point.time), y: .value("Below", -point.value),
+                                     series: .value("Segment", "below-\(point.segment)"))
+                                .foregroundStyle(Color.orange)
+                        }
+                    }
+                    .chartXScale(domain: range)
+                    .chartXAxis(.hidden)
+                    .chartYAxis(.hidden)
+                    .frame(height: Self.chartHeight)
+                    // A one-way series, such as page-ins, shows no second direction.
+                    Text(item.below.isEmpty
+                        ? "↓ \(MetricText.rate(item.above.last?.value))"
+                        : "↓ \(MetricText.rate(item.above.last?.value))  ↑ \(MetricText.rate(item.below.last?.value))")
+                        .font(.caption).monospacedDigit()
+                        .frame(width: Self.rateWidth, alignment: .trailing)
+                }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(String(localized: "\(item.name): in \(MetricText.rate(item.above.last?.value)), out \(MetricText.rate(item.below.last?.value))"))
+            }
+            let rest = series.count - shown.count
+            if rest > 0 {
+                Text("\(rest) more, idle or quieter, not shown").font(.caption).foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private func total(_ item: TransferSeries) -> Double {
+        (item.above + item.below).reduce(0) { $0 + $1.value }
     }
 }
 
@@ -3605,6 +3763,20 @@ private struct LaneMenu: View {
             }
             if lane == .cpu {
                 Button(model.expandedLanes.contains(.cpu) ? "Hide Cores" : "Show Cores") { model.toggleDetail(.cpu) }
+            }
+            if lane == .power {
+                Button(model.expandedLanes.contains(.power) ? "Hide Battery and Assertions" : "Show Battery and Assertions") {
+                    model.toggleDetail(.power)
+                }
+            }
+            if lane == .memory {
+                Button(model.expandedLanes.contains(.memory) ? "Hide Paging" : "Show Paging") { model.toggleDetail(.memory) }
+            }
+            if lane == .network {
+                Button(model.expandedLanes.contains(.network) ? "Hide Interfaces" : "Show Interfaces") { model.toggleDetail(.network) }
+            }
+            if lane == .disk {
+                Button(model.expandedLanes.contains(.disk) ? "Hide Devices" : "Show Devices") { model.toggleDetail(.disk) }
             }
             Divider()
             Button("Show Facts and Sources") { model.showLaneFacts(lane) }

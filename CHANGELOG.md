@@ -53,6 +53,10 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
 - The process pane shows how much CPU and network no readable process
   accounts for.
 - Process rows show their app's icon.
+- The network and disk lanes expand into one small chart per interface
+  or storage device that moved data, the memory lane into swap and
+  page-ins over time, and the power lane into battery capacity bars and
+  the sleep assertions held.
 - With an app shown in the lanes, the network lane names its traffic, in
   plus out, as the CPU and disk lanes do.
 - With an app shown in the lanes, the memory and GPU lanes name its
