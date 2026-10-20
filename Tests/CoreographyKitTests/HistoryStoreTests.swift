@@ -48,12 +48,20 @@ final class HistoryStoreTests: XCTestCase {
 
     func testLedgerRoundTripKeepsIdleIntervalsAndReplacesWholeIntervals() async throws {
         let store = try HistoryStore(directory: directory)
-        let busy = interval(-4, -2, [entry("Safari", 1.5, 4096), entry("Mail", 0.25, 0, lowerBound: true)])
+        let busy = interval(
+            -4, -2, [entry("Safari", 1.5, 4096, energy: 3), entry("Mail", 0.25, 0, lowerBound: true)], coversEnergy: true
+        )
         let idle = interval(-2, 0, [])
         try await store.append([], ledger: [busy, idle], now: now)
 
         let read = try await store.ledger(from: now.addingTimeInterval(-10), to: now)
-        XCTAssertEqual(read, [interval(-4, -2, [entry("Mail", 0.25, 0, lowerBound: true), entry("Safari", 1.5, 4096)]), idle])
+        XCTAssertEqual(
+            read,
+            [interval(
+                -4, -2, [entry("Mail", 0.25, 0, lowerBound: true), entry("Safari", 1.5, 4096, energy: 3)],
+                coversEnergy: true
+            ), idle]
+        )
 
         // A rewritten interval replaces every entry, so Mail's old figures go.
         try await store.append([], ledger: [interval(-4, -2, [entry("Safari", 2, 0)])], now: now)
@@ -169,22 +177,25 @@ final class HistoryStoreTests: XCTestCase {
         let today = utc.startOfDay(for: now)
         let tomorrow = today.addingTimeInterval(86_400)
         try await store.append([], ledger: [
-            interval(-12, -10, [entry("Safari", 2, 100)]),
-            interval(-10, 0, [entry("Safari", 3, 50), entry("Mail", 1, 0, lowerBound: true)]),
+            interval(-12, -10, [entry("Safari", 2, 100, energy: 7)], coversEnergy: true),
+            interval(-10, 0, [entry("Safari", 3, 50, energy: 11), entry("Mail", 1, 0, lowerBound: true)], coversEnergy: true),
             interval(6_400, 6_410, [entry("Safari", 4, 0)])
         ], now: now.addingTimeInterval(6_410))
 
         let days = try await store.appDays(from: .distantPast, to: .distantFuture)
         XCTAssertEqual(days, [
             AppDayTotal(day: today, app: "Mail", cpuSeconds: 1, diskBytes: 0, isLowerBound: true),
-            AppDayTotal(day: today, app: "Safari", cpuSeconds: 5, diskBytes: 150, isLowerBound: false),
+            AppDayTotal(day: today, app: "Safari", cpuSeconds: 5, diskBytes: 150, energyJoules: 18, isLowerBound: false),
             AppDayTotal(day: tomorrow, app: "Safari", cpuSeconds: 4, diskBytes: 0, isLowerBound: false)
         ])
 
         // A replaced interval takes its old figures out of the day; an app idle in it leaves.
         try await store.append([], ledger: [interval(-10, 0, [entry("Safari", 1, 0)])], now: now.addingTimeInterval(6_410))
         let replaced = try await store.appDays(from: today, to: today)
-        XCTAssertEqual(replaced, [AppDayTotal(day: today, app: "Safari", cpuSeconds: 3, diskBytes: 100, isLowerBound: false)])
+        XCTAssertEqual(
+            replaced,
+            [AppDayTotal(day: today, app: "Safari", cpuSeconds: 3, diskBytes: 100, energyJoules: 7, isLowerBound: false)]
+        )
 
         // Names outlive the six-hour ledger while their days are kept, then leave with them.
         let dayLater = now.addingTimeInterval(86_400)
@@ -237,6 +248,53 @@ final class HistoryStoreTests: XCTestCase {
         XCTAssertEqual(both.last, covered)
         let days = try await store.appDays(from: .distantPast, to: .distantFuture)
         XCTAssertEqual(days.first { $0.app == "New App" }?.networkBytes, 500)
+    }
+
+    func testAStoreFromBeforeEnergyGainsItsColumnsAndKeepsItsRows() async throws {
+        // A schema-5 store: the ledger and app days with network but without energy columns.
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        do {
+            let old = try SQLiteConnection(path: directory.appendingPathComponent("history.sqlite").path)
+            try old.execute("""
+                CREATE TABLE apps(id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE);
+                CREATE TABLE ledger_intervals(
+                    t_end REAL PRIMARY KEY, t_start REAL NOT NULL, cores REAL NOT NULL,
+                    network INTEGER NOT NULL DEFAULT 0
+                ) WITHOUT ROWID;
+                CREATE TABLE ledger_entries(
+                    t_end REAL NOT NULL, app INTEGER NOT NULL, cpu_seconds REAL NOT NULL,
+                    disk_bytes REAL NOT NULL, lower_bound INTEGER NOT NULL, network_bytes REAL NOT NULL DEFAULT 0,
+                    PRIMARY KEY(t_end, app)
+                ) WITHOUT ROWID;
+                CREATE TABLE app_days(
+                    day REAL NOT NULL, app INTEGER NOT NULL, cpu_seconds REAL NOT NULL,
+                    disk_bytes REAL NOT NULL, lower_bound INTEGER NOT NULL, network_bytes REAL NOT NULL DEFAULT 0,
+                    PRIMARY KEY(day, app)
+                ) WITHOUT ROWID;
+                INSERT INTO apps(id, name) VALUES (1, 'Old App');
+                INSERT INTO ledger_intervals(t_end, t_start, cores, network)
+                    VALUES (\(now.timeIntervalSince1970), \(now.timeIntervalSince1970 - 2), 8, 1);
+                INSERT INTO ledger_entries VALUES (\(now.timeIntervalSince1970), 1, 3, 4, 0, 9);
+                INSERT INTO app_days VALUES (\(now.timeIntervalSince1970), 1, 3, 4, 0, 9);
+                PRAGMA user_version=5;
+                """)
+        }
+
+        let store = try HistoryStore(directory: directory)
+        let old = try await store.ledger(from: .distantPast, to: .distantFuture)
+        XCTAssertEqual(old, [LedgerInterval(
+            start: now.addingTimeInterval(-2), end: now, cores: 8, coversNetwork: true, coversEnergy: false,
+            entries: [LedgerEntry(app: "Old App", cpuSeconds: 3, diskBytes: 4, networkBytes: 9, isLowerBound: false)]
+        )], "earlier rows read as not covering energy")
+        let oldDays = try await store.appDays(from: .distantPast, to: .distantFuture)
+        XCTAssertEqual(oldDays.first { $0.app == "Old App" }?.energyJoules, 0)
+
+        let covered = interval(2, 4, [entry("New App", 1, 0, energy: 6)], coversEnergy: true)
+        try await store.append([], ledger: [covered], now: now.addingTimeInterval(4))
+        let both = try await store.ledger(from: .distantPast, to: .distantFuture)
+        XCTAssertEqual(both.last, covered)
+        let days = try await store.appDays(from: .distantPast, to: .distantFuture)
+        XCTAssertEqual(days.first { $0.app == "New App" }?.energyJoules, 6)
     }
 
     /// Retention runs on every write; a full scan of six hours of samples would cost CPU every second.
@@ -325,16 +383,22 @@ final class HistoryStoreTests: XCTestCase {
     }
 
     private func interval(
-        _ start: TimeInterval, _ end: TimeInterval, _ entries: [LedgerEntry], coversNetwork: Bool = false
+        _ start: TimeInterval, _ end: TimeInterval, _ entries: [LedgerEntry],
+        coversNetwork: Bool = false, coversEnergy: Bool = false
     ) -> LedgerInterval {
         LedgerInterval(
             start: now.addingTimeInterval(start), end: now.addingTimeInterval(end), cores: 8,
-            coversNetwork: coversNetwork, entries: entries
+            coversNetwork: coversNetwork, coversEnergy: coversEnergy, entries: entries
         )
     }
 
-    private func entry(_ app: String, _ cpu: Double, _ disk: Double, network: Double = 0, lowerBound: Bool = false) -> LedgerEntry {
-        LedgerEntry(app: app, cpuSeconds: cpu, diskBytes: disk, networkBytes: network, isLowerBound: lowerBound)
+    private func entry(
+        _ app: String, _ cpu: Double, _ disk: Double, network: Double = 0, energy: Double = 0, lowerBound: Bool = false
+    ) -> LedgerEntry {
+        LedgerEntry(
+            app: app, cpuSeconds: cpu, diskBytes: disk, networkBytes: network, energyJoules: energy,
+            isLowerBound: lowerBound
+        )
     }
 
     private func sample(

@@ -38,6 +38,8 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
 
 ### Added
 - The lanes mark apps starting and exiting, such as "Mail started".
+- The app ledger keeps each app's modeled CPU energy: range reports,
+  per-day app totals and `get_top_processes` rank apps by it.
 - A sampling rate in the toolbar: every second or every two seconds.
 - An opt-in Threads column and sort in the process table, and the
   header's thread total. `coreo top --sort threads` ranks by them.
@@ -53,6 +55,8 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
 - The process pane shows how much CPU and network no readable process
   accounts for.
 - Process rows show their app's icon.
+- Ask Coreography answers link to their evidence: the range read, the
+  apps ranked and the processes looked up.
 - The network and disk lanes expand into one small chart per interface
   or storage device that moved data, the memory lane into swap and
   page-ins over time, and the power lane into battery capacity bars and
