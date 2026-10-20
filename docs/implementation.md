@@ -221,7 +221,13 @@ Implemented:
   drops as connections churn, and retired totals of a process with no
   open socket leave after being reported once. Connections that close
   before naming their process, and the kernel's, are unattributed rather
-  than guessed. Rates are deltas over the real interval. Rows join by PID
+  than guessed, and the process pane's summary shows that rate. The same
+  line shows the CPU not attributed to a readable process: the host CPU
+  averaged over the process interval less the readable processes' CPU,
+  never below zero, and nothing when a host sample in the interval is
+  unreadable or the process sample follows an interruption. Disk has no
+  remainder: per-process I/O counts bytes the file cache may never send
+  to a device. Rates are deltas over the real interval. Rows join by PID
   and name (the kernel's short name prefixes the full one), so a reused
   PID borrows nothing; a process with no open socket reads a measured
   zero. Groups total their members with the usual lower-bound rule. The

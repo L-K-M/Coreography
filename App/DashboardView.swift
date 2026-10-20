@@ -1541,6 +1541,12 @@ private struct ProcessPane: View {
                     Text("\(snapshot.processes.count) identified · \(ProcessText.threads(snapshot.threadTotal)) · \(snapshot.restrictedUsageCount) restricted · \(snapshot.issues.count) identity failures")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                    if let line = ProcessText.unattributed(cpu: model.unattributedCPUPercent, network: model.unattributedNetworkBytesPerSecond) {
+                        Text(line)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .help("CPU the whole machine used beyond the processes Coreography can read: other users' processes, the kernel, and processes too short-lived to sample. Network is traffic macOS counted but tied to no process.")
+                    }
                     if snapshot.enumerationTruncated {
                         Text("Enumeration reached capacity; additional processes may exist.")
                             .font(.caption)
@@ -2163,6 +2169,16 @@ private enum ProcessText {
         case .intel: String(localized: "Intel")
         case .intelTranslated: String(localized: "Intel (Rosetta)")
         }
+    }
+
+    /// Example: "Not attributed: 12% CPU · 3.1 KB/s network"; nil when neither is known.
+    static func unattributed(cpu: Double?, network: Double?) -> String? {
+        let parts = [
+            cpu.map { String(localized: "\(MetricText.percent($0)) CPU") },
+            network.map { String(localized: "\(MetricText.bytes($0))/s network") }
+        ].compactMap { $0 }
+        guard !parts.isEmpty else { return nil }
+        return String(localized: "Not attributed: \(parts.joined(separator: " · "))")
     }
 
     /// Example: "Oct 19, 9:14:03 AM" in English.
