@@ -54,8 +54,10 @@ public enum HelperWire {
     /// Example: `anchor apple generic and identifier "ch.lkmc.Coreography"
     /// and certificate leaf[subject.OU] = "AB12CD34EF"`.
     public static func peerRequirement(identifier: String, teamID: String?) -> String? {
-        // Team IDs are ten upper-case letters or digits; anything else must not reach the requirement text.
-        guard let teamID, teamID.wholeMatch(of: /[A-Z0-9]{10}/) != nil else { return nil }
+        // Team IDs are ten upper-case letters or digits and identifiers are
+        // reverse-DNS names; nothing else may reach the requirement text.
+        guard let teamID, teamID.wholeMatch(of: /[A-Z0-9]{10}/) != nil,
+              identifier.wholeMatch(of: /[A-Za-z0-9][A-Za-z0-9.\-]*/) != nil else { return nil }
         return #"anchor apple generic and identifier "\#(identifier)" and certificate leaf[subject.OU] = "\#(teamID)""#
     }
 }

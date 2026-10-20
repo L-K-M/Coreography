@@ -47,6 +47,7 @@ public actor PrivilegedHelper {
         case .notFound: return .missingFromApp
         case .notRegistered: return .notInstalled
         case .requiresApproval: return .awaitingApproval
+        case .unknown: return .notResponding("macOS reported a registration state this version does not know.")
         case .enabled: break
         }
 
@@ -94,6 +95,7 @@ public actor PrivilegedHelper {
         case .unsignedBuild: "This build has no Developer ID team to check the helper against."
         case .unreachable(let detail): detail
         case .timedOut: "It did not answer in time."
+        case .cancelled: "The request was cancelled."
         }
     }
 }

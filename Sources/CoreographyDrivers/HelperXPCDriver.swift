@@ -9,6 +9,7 @@ public enum HelperTransportError: Error, Equatable, Sendable {
     case unsignedBuild
     case unreachable(String)
     case timedOut
+    case cancelled
 }
 
 /// One encoded request out, one encoded reply back.
@@ -45,16 +46,23 @@ public struct HelperXPCDriver: HelperTransport {
         defer { connection.invalidate() }
 
         let reply = ReplyOnce()
-        return try await withCheckedThrowingContinuation { continuation in
-            reply.wait(continuation)
-            connection.resume()
-            let proxy = connection.remoteObjectProxyWithErrorHandler { error in
-                reply.fail(.unreachable(error.localizedDescription))
-            } as? HelperXPCProtocol
-            guard let proxy else { return reply.fail(.unreachable("The connection offered no helper interface.")) }
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                reply.wait(continuation)
+                // Cancelled before waiting: onCancel found nothing to resume.
+                guard !Task.isCancelled else { return reply.fail(.cancelled) }
 
-            proxy.exchange(message) { reply.succeed($0) }
-            DispatchQueue.global().asyncAfter(deadline: .now() + Self.timeout) { reply.fail(.timedOut) }
+                connection.resume()
+                let proxy = connection.remoteObjectProxyWithErrorHandler { error in
+                    reply.fail(.unreachable(error.localizedDescription))
+                } as? HelperXPCProtocol
+                guard let proxy else { return reply.fail(.unreachable("The connection offered no helper interface.")) }
+
+                proxy.exchange(message) { reply.succeed($0) }
+                DispatchQueue.global().asyncAfter(deadline: .now() + Self.timeout) { reply.fail(.timedOut) }
+            }
+        } onCancel: {
+            reply.fail(.cancelled)
         }
         #else
         throw HelperTransportError.unsupportedPlatform
@@ -127,6 +135,8 @@ public enum HelperRegistrationStatus: Equatable, Sendable {
     case requiresApproval
     /// The daemon's property list is not in this app bundle.
     case notFound
+    /// A status newer than this build knows.
+    case unknown
 }
 
 public protocol HelperRegistering: Sendable {
@@ -148,7 +158,7 @@ public struct HelperRegistrationDriver: HelperRegistering {
         case .enabled: .enabled
         case .requiresApproval: .requiresApproval
         case .notFound: .notFound
-        @unknown default: .notFound
+        @unknown default: .unknown
         }
         #else
         .notFound

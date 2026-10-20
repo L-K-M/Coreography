@@ -189,9 +189,18 @@ jobs:
           program=$(/usr/libexec/PlistBuddy -c 'Print :BundleProgram' "$plist")
           test -x "$APP/$program" || { echo "::error::BundleProgram $program is not in the bundle"; exit 1; }
           /usr/libexec/PlistBuddy -c 'Print :MachServices:ch.lkmc.Coreography.helper' "$plist"
-          if "$APP/$program" 2> "$RUNNER_TEMP/helper.err"; then
-            echo "::error::the ad-hoc helper started listening"; exit 1
+          identifier=$(codesign --display --verbose=2 "$APP/$program" 2>&1 | sed -n 's/^Identifier=//p')
+          test "$identifier" = ch.lkmc.Coreography.helper || { echo "::error::helper identifier is '$identifier'"; exit 1; }
+          # Bounded: a helper that listens would never exit on its own.
+          "$APP/$program" 2> "$RUNNER_TEMP/helper.err" &
+          helper=$!
+          for _ in $(seq 20); do kill -0 "$helper" 2>/dev/null || break; sleep 0.5; done
+          if kill -0 "$helper" 2>/dev/null; then
+            kill -9 "$helper"
+            echo "::error::the ad-hoc helper kept running"; exit 1
           fi
+          status=0; wait "$helper" || status=$?
+          test "$status" -ne 0 || { echo "::error::the ad-hoc helper exited successfully"; exit 1; }
           grep -q "not listening" "$RUNNER_TEMP/helper.err" || { cat "$RUNNER_TEMP/helper.err"; exit 1; }
 
       - name: Smoke-test embedded CLI

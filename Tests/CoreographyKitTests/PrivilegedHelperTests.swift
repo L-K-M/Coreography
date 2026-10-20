@@ -14,6 +14,9 @@ final class PrivilegedHelperTests: XCTestCase {
         for team in [nil, "", "ab12cd34ef", "AB12CD34E", #"AB12CD34EF" or anchor trusted"#] {
             XCTAssertNil(HelperWire.peerRequirement(identifier: HelperWire.appIdentifier, teamID: team), "\(team ?? "nil")")
         }
+        for identifier in ["", #"ch.lkmc.Coreography" or anchor trusted"#, "-x", "a b"] {
+            XCTAssertNil(HelperWire.peerRequirement(identifier: identifier, teamID: Self.team), identifier)
+        }
     }
 
     func testHandlerAnswersHelloAndRefusesAnythingElse() throws {
@@ -44,6 +47,7 @@ final class PrivilegedHelperTests: XCTestCase {
             (.notRegistered, Answer(), .notInstalled),
             (.requiresApproval, Answer(), .awaitingApproval),
             (.enabled, Answer(), .ready),
+            (.unknown, Answer(), .notResponding("macOS reported a registration state this version does not know.")),
             (.enabled, Reply(.hello(protocolVersion: 99)), .outdated(protocolVersion: 99)),
             (.enabled, Reply(.refused("busy")), .notResponding("busy")),
             (.enabled, Failing(.timedOut), .notResponding("It did not answer in time.")),
