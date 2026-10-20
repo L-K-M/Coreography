@@ -32,6 +32,8 @@ struct ProcessFacts: Sendable {
     var cpuFactor = 1.0
     /// Account names by UID, for the by-user view.
     var accountNames: [UInt32: String] = [:]
+    /// Signers by executable path, for the signer column.
+    var signers: [String: CapturedSigner] = [:]
 }
 
 /// What connection data says about each process, for `#listening` and `port:`.

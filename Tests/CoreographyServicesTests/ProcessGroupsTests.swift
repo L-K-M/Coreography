@@ -220,6 +220,21 @@ final class ProcessGroupsTests: XCTestCase {
         XCTAssertEqual(translated.map(\.name), ["plugin"])
     }
 
+    /// Plan: an opt-in signing column. An app lists each signer of its programs.
+    func testAnAppListsTheSignersOfItsPrograms() throws {
+        let safari = "/Applications/Safari.app/Contents/MacOS/Safari"
+        let plugin = "/Applications/Safari.app/Contents/MacOS/plugin"
+        let processes = try snapshot([
+            try process(pid: 100, name: "Safari", cpu: 9, path: safari),
+            try process(pid: 101, name: "plugin", cpu: 1, path: plugin),
+            try process(pid: 200, name: "mds", cpu: 1, path: "/usr/sbin/mds")
+        ])
+        let facts = ProcessFacts(signers: [safari: .apple, plugin: .developer(team: "ABCDE12345")])
+        let rows = ProcessGroups.rows(in: processes, matching: "", sortedBy: .cpu, grouping: .app, facts: facts)
+        XCTAssertEqual(rows.first { $0.name == "Safari" }?.signers, [.apple, .developer(team: "ABCDE12345")])
+        XCTAssertEqual(rows.first { $0.name == "mds" }?.signers, [], "not yet checked")
+    }
+
     /// Plan: grouping as a parent-child tree, each row with its own readings.
     func testTreeNestsChildrenUnderTheirObservedParent() throws {
         let launchd = try process(pid: 1, name: "launchd", cpu: 1, start: 1, parent: 0, uid: 0)

@@ -1,13 +1,22 @@
 import Foundation
 import CoreographyDrivers
 
-public enum ProcessSigner: Equatable, Sendable {
+public enum ProcessSigner: Hashable, Sendable {
     case apple
     /// Signed by someone else; the team identifies the developer when present.
     case developer(team: String?)
     case unsigned
     /// Missing program, unreadable signature, or off macOS.
     case unknown
+
+    init(_ raw: CodeSigning) {
+        switch raw.signature {
+        case .apple: self = .apple
+        case .otherSigner: self = .developer(team: raw.teamID)
+        case .unsigned: self = .unsigned
+        case .unknown: self = .unknown
+        }
+    }
 }
 
 public struct ProcessSigning: Equatable, Sendable {
@@ -67,7 +76,7 @@ public actor ProcessInspector {
         var signing: ProcessSigning?
         if let path = process.executablePath {
             let raw = await driver.signing(path: path)
-            signing = ProcessSigning(signer: Self.signer(raw), identifier: raw.identifier)
+            signing = ProcessSigning(signer: ProcessSigner(raw), identifier: raw.identifier)
         }
         var detail = ProcessDetail(process: process.id, arguments: arguments, argumentsProblem: problem, signing: signing)
         (detail.threads, detail.threadsProblem) = await threads(of: process)
@@ -82,15 +91,6 @@ public actor ProcessInspector {
         ) {
         case .success(let count): (count, nil)
         case .failure(let error): (nil, Self.describe(error, subject: "Threads"))
-        }
-    }
-
-    private static func signer(_ raw: CodeSigning) -> ProcessSigner {
-        switch raw.signature {
-        case .apple: .apple
-        case .otherSigner: .developer(team: raw.teamID)
-        case .unsigned: .unsigned
-        case .unknown: .unknown
         }
     }
 
