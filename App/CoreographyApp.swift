@@ -12,6 +12,7 @@ private struct CoreographyApp: App {
     private let dockTile: DockTileController
     private let mcpAccess: MCPAccess
     private let mcpApproval: MCPApprovalPresenter
+    private let updates: UpdateChecker
 
     /// One sampler for every surface, running from launch, so the menu bar
     /// extra stays live while the window is closed.
@@ -28,6 +29,8 @@ private struct CoreographyApp: App {
         let access = MCPAccess(version: version) { model.diagnosticSnapshot() }
         mcpAccess = access
         mcpApproval = MCPApprovalPresenter(access: access, automation: automation)
+        updates = UpdateChecker(version: version)
+        updates.start()
         AutomationAppDelegate.onTerminate = { access.shutdown() }
         AutomationAppDelegate.beforeTerminate = { await model.stopForQuit() }
     }
@@ -75,7 +78,7 @@ private struct CoreographyApp: App {
         .menuBarExtraStyle(.window)
 
         Settings {
-            SettingsView(model: dashboard, mcpAccess: mcpAccess, hud: hud)
+            SettingsView(model: dashboard, mcpAccess: mcpAccess, hud: hud, updates: updates)
         }
     }
 }
