@@ -1164,8 +1164,9 @@ empty virtual-machine inventory does not validate hardware rates.
 ## Review decisions carried forward
 
 - The app ships English only by owner decision (2026-10-20). The app
-  target has an English string catalog: Xcode extracts SwiftUI literals,
-  such as `Text("Delete history…")`, into it when it builds. Text built
+  target has an English string catalog. Building in the Xcode IDE adds
+  SwiftUI literals, such as `Text("Delete history…")`, to it;
+  `xcodebuild` compiles the catalog without updating it. Text built
   in CoreographyServices and CoreographyKit, such as error messages,
   reaches views as plain `String` and is not extracted; it needs
   `String(localized:bundle:)` and package resources before a translation.
