@@ -919,16 +919,21 @@ sensor calibration, fullscreen behavior or Mac energy overhead.
 
 ## Remaining delivery
 
+What the plan still needs, by stage. Everything else in a stage is
+implemented and listed above; native behavior still awaits the
+[owner Mac checks](#owner-mac-checks).
+
 | Stage | Outstanding outcome |
 | --- | --- |
-| M0 / S1-S8 | Native CI foundation and reproducible probes; record hardware findings and missing environments |
-| M1 | CPU/memory depth, process app grouping/lifecycle/history, disk review/native validation, network review, full cadence scheduler and attribution contracts |
-| M2 | GPU, clusters, frequency, power, sensors, thermals and honest chip profiles |
-| M3 | Seven aligned lanes, shared cursor, scoped selection, process pane, inspector, self-cost and accessibility |
-| M4 | SQLite history, app ledger, sleep/log import, retention/deletion, replay, ranges and exports |
-| M5 | Secure optional helper, diagnostics, files/ports, startup/connections, filters and bounded read-only MCP |
-| M6 / S9 | Menu bar, HUD, raw-frame-qualified session statistics, comparisons, alerts, explanations and optional Ask |
-| M7 | Localization, full integration/soak/performance checks, updater and production release validation |
+| M0 / S1-S8 | Hardware findings from the owner Mac checks |
+| M1 | A record-only 10 s cadence while no surface is visible; the menu bar extra keeps one visible today |
+| M2 | Chip profiles as bundled data rather than code, voltage sensors, GPU frequency detail |
+| M3 | Audio graphs beyond the chart descriptors; an opt-in 60 Hz redraw |
+| M4 | `log show` sleep and wake import; `pmset` history covers sleep and wake today |
+| M5 | The privileged helper and what needs it: other users' processes, spindump, not-responding detection, login and background items, raising priority, exit status; connections grouped by domain |
+| M6 / S9 | Frame rate: `metalperftrace` capture, the HUD's frame-rate slot, FPS in sessions and the performance view |
+| M7 | Localization, soak and performance checks, the updater, Developer ID signing and notarized releases |
+| Later | Desktop widget, Control Center control, per-file tracing, ES launch timeline, Prometheus export, Wi-Fi details |
 
 ## Owner Mac checks
 
