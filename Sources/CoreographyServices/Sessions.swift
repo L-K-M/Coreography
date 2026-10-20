@@ -181,8 +181,8 @@ public enum SessionExport {
             topApps: session.topApps.enumerated().map { index, app in
                 AppRangeTotal(
                     name: "App \(index + 1)", cpuSeconds: app.cpuSeconds, diskBytes: app.diskBytes,
-                    networkBytes: app.networkBytes, isLowerBound: app.isLowerBound,
-                    networkIsLowerBound: app.networkIsLowerBound
+                    networkBytes: app.networkBytes, energyJoules: app.energyJoules, isLowerBound: app.isLowerBound,
+                    networkIsLowerBound: app.networkIsLowerBound, energyIsLowerBound: app.energyIsLowerBound
                 )
             },
             series: session.series

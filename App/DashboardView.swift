@@ -326,6 +326,9 @@ struct DashboardView: View {
                 Text(title).font(.caption.weight(.medium)).foregroundStyle(.secondary)
                     .onTapGesture(count: 2) { if metric == .cpu { model.toggleDetail(.cpu) } }
                     .help(String(localized: "Double-click to show or hide each core"))
+                    .accessibilityActions {
+                        if metric == .cpu { Button("Show or hide detail") { model.toggleDetail(.cpu) } }
+                    }
                 Text(metric == .cpu
                      ? MetricText.percent(reading?.numericValue)
                      : MetricText.bytes(reading?.numericValue))
@@ -363,10 +366,7 @@ struct DashboardView: View {
             .frame(width: Layout.headerWidth, alignment: .leading)
 
             if points.isEmpty {
-                Text(reading?.reason ?? String(localized: "Collecting samples…"))
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, minHeight: graphHeight)
+                LaneEmptyState(reading: reading, height: graphHeight)
             } else {
                 VStack(alignment: .leading, spacing: 4) {
                     Chart {
@@ -492,9 +492,7 @@ private struct MemoryLane: View {
 
             VStack(alignment: .leading, spacing: 8) {
                 if stack.isEmpty {
-                    Text(used?.reason ?? String(localized: "Collecting samples…"))
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, minHeight: graphHeight)
+                    LaneEmptyState(reading: used, height: graphHeight)
                 } else {
                     chart(stack: stack, pressure: pressure, capacity: capacity, start: start, end: end)
                 }
@@ -745,6 +743,44 @@ private struct GPULane: View {
     }
 }
 
+/// A lane with nothing to draw, in the plan's state grammar: a lock for
+/// what permissions withhold, a dashed frame for what this Mac lacks, so
+/// neither reads as a quiet machine. The frame keeps the graph's height.
+///
+/// ```text
+/// restricted:   [lock] Needs Full Disk Access
+/// unsupported:  ┌ ─ ─ Not available on this Mac ─ ─ ┐
+///               └ ─ ─ ─ ─ ─  reason  ─ ─ ─ ─ ─ ─ ┘
+/// ```
+private struct LaneEmptyState: View {
+    private static let dash: [CGFloat] = [4, 3]
+    let reading: DashboardReading?
+    let height: CGFloat
+
+    var body: some View {
+        content
+            .font(.callout)
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, minHeight: height)
+    }
+
+    @ViewBuilder private var content: some View {
+        switch reading?.availability {
+        case .restricted:
+            Label(reading?.reason ?? String(localized: "Restricted"), systemImage: "lock.fill")
+        case .unavailable, .unsupported:
+            VStack(spacing: 2) {
+                Text("Not available on this Mac")
+                if let reason = reading?.reason { Text(reason).font(.caption) }
+            }
+            .frame(maxWidth: .infinity, minHeight: height)
+            .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(style: StrokeStyle(lineWidth: 1, dash: Self.dash)))
+        case .measured, .estimated, .collecting, .gap, nil:
+            Text(reading?.reason ?? String(localized: "Collecting samples…"))
+        }
+    }
+}
+
 private enum GPUText {
     static func status(_ frame: CapturedGPU?, cursor: Date?) -> String {
         guard let frame else {
@@ -830,9 +866,7 @@ private struct PowerLane: View {
 
             VStack(alignment: .leading, spacing: 8) {
                 if points.isEmpty {
-                    Text(latest?.batteryChargePercent.reason ?? String(localized: "Collecting samples…"))
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, minHeight: graphHeight)
+                    LaneEmptyState(reading: latest?.batteryChargePercent, height: graphHeight)
                 } else {
                     chart(points: points, plugged: plugged, start: start, end: end)
                 }
@@ -1051,9 +1085,7 @@ private struct ThermalLane: View {
             if !temperatures.isEmpty {
                 temperatureChart(temperatures, spans: spans, start: start, end: end)
             } else if spans.isEmpty {
-                Text(reading?.reason ?? String(localized: "Collecting samples…"))
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, minHeight: Layout.bandHeight)
+                LaneEmptyState(reading: reading, height: Layout.bandHeight)
             } else {
                 Chart {
                     ForEach(spans) { span in
@@ -1300,9 +1332,7 @@ private struct NetworkLane: View {
 
             VStack(alignment: .leading, spacing: 8) {
                 if received.isEmpty && sent.isEmpty {
-                    Text(receiveReading?.reason ?? String(localized: "Collecting samples…"))
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, minHeight: graphHeight)
+                    LaneEmptyState(reading: receiveReading, height: graphHeight)
                 } else {
                     TransferChart(
                         title: String(localized: "Network"), aboveLabel: String(localized: "Received"),
@@ -1593,10 +1623,19 @@ private struct TransferChart: View {
             }
         }
         .frame(height: graphHeight)
+        // Plan zero state: a measured flat zero says so, unlike a gap.
+        .overlay {
+            if isIdle { Text("no activity").font(.caption).foregroundStyle(.secondary).allowsHitTesting(false) }
+        }
         .accessibilityChartDescriptor(TransferChartAccessibility(
             title: title, aboveLabel: aboveLabel, belowLabel: belowLabel,
             above: above, below: below, start: start, end: end, maximum: maximum
         ))
+    }
+
+    private var isIdle: Bool {
+        let values = (above + below).map(\.value)
+        return !values.isEmpty && values.allSatisfy { $0 == 0 }
     }
 
     private func rateCeiling(_ value: Double) -> Double {
@@ -2950,6 +2989,13 @@ private struct RangePanel: View {
                 Text(RangeText.apps(String(localized: "Top network"), network, bound: \.networkIsLowerBound) { MetricText.bytes($0.networkBytes) })
                     .font(.callout)
             }
+            if let energy = report.topEnergyApps {
+                Text(RangeText.apps(String(localized: "Top energy, modeled"), energy, bound: \.energyIsLowerBound) {
+                    RangeText.energy($0.energyJoules)
+                })
+                .font(.callout)
+                .help("CPU energy the kernel's model gives each app; an estimate that leaves out GPU work")
+            }
             Text(RangeText.coverage(report)).font(.caption).foregroundStyle(.secondary)
             if let comparison = model.rangeComparison {
                 Divider()
@@ -3084,7 +3130,13 @@ private enum RangeText {
     static func lanes(_ report: RangeReport) -> String {
         var parts: [String] = []
         if let mean = report.cpuMeanPercent, let peak = report.cpuPeakPercent {
-            parts.append(String(localized: "CPU mean \(MetricText.percent(mean)), peak \(MetricText.percent(peak))"))
+            // Percentiles only where raw readings back them; rolled-up history keeps none.
+            // Whole sentences, so a translation can order them freely.
+            if let median = report.cpuMedianPercent, let p95 = report.cpuP95Percent {
+                parts.append(String(localized: "CPU mean \(MetricText.percent(mean)), median \(MetricText.percent(median)), 95th \(MetricText.percent(p95)), peak \(MetricText.percent(peak))"))
+            } else {
+                parts.append(String(localized: "CPU mean \(MetricText.percent(mean)), peak \(MetricText.percent(peak))"))
+            }
         }
         if let memory = report.memoryPeakBytes {
             parts.append(String(localized: "memory peak \(MetricText.bytes(memory))"))
@@ -3107,6 +3159,22 @@ private enum RangeText {
         guard !apps.isEmpty else { return title + ": " + String(localized: "no recorded activity") }
         let items = apps.map { $0.name + " " + value($0) + ($0[keyPath: bound] ? " " + String(localized: "est.") : "") }
         return title + ": " + items.joined(separator: " · ")
+    }
+
+    private static let joulesPerWattHour = 3600.0
+    private static let wattHoursPerKilowattHour = 1_000.0
+
+    /// Joules below one watt-hour, then watt-hours, then kilowatt-hours.
+    /// Example: 5400 J is "1.5 Wh", 3600000 J is "1.00 kWh".
+    static func energy(_ joules: Double?) -> String {
+        guard let joules, joules.isFinite else { return "–" }
+        // Below 10 J one decimal, so a small figure is not shown as 0 J.
+        guard joules >= joulesPerWattHour else {
+            return joules.formatted(.number.precision(.fractionLength(joules < 10 ? 1 : 0))) + " J"
+        }
+        let wattHours = joules / joulesPerWattHour
+        guard wattHours >= wattHoursPerKilowattHour else { return wattHours.formatted(.number.precision(.fractionLength(1))) + " Wh" }
+        return (wattHours / wattHoursPerKilowattHour).formatted(.number.precision(.fractionLength(2))) + " kWh"
     }
 
     static func cpuSeconds(_ value: Double) -> String {

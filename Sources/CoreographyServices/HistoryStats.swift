@@ -30,22 +30,28 @@ public struct MetricStats: Codable, Equatable, Sendable {
 enum HistoryStats {
     /// Severity ordinals: a median and peak mean something, a mean does not.
     private static let ordinalMetrics: Set<HistoryMetric> = [.memoryPressure, .thermalPressure]
-    private static let medianRank = 0.5
-    private static let p95Rank = 0.95
+    private static let medianRank = NearestRank.median
+    private static let p95Rank = NearestRank.p95
 
     static func stats(_ metric: HistoryMetric, _ samples: [HistorySample]) -> MetricStats {
         let values = samples.compactMap(\.value).filter(\.isFinite).sorted()
         return MetricStats(
             metric: "\(metric)", storedSamples: samples.count, valued: values.count,
-            minimum: values.first, median: nearestRank(values, medianRank), p95: nearestRank(values, p95Rank),
+            minimum: values.first, median: NearestRank.value(values, medianRank), p95: NearestRank.value(values, p95Rank),
             maximum: values.last,
             mean: values.isEmpty || ordinalMetrics.contains(metric) ? nil : values.reduce(0, +) / Double(values.count)
         )
     }
 
-    /// Nearest-rank percentile: always a recorded value, never an interpolation.
+}
+
+/// Nearest-rank percentiles: always a recorded value, never an interpolation.
+enum NearestRank {
+    static let median = 0.5
+    static let p95 = 0.95
+
     /// Example: p95 of 1...20 is the 19th value, 19.
-    private static func nearestRank(_ sorted: [Double], _ rank: Double) -> Double? {
+    static func value(_ sorted: [Double], _ rank: Double) -> Double? {
         guard !sorted.isEmpty else { return nil }
         let index = Int((rank * Double(sorted.count)).rounded(.up)) - 1
         return sorted[min(max(index, 0), sorted.count - 1)]

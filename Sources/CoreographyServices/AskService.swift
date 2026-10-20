@@ -7,6 +7,8 @@ public struct AskToolCall: Identifiable, Sendable {
     public let name: String
     public let arguments: String
     public let failed: Bool
+    /// What it read that the window can show; empty for a failed call.
+    public let evidence: [AskEvidence]
 }
 
 public struct AskAnswer: Sendable {
@@ -14,6 +16,14 @@ public struct AskAnswer: Sendable {
     public let toolCalls: [AskToolCall]
     /// The frozen data every tool call read; follow-ups never mix in live values.
     public let snapshotID: UUID
+    /// When that snapshot was taken; a process started later is not its evidence.
+    public let takenAt: Date
+
+    /// Each piece of evidence once, in the order the calls read it.
+    public var evidence: [AskEvidence] {
+        var seen: Set<AskEvidence> = []
+        return toolCalls.flatMap(\.evidence).filter { seen.insert($0).inserted }
+    }
 }
 
 public enum AskError: Error, Equatable, Sendable {
@@ -117,7 +127,7 @@ public actor AskService {
                 let text = content.filter { $0["type"] as? String == "text" }
                     .compactMap { $0["text"] as? String }.joined(separator: "\n")
                 guard stopReason != "max_tokens" else { throw AskError.truncated }
-                return AskAnswer(text: text, toolCalls: calls, snapshotID: snapshot.id)
+                return AskAnswer(text: text, toolCalls: calls, snapshotID: snapshot.id, takenAt: snapshot.takenAt)
             }
 
             // Every result goes back in one user message, errors flagged, none dropped.
@@ -127,7 +137,8 @@ public actor AskService {
                 let name = use["name"] as? String ?? ""
                 let input = use["input"] as? [String: Any] ?? [:]
                 let (body, failed) = run(name, input: input, snapshot: snapshot)
-                calls.append(AskToolCall(id: id, name: name, arguments: Self.compact(input), failed: failed))
+                let evidence = failed ? [] : AskEvidence.from(tool: name, input: input, result: body)
+                calls.append(AskToolCall(id: id, name: name, arguments: Self.compact(input), failed: failed, evidence: evidence))
                 var result: [String: Any] = ["type": "tool_result", "tool_use_id": id, "content": body]
                 if failed { result["is_error"] = true }
                 results.append(result)

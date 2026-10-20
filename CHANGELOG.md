@@ -7,6 +7,8 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
 ## [Unreleased]
 
 ### Fixed
+- The inspector no longer explains a program as a macOS process when
+  its signature shows another developer or none.
 - App grouping and `#apps` recognize bundles whose extension is not
   lowercase, such as `Old.APP`.
 - A user name the account database failed to read is asked for again,
@@ -37,7 +39,12 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
   after the store first exceeds it.
 
 ### Added
+- Lanes with nothing to draw show a lock for readings permissions
+  withhold and a dashed "Not available on this Mac" frame for sources
+  this Mac lacks; disk and network say "no activity" over measured zeros.
 - The lanes mark apps starting and exiting, such as "Mail started".
+- The app ledger keeps each app's modeled CPU energy: range reports,
+  per-day app totals and `get_top_processes` rank apps by it.
 - A sampling rate in the toolbar: every second or every two seconds.
 - An opt-in Threads column and sort in the process table, and the
   header's thread total. `coreo top --sort threads` ranks by them.
@@ -57,10 +64,14 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
 - The process pane shows how much CPU and network no readable process
   accounts for.
 - Process rows show their app's icon.
+- Ask Coreography answers link to their evidence: the range read, the
+  apps ranked and the processes looked up.
 - The network and disk lanes expand into one small chart per interface
   or storage device that moved data, the memory lane into swap and
   page-ins over time, and the power lane into battery capacity bars and
   the sleep assertions held.
+- Range reports give CPU's median and 95th percentile where raw
+  readings cover the range.
 - With an app shown in the lanes, the network lane names its traffic, in
   plus out, as the CPU and disk lanes do.
 - With an app shown in the lanes, the memory and GPU lanes name its

@@ -45,14 +45,20 @@ public struct LedgerEntry: Equatable, Sendable {
     public let diskBytes: Double
     /// TCP and UDP bytes in and out; 0 in an interval without network coverage.
     public let networkBytes: Double
+    /// Modeled CPU energy in joules; 0 in an interval without energy coverage.
+    public let energyJoules: Double
     /// Some member was unreadable, so the CPU and disk figures are lower bounds.
     public let isLowerBound: Bool
 
-    public init(app: String, cpuSeconds: Double, diskBytes: Double, networkBytes: Double = 0, isLowerBound: Bool) {
+    public init(
+        app: String, cpuSeconds: Double, diskBytes: Double, networkBytes: Double = 0,
+        energyJoules: Double = 0, isLowerBound: Bool
+    ) {
         self.app = app
         self.cpuSeconds = cpuSeconds
         self.diskBytes = diskBytes
         self.networkBytes = networkBytes
+        self.energyJoules = energyJoules
         self.isLowerBound = isLowerBound
     }
 }
@@ -66,13 +72,19 @@ public struct LedgerInterval: Equatable, Sendable {
     public let cores: Double
     /// Per-process network was read for this interval, so absent apps moved nothing.
     public let coversNetwork: Bool
+    /// At least one process had an energy reading for this interval.
+    public let coversEnergy: Bool
     public let entries: [LedgerEntry]
 
-    public init(start: Date, end: Date, cores: Double, coversNetwork: Bool = false, entries: [LedgerEntry]) {
+    public init(
+        start: Date, end: Date, cores: Double, coversNetwork: Bool = false, coversEnergy: Bool = false,
+        entries: [LedgerEntry]
+    ) {
         self.start = start
         self.end = end
         self.cores = cores
         self.coversNetwork = coversNetwork
+        self.coversEnergy = coversEnergy
         self.entries = entries
     }
 }
@@ -109,15 +121,21 @@ public struct AppDayTotal: Equatable, Sendable {
     public let diskBytes: Double
     /// Bytes in and out over the day's network-covered intervals.
     public let networkBytes: Double
+    /// Modeled CPU energy over the day's energy-covered intervals.
+    public let energyJoules: Double
     /// Some interval counted only readable members.
     public let isLowerBound: Bool
 
-    public init(day: Date, app: String, cpuSeconds: Double, diskBytes: Double, networkBytes: Double = 0, isLowerBound: Bool) {
+    public init(
+        day: Date, app: String, cpuSeconds: Double, diskBytes: Double, networkBytes: Double = 0,
+        energyJoules: Double = 0, isLowerBound: Bool
+    ) {
         self.day = day
         self.app = app
         self.cpuSeconds = cpuSeconds
         self.diskBytes = diskBytes
         self.networkBytes = networkBytes
+        self.energyJoules = energyJoules
         self.isLowerBound = isLowerBound
     }
 }
@@ -159,12 +177,12 @@ public enum HistoryStoreError: Error, Equatable, Sendable {
 ///
 /// ```text
 /// samples(metric, t, value, availability)                   primary key (metric, t)
-/// ledger_intervals(t_end, t_start, cores, network)           primary key t_end
-/// ledger_entries(t_end, app, cpu_seconds, disk_bytes, lower_bound, network_bytes)  primary key (t_end, app)
+/// ledger_intervals(t_end, t_start, cores, network, energy)     primary key t_end
+/// ledger_entries(t_end, app, cpu_seconds, disk_bytes, lower_bound, network_bytes, energy_joules)  primary key (t_end, app)
 /// apps(id, name)                                             names interned, swept hourly
 /// day_samples(metric, t, minimum, maximum, total, count)     10 s buckets, 7 days
 /// month_samples(metric, t, minimum, maximum, total, count)   1 min buckets, 30 days
-/// app_days(day, app, cpu_seconds, disk_bytes, lower_bound, network_bytes)  per app and local day, 30 days
+/// app_days(day, app, cpu_seconds, disk_bytes, lower_bound, network_bytes, energy_joules)  per app and local day, 30 days
 /// ```
 public actor HistoryStore {
     /// The plan's defaults: six hours at 1 s, and the Day tier (10 s,
@@ -176,12 +194,15 @@ public actor HistoryStore {
     public static let monthBucket: TimeInterval = 60
     /// Hard size cap; the oldest rows go first when it is exceeded.
     public static let maximumBytes: Int64 = 256 * 1024 * 1024
-    static let schemaVersion = 5
+    static let schemaVersion = 6
     /// Columns added after their tables shipped: (table, column, definition).
     private static let addedColumns = [
         ("ledger_intervals", "network", "INTEGER NOT NULL DEFAULT 0"),
         ("ledger_entries", "network_bytes", "REAL NOT NULL DEFAULT 0"),
-        ("app_days", "network_bytes", "REAL NOT NULL DEFAULT 0")
+        ("app_days", "network_bytes", "REAL NOT NULL DEFAULT 0"),
+        ("ledger_intervals", "energy", "INTEGER NOT NULL DEFAULT 0"),
+        ("ledger_entries", "energy_joules", "REAL NOT NULL DEFAULT 0"),
+        ("app_days", "energy_joules", "REAL NOT NULL DEFAULT 0")
     ]
     /// App names outlive their last interval by at most this long.
     private static let nameSweepInterval: TimeInterval = 3600
@@ -382,15 +403,16 @@ public actor HistoryStore {
     public func appDays(from start: Date, to end: Date) throws -> [AppDayTotal] {
         try storage {
             try connection.query("""
-                SELECT d.day, a.name, d.cpu_seconds, d.disk_bytes, d.lower_bound, d.network_bytes
+                SELECT d.day, a.name, d.cpu_seconds, d.disk_bytes, d.lower_bound, d.network_bytes, d.energy_joules
                 FROM app_days d JOIN apps a ON a.id = d.app
                 WHERE d.day BETWEEN ? AND ? ORDER BY d.day, a.name
                 """, [.real(start.timeIntervalSince1970), .real(end.timeIntervalSince1970)]).compactMap { row in
                 guard case .real(let day) = row[0], case .text(let app) = row[1], case .real(let cpu) = row[2],
-                      case .real(let disk) = row[3], case .integer(let lowerBound) = row[4], case .real(let network) = row[5] else { return nil }
+                      case .real(let disk) = row[3], case .integer(let lowerBound) = row[4], case .real(let network) = row[5],
+                      case .real(let energy) = row[6] else { return nil }
                 return AppDayTotal(
                     day: Date(timeIntervalSince1970: day), app: app, cpuSeconds: cpu, diskBytes: disk,
-                    networkBytes: network, isLowerBound: lowerBound != 0
+                    networkBytes: network, energyJoules: energy, isLowerBound: lowerBound != 0
                 )
             }
         }
@@ -401,29 +423,34 @@ public actor HistoryStore {
         try storage {
             let window: [SQLiteValue] = [.real(start.timeIntervalSince1970), .real(end.timeIntervalSince1970)]
             let entryRows = try connection.query("""
-                SELECT e.t_end, a.name, e.cpu_seconds, e.disk_bytes, e.lower_bound, e.network_bytes
+                SELECT e.t_end, a.name, e.cpu_seconds, e.disk_bytes, e.lower_bound, e.network_bytes, e.energy_joules
                 FROM ledger_entries e JOIN apps a ON a.id = e.app
                 WHERE e.t_end BETWEEN ? AND ? ORDER BY e.t_end, a.name
                 """, window)
             var entries: [Double: [LedgerEntry]] = [:]
             for row in entryRows {
                 guard case .real(let end) = row[0], case .text(let app) = row[1], case .real(let cpu) = row[2],
-                      case .real(let disk) = row[3], case .integer(let lowerBound) = row[4], case .real(let network) = row[5] else { continue }
+                      case .real(let disk) = row[3], case .integer(let lowerBound) = row[4], case .real(let network) = row[5],
+                      case .real(let energy) = row[6] else { continue }
                 entries[end, default: []].append(
-                    LedgerEntry(app: app, cpuSeconds: cpu, diskBytes: disk, networkBytes: network, isLowerBound: lowerBound != 0)
+                    LedgerEntry(
+                        app: app, cpuSeconds: cpu, diskBytes: disk, networkBytes: network,
+                        energyJoules: energy, isLowerBound: lowerBound != 0
+                    )
                 )
             }
 
             return try connection.query(
-                "SELECT t_end, t_start, cores, network FROM ledger_intervals WHERE t_end BETWEEN ? AND ? ORDER BY t_end", window
+                "SELECT t_end, t_start, cores, network, energy FROM ledger_intervals WHERE t_end BETWEEN ? AND ? ORDER BY t_end",
+                window
             ).compactMap { row in
                 guard case .real(let end) = row[0], case .real(let start) = row[1], case .real(let cores) = row[2],
-                      case .integer(let network) = row[3] else {
+                      case .integer(let network) = row[3], case .integer(let energy) = row[4] else {
                     return nil
                 }
                 return LedgerInterval(
                     start: Date(timeIntervalSince1970: start), end: Date(timeIntervalSince1970: end),
-                    cores: cores, coversNetwork: network != 0, entries: entries[end] ?? []
+                    cores: cores, coversNetwork: network != 0, coversEnergy: energy != 0, entries: entries[end] ?? []
                 )
             }
         }
@@ -474,10 +501,10 @@ public actor HistoryStore {
         let ends = ledger.map { [SQLiteValue.real($0.end.timeIntervalSince1970)] }
         try removeFromDays(ends)
         try connection.run(
-            "INSERT OR REPLACE INTO ledger_intervals(t_end, t_start, cores, network) VALUES (?, ?, ?, ?)",
+            "INSERT OR REPLACE INTO ledger_intervals(t_end, t_start, cores, network, energy) VALUES (?, ?, ?, ?, ?)",
             rows: ledger.map {
                 [.real($0.end.timeIntervalSince1970), .real($0.start.timeIntervalSince1970), .real($0.cores),
-                 .integer($0.coversNetwork ? 1 : 0)]
+                 .integer($0.coversNetwork ? 1 : 0), .integer($0.coversEnergy ? 1 : 0)]
             }
         )
         try connection.run("DELETE FROM ledger_entries WHERE t_end = ?", rows: ends)
@@ -488,19 +515,20 @@ public actor HistoryStore {
                 rows.append([
                     .real(interval.end.timeIntervalSince1970), .integer(try appID(entry.app)),
                     .real(entry.cpuSeconds), .real(entry.diskBytes), .integer(entry.isLowerBound ? 1 : 0),
-                    .real(entry.networkBytes)
+                    .real(entry.networkBytes), .real(entry.energyJoules)
                 ])
             }
         }
         try connection.run(
-            "INSERT OR REPLACE INTO ledger_entries(t_end, app, cpu_seconds, disk_bytes, lower_bound, network_bytes) VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT OR REPLACE INTO ledger_entries(t_end, app, cpu_seconds, disk_bytes, lower_bound, network_bytes, energy_joules) VALUES (?, ?, ?, ?, ?, ?, ?)",
             rows: rows
         )
         try connection.run("""
-            INSERT INTO app_days(day, app, cpu_seconds, disk_bytes, lower_bound, network_bytes) VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO app_days(day, app, cpu_seconds, disk_bytes, lower_bound, network_bytes, energy_joules) VALUES (?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(day, app) DO UPDATE SET
                 cpu_seconds = cpu_seconds + excluded.cpu_seconds, disk_bytes = disk_bytes + excluded.disk_bytes,
-                lower_bound = max(lower_bound, excluded.lower_bound), network_bytes = network_bytes + excluded.network_bytes
+                lower_bound = max(lower_bound, excluded.lower_bound), network_bytes = network_bytes + excluded.network_bytes,
+                energy_joules = energy_joules + excluded.energy_joules
             """, rows: rows.map { row in
                 guard case .real(let end) = row[0] else { return row }
                 return [.real(day(of: end))] + row.dropFirst()
@@ -511,14 +539,21 @@ public actor HistoryStore {
     private func removeFromDays(_ ends: [[SQLiteValue]]) throws {
         for end in ends {
             guard case .real(let time)? = end.first else { continue }
-            let old = try connection.query("SELECT app, cpu_seconds, disk_bytes, network_bytes FROM ledger_entries WHERE t_end = ?", end)
+            let old = try connection.query(
+                "SELECT app, cpu_seconds, disk_bytes, network_bytes, energy_joules FROM ledger_entries WHERE t_end = ?", end
+            )
             try connection.run(
-                "UPDATE app_days SET cpu_seconds = cpu_seconds - ?, disk_bytes = disk_bytes - ?, network_bytes = network_bytes - ? WHERE day = ? AND app = ?",
-                rows: old.map { [$0[1], $0[2], $0[3], .real(day(of: time)), $0[0]] }
+                """
+                UPDATE app_days SET cpu_seconds = cpu_seconds - ?, disk_bytes = disk_bytes - ?,
+                    network_bytes = network_bytes - ?, energy_joules = energy_joules - ? WHERE day = ? AND app = ?
+                """,
+                rows: old.map { [$0[1], $0[2], $0[3], $0[4], .real(day(of: time)), $0[0]] }
             )
         }
         // An app idle in the replacement keeps no empty row.
-        try connection.execute("DELETE FROM app_days WHERE cpu_seconds <= 1e-9 AND disk_bytes <= 1e-9 AND network_bytes <= 1e-9")
+        try connection.execute(
+            "DELETE FROM app_days WHERE cpu_seconds <= 1e-9 AND disk_bytes <= 1e-9 AND network_bytes <= 1e-9 AND energy_joules <= 1e-9"
+        )
     }
 
     /// Local midnight of the day containing `time`.

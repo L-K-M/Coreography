@@ -329,7 +329,10 @@ Implemented:
   notes qualified by name and a system executable path. Missing paths and
   writable `/usr/local` paths get no note; PID 0 identifies `kernel_task`
   without a path. Quitting guidance names possible interruption, never
-  guarantees safety. Signature/version matching remains pending.
+  guarantees safety. Once the inspector has read the signature, one by
+  another developer or none withdraws the note, except that PID 0 still
+  names `kernel_task`; an unreadable one leaves the path to decide.
+  Version matching remains pending: no entry needs it.
 - `get_sleep_history` and `coreo sleep` include up to 200 current
   sleep-preventing assertions, their read time, omitted count and explicit
   unavailable reasons. Names that may contain private paths or document
@@ -361,9 +364,14 @@ Implemented:
   history. Automatic selection requires a single device and complete
   inventory. Physical and virtual driver counters are kept separate.
 - `coreo disks --once --json` captures available storage rates and failures.
-- Disk and network share a mirrored chart and accessibility renderer.
-  Native scanning actors share an executor implementation while each owns
-  a serial queue and retains its task's cancellation context.
+- Disk and network share a mirrored chart and accessibility renderer; a
+  range of measured zeros reads "no activity", unlike a gap. A lane with
+  nothing to draw shows a lock and the reason when permissions withhold
+  it, and a dashed "Not available on this Mac" frame when the Mac lacks
+  the source, at the graph's height. No helper exists, so no Install
+  button is offered. Native scanning actors share an executor
+  implementation while each owns a serial queue and retains its task's
+  cancellation context.
 - Memory composition from the same `HOST_VM_INFO64` read: app, wired,
   compressed and cached bytes, compression ratio, and page-in, swap-in
   and swap-out byte rates over the real interval. Swap use comes from
@@ -505,7 +513,11 @@ Implemented:
   server trusts the local client that launched it, like any CLI.
 - Ask Coreography: a collapsed panel takes a plain-language question and
   answers with Claude Opus 5.5 through the same six read-only tools as MCP,
-  against one frozen snapshot, listing the tool calls it read. The
+  against one frozen snapshot, listing the tool calls it read. Links
+  under the answer show its evidence: the range a top-apps or history
+  call covered becomes the selection, a ranked app scopes the lanes, and
+  a PID selects its process only if it started by the snapshot, so a
+  reused PID is never shown as the evidence. The
   Anthropic key is stored only in the login Keychain (this device, when
   unlocked) from Settings and sent only to the Messages API. Thinking is
   adaptive; refusals opt into Anthropic's server-side fallback
@@ -558,7 +570,12 @@ Implemented:
 - The app ledger on disk: every two-second process interval, idle ones
   included, is written with the sample batches as per-app CPU-seconds,
   disk bytes and a lower-bound flag, under the same 6-hour and size
-  caps. App names are interned and swept hourly once their intervals age
+  caps. Each interval also keeps every app's modeled CPU energy (its
+  processes' estimated watts times the interval) and whether any process
+  had an energy counter then; totals over intervals without one are
+  unknown, not zero, and partly covered ones are lower bounds. Range
+  reports, `get_top_processes` (`energy`, in joules) and the per-day app
+  totals carry it. App names are interned and swept hourly once their intervals age
   out, and one-click deletion clears them. `coreo apps --json` totals the
   recorded apps over the last N minutes. The size cap now counts live
   pages only and, once exceeded, prunes the oldest tenths of samples and
@@ -693,7 +710,10 @@ Implemented:
   upsert, and readings without values are left out, so an empty bucket
   stays a gap. The 24 h range draws each bucket's minimum and maximum,
   so spikes survive, and range reports weigh bucket means by count, so
-  means stay exact; percentiles are never taken from rollups. The app
+  means stay exact; percentiles are never taken from rollups. A range
+  report gives CPU's nearest-rank median and 95th percentile from raw
+  readings, live and Recent tier, and none once the range reaches a
+  rolled-up bucket. The app
   ledger stays in the Recent tier, so app totals over 24 h cover its
   six hours, which the report's coverage states. The Month tier follows below.
 - Automatic markers: memory and thermal pressure transitions, power

@@ -775,9 +775,10 @@ public final class DashboardModel {
         ledger = AppLedger(stored: document.ledger.map { interval in
             LedgerInterval(
                 start: interval.start, end: interval.end, cores: interval.cores, coversNetwork: interval.coversNetwork,
+                coversEnergy: interval.coversEnergy,
                 entries: interval.entries.map {
                     LedgerEntry(app: $0.app, cpuSeconds: $0.cpuSeconds, diskBytes: $0.diskBytes,
-                                networkBytes: $0.networkBytes, isLowerBound: $0.isLowerBound)
+                                networkBytes: $0.networkBytes, energyJoules: $0.energyJoules, isLowerBound: $0.isLowerBound)
                 }
             )
         })
@@ -1161,6 +1162,26 @@ public final class DashboardModel {
             }
             guard !Task.isCancelled else { return }
             self?.askState = state
+        }
+    }
+
+    /// Show what an answer rests on: select its process, scope its app, or
+    /// select its range. A PID is matched only to a process that started
+    /// by the time the answer's snapshot was taken, never a later reuse.
+    public func follow(_ evidence: AskEvidence) {
+        switch evidence {
+        case .app(let name):
+            scopedApp = name
+        case .range(let range):
+            selection = range
+        case .process(let pid):
+            // A link from an answer no longer shown does nothing.
+            guard case .answered(let answer) = askState else { return }
+            guard let process = AskEvidence.process(pid, in: processSnapshot, askedAt: answer.takenAt) else {
+                actionMessage = "PID \(pid) is no longer running"
+                return
+            }
+            selectedProcessRow = ProcessGroups.rowID(process)
         }
     }
 

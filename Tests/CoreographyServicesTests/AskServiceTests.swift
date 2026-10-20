@@ -22,6 +22,8 @@ final class AskServiceTests: XCTestCase {
         XCTAssertEqual(answer.snapshotID, snapshot.id)
         XCTAssertEqual(answer.toolCalls.map(\.name), ["get_top_processes", "get_sleep_history"])
         XCTAssertEqual(answer.toolCalls.map(\.failed), [false, true])
+        XCTAssertTrue(answer.toolCalls[0].evidence.contains(.app("Big")), "the ranked app links back into the window")
+        XCTAssertEqual(answer.toolCalls[1].evidence, [], "a failed call is no evidence")
 
         let requests = await transport.requests
         XCTAssertEqual(requests.count, 2)

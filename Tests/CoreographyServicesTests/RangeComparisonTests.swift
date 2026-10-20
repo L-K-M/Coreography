@@ -22,7 +22,8 @@ final class RangeComparisonTests: XCTestCase {
     func testARangeWithoutCoverageComparesNoApps() {
         let empty = RangeReport(
             requested: epoch...epoch.addingTimeInterval(5), covered: nil, topCPUApps: [], topDiskApps: [], topNetworkApps: nil,
-            activeAppCount: 0, apps: [], cpuMeanPercent: nil, cpuPeakPercent: nil, memoryPeakBytes: nil, gpuPeakPercent: nil, hottest: nil
+            topEnergyApps: nil, activeAppCount: 0, apps: [], cpuMeanPercent: nil, cpuPeakPercent: nil,
+            cpuMedianPercent: nil, cpuP95Percent: nil, memoryPeakBytes: nil, gpuPeakPercent: nil, hottest: nil
         )
         let comparison = RangeComparison.make(first: empty, second: report(seconds: 10, apps: [("Safari", 5, 0)], mean: 1))
         XCTAssertTrue(comparison.changes.isEmpty)
@@ -35,8 +36,8 @@ final class RangeComparisonTests: XCTestCase {
         let totals = apps.map { AppRangeTotal(name: $0.0, cpuSeconds: $0.1, diskBytes: $0.2, isLowerBound: false) }
         return RangeReport(
             requested: range, covered: range, topCPUApps: totals, topDiskApps: [], topNetworkApps: nil,
-            activeAppCount: totals.count, apps: totals, cpuMeanPercent: mean, cpuPeakPercent: mean,
-            memoryPeakBytes: nil, gpuPeakPercent: nil, hottest: nil
+            topEnergyApps: nil, activeAppCount: totals.count, apps: totals, cpuMeanPercent: mean, cpuPeakPercent: mean,
+            cpuMedianPercent: nil, cpuP95Percent: nil, memoryPeakBytes: nil, gpuPeakPercent: nil, hottest: nil
         )
     }
 }
