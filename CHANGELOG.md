@@ -55,6 +55,8 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
 - The process pane shows how much CPU and network no readable process
   accounts for.
 - Process rows show their app's icon.
+- Ask Coreography answers link to their evidence: the range read, the
+  apps ranked and the processes looked up.
 - The network and disk lanes expand into one small chart per interface
   or storage device that moved data, the memory lane into swap and
   page-ins over time, and the power lane into battery capacity bars and

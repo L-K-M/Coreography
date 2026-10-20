@@ -1165,6 +1165,26 @@ public final class DashboardModel {
         }
     }
 
+    /// Show what an answer rests on: select its process, scope its app, or
+    /// select its range. A PID is matched only to a process that started
+    /// by the time the answer's snapshot was taken, never a later reuse.
+    public func follow(_ evidence: AskEvidence) {
+        switch evidence {
+        case .app(let name):
+            scopedApp = name
+        case .range(let range):
+            selection = range
+        case .process(let pid):
+            // A link from an answer no longer shown does nothing.
+            guard case .answered(let answer) = askState else { return }
+            guard let process = AskEvidence.process(pid, in: processSnapshot, askedAt: answer.takenAt) else {
+                actionMessage = "PID \(pid) is no longer running"
+                return
+            }
+            selectedProcessRow = ProcessGroups.rowID(process)
+        }
+    }
+
     /// Stop waiting for an answer; monitoring is unaffected either way.
     public func cancelAsk() {
         askTask?.cancel()

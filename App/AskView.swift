@@ -53,6 +53,17 @@ struct AskPanel: View {
             Text(message).foregroundStyle(.red)
         case .answered(let answer):
             Text(answer.text).textSelection(.enabled)
+            if !answer.evidence.isEmpty {
+                // Plan: links to the processes and time ranges used as evidence.
+                HStack {
+                    Text("Show:").font(.caption).foregroundStyle(.secondary)
+                    ForEach(answer.evidence.prefix(AskText.linkLimit), id: \.self) { evidence in
+                        Button(AskText.label(evidence)) { model.follow(evidence) }
+                            .buttonStyle(.link)
+                            .font(.caption)
+                    }
+                }
+            }
             if !answer.toolCalls.isEmpty {
                 Text("Evidence read: " + answer.toolCalls.map { $0.name + $0.arguments + ($0.failed ? " (failed)" : "") }
                     .joined(separator: " · "))
@@ -60,6 +71,24 @@ struct AskPanel: View {
             }
             Text("Snapshot \(answer.snapshotID.uuidString.prefix(8)); later readings are not included.")
                 .font(.caption).foregroundStyle(.secondary)
+        }
+    }
+}
+
+private enum AskText {
+    /// Links that fit one line of the panel; the first cited come first.
+    static let linkLimit = 6
+
+    /// Examples: "PID 42", "Safari", "14:02:10–14:12:10"; a range across
+    /// midnight names both days.
+    static func label(_ evidence: AskEvidence) -> String {
+        switch evidence {
+        case .process(let pid): return String(localized: "PID \(pid.formatted(.number.grouping(.never)))")
+        case .app(let name): return name
+        case .range(let range):
+            let sameDay = Calendar.current.isDate(range.lowerBound, inSameDayAs: range.upperBound)
+            let style = Date.FormatStyle(date: sameDay ? .omitted : .abbreviated, time: .standard)
+            return range.lowerBound.formatted(style) + "–" + range.upperBound.formatted(style)
         }
     }
 }
