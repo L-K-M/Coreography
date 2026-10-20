@@ -225,11 +225,15 @@ enum HistorySamples {
     /// weighted by each entry's core count (0 counts as 1). A frame carries
     /// one entry per kind today, so the weighting only matters if several
     /// appear. A kind absent from the frame gives no reading at all.
+    private static let clusterMeanMethod = "Core-weighted mean of the kind's clusters"
+
     static func clusterMean(
         _ tiers: [CPUTierReading], kind: CPUTierKind, _ reading: KeyPath<CPUTierReading, MetricReading>
     ) -> MetricReading? {
         let members = tiers.filter { $0.kind == kind }
         guard let first = members.first else { return nil }
+        // A lone cluster's entry is the kind's reading and keeps its own
+        // availability; only a fold of several stores as estimated.
         guard members.count > 1 else { return first[keyPath: reading] }
         let weighted = members.compactMap { tier -> (value: Double, cores: Int)? in
             guard let value = tier[keyPath: reading].numericValue else { return nil }
@@ -241,6 +245,6 @@ enum HistorySamples {
         let mean = weighted.reduce(0.0) { $0 + $1.value * Double($1.cores) } / Double(cores)
         let head = first[keyPath: reading]
         // A folded mean is derived, so it stores as estimated whatever the entries carried.
-        return try? .estimated(mean, method: head.method ?? "cluster-mean", source: head.source)
+        return try? .estimated(mean, method: Self.clusterMeanMethod, source: head.source)
     }
 }

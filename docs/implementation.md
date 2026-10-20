@@ -569,9 +569,10 @@ Implemented:
   activity and frequency) to the system SQLite in WAL mode, in a 0700
   directory with a 0600 file excluded from backups. Readings keep their
   availability, so gaps replay as gaps. The cluster series come from each
-  silicon frame per tier kind, not per cluster: E folds into efficiency
-  and P into performance, a kind's several clusters to a mean weighted by
-  core count, and the M tier is not recorded. A frame without tiers
+  silicon frame per tier kind, not per cluster: every E-tier cluster
+  feeds the efficiency series and every P-tier cluster the performance
+  series, several clusters of a kind combining into a core-weighted mean;
+  the M tier is not recorded. A frame without tiers
   (Intel, a VM, IOReport unavailable) writes nothing for them, so the
   series gaps rather than reads zero.
   Writes batch into one transaction every 30 s; each batch also enforces
@@ -772,7 +773,9 @@ Implemented:
   a small chart draws the efficiency- and performance-cluster activity
   series, stored history behind live frames with the same unbridged
   breaks, labelled as estimated IOReport residency; with neither source
-  it shows the shared empty state naming Apple silicon. Native CI checks
+  it shows the shared empty state naming Apple silicon. The frequency
+  series are recorded but not charted; `coreo history --json` reads them.
+  Native CI checks
   one measured 0-100 share per core.
 - Network and disk lane details: Show Interfaces or Show Devices in the
   lane's menu, or a double-click on its title, adds one small mirrored
