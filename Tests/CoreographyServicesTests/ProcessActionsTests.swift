@@ -34,6 +34,36 @@ final class ProcessActionsTests: XCTestCase {
         }
     }
 
+    /// SIGUSR1 and SIGUSR2 terminate a program that does not handle them,
+    /// so sent to the window server they log you out; SIGINFO is ignored.
+    func testUserSignalsEndASessionAndInfoDoesNot() throws {
+        let windowServer = try process(pid: 80, name: "WindowServer")
+        let snapshot = try self.snapshot([windowServer])
+        for action in [ProcessAction.user1, .user2] {
+            let request = ProcessActions.request(for: windowServer, action: action, in: snapshot)
+            XCTAssertTrue(request.endsSession, "\(action)")
+            XCTAssertTrue(request.consequences.contains("This logs you out; unsaved work in every app is lost."), "\(action)")
+        }
+        let info = ProcessActions.request(for: windowServer, action: .info, in: snapshot)
+        XCTAssertFalse(info.endsSession)
+        XCTAssertFalse(info.consequences.contains("This logs you out; unsaved work in every app is lost."))
+    }
+
+    func testUserAndInfoSignalsStateTheirEffect() throws {
+        let worker = try process(pid: 81, name: "Worker")
+        let snapshot = try self.snapshot([worker])
+        for action in [ProcessAction.user1, .user2] {
+            let request = ProcessActions.request(for: worker, action: action, in: snapshot)
+            XCTAssertEqual(request.consequences, [
+                "Each program defines its effect; one that does not handle it terminates, which is the signal's default action."
+            ], "\(action)")
+        }
+        let info = ProcessActions.request(for: worker, action: .info, in: snapshot)
+        XCTAssertEqual(info.consequences, [
+            "Its effect is defined by the program; tools often print status, and most programs ignore it."
+        ])
+    }
+
     func testRequestsTargetTheExactIdentityAndMarkOnlySuccess() async throws {
         let driver = RecordingDriver(results: [.success(()), .failure(.identityChanged)])
         let model = DashboardModel(
@@ -81,6 +111,24 @@ final class ProcessActionsTests: XCTestCase {
 
         XCTAssertTrue(model.copyText(for: worker).contains("PID 77"))
         XCTAssertTrue(model.copyJSON(for: worker).contains("\"name\" : \"Worker\""))
+    }
+
+    func testUserAndInfoSignalsGoByIdentity() async throws {
+        let signaler = RecordingSignaler(results: [.success(()), .success(()), .success(())])
+        let model = DashboardModel(
+            monitor: try SystemMonitor(driver: NoHostDriver()), interval: .seconds(1),
+            controller: ProcessController(driver: RecordingDriver(results: []), signaler: signaler)
+        )
+        let worker = try process(pid: 77, name: "Worker", start: 1234)
+
+        for (action, signal) in [(ProcessAction.user1, ProcessSignal.user1), (.user2, .user2), (.info, .info)] {
+            model.perform(model.actionRequest(for: worker, action: action))
+            XCTAssertEqual(signaler.calls.last?.signal, signal, "\(action)")
+            XCTAssertEqual(signaler.calls.last?.startSeconds, 1234, "\(action)")
+        }
+        XCTAssertEqual(model.markers.map(\.label), [
+            "Send SIGUSR1 to Worker", "Send SIGUSR2 to Worker", "Send SIGINFO to Worker"
+        ])
     }
 
     func testSamplingOpensAReportOrNamesWhyNot() async throws {

@@ -39,6 +39,9 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
   after the store first exceeds it.
 
 ### Added
+- Send Signal can also send SIGUSR1, SIGUSR2 and SIGINFO, each
+  identity-checked and confirmed with what the signal does when the
+  program does not handle it.
 - Lanes with nothing to draw show a lock for readings permissions
   withhold and a dashed "Not available on this Mac" frame for sources
   this Mac lacks; disk and network say "no activity" over measured zeros.
