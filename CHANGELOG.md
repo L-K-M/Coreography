@@ -43,6 +43,7 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
 - Settings > Updates checks GitHub for a newer release at launch and
   daily, and links to it; a new version is announced once. Coreography never
   downloads or installs anything itself.
+- An English string catalog, so translations can be added later.
 - History keeps each Apple Silicon cluster kind's activity and frequency:
   efficiency and performance series per frame, folded to core-weighted
   means and rolled up like every series, with gaps where no silicon frame

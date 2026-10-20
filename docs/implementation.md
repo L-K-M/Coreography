@@ -950,7 +950,7 @@ implemented and listed above; native behavior still awaits the
 | M4 | `log show` sleep and wake import; `pmset` history covers sleep and wake today |
 | M5 | The privileged helper and what needs it: other users' processes, spindump, not-responding detection, login and background items, raising priority, exit status. Separately, connections grouped by domain |
 | M6 / S9 | Frame rate: `metalperftrace` capture, the HUD's frame-rate slot, FPS in sessions and the performance view |
-| M7 | Localization, integration, soak and performance checks, Developer ID signing and notarized releases |
+| M7 | Translations (English only for now), integration, soak and performance checks, Developer ID signing and notarized releases |
 | Deferred by the plan | Desktop widget, Control Center control, per-file tracing, ES launch timeline, Prometheus export, Wi-Fi details |
 
 ## Owner Mac checks
@@ -1165,8 +1165,16 @@ empty virtual-machine inventory does not validate hardware rates.
 ## Review decisions carried forward
 
 - Updates are notify-only by owner decision (2026-10-20), replacing the
-  plan's Sparkle: Coreography checks GitHub's latest release at launch and daily, links
-  to its page and never downloads or installs anything itself.
+  plan's Sparkle: Coreography checks GitHub's latest release at launch
+  and daily, links to its page and never downloads or installs anything
+  itself.
+- The app ships English only by owner decision (2026-10-20). The app
+  target has an English string catalog. Building in the Xcode IDE adds
+  SwiftUI literals, such as `Text("Delete history…")`, to it;
+  `xcodebuild` compiles the catalog without updating it. Text built
+  in CoreographyServices and CoreographyKit, such as error messages,
+  reaches views as plain `String` and is not extracted; it needs
+  `String(localized:bundle:)` and package resources before a translation.
 - Network parent integration: derive numeric-cell tooltips from reading
   provenance, show interface inventory issues/capacity, and remove the
   unused selected-interface accessor. These low-risk local-review notes
