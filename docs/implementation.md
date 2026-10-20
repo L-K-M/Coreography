@@ -330,8 +330,9 @@ Implemented:
   writable `/usr/local` paths get no note; PID 0 identifies `kernel_task`
   without a path. Quitting guidance names possible interruption, never
   guarantees safety. Once the inspector has read the signature, one by
-  another developer or none withdraws the note; an unreadable one leaves
-  the path to decide. Version matching remains pending: no entry needs it.
+  another developer or none withdraws the note, except that PID 0 still
+  names `kernel_task`; an unreadable one leaves the path to decide.
+  Version matching remains pending: no entry needs it.
 - `get_sleep_history` and `coreo sleep` include up to 200 current
   sleep-preventing assertions, their read time, omitted count and explicit
   unavailable reasons. Names that may contain private paths or document
