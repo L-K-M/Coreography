@@ -1828,7 +1828,7 @@ private struct ProcessPane: View {
                         TableColumn("QoS") { (row: ProcessRow) in
                             Text(ProcessText.qos(row))
                                 .monospacedDigit()
-                                .help(String(localized: "How the row's CPU time splits across QoS classes; an app sums per class"))
+                                .help(String(localized: "How the row's CPU time splits across QoS classes, showing those with at least 10%; an app sums per class"))
                         }
                         .customizationID("qos")
                         .defaultVisibility(.hidden)

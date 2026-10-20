@@ -425,7 +425,9 @@ enum ProcessGroups {
         return Dictionary(uniqueKeysWithValues: ProcessQoS.allCases.map { qosClass in
             (qosClass, total(members.map { member in
                 member.qosCPUPercent?[qosClass]
-                    ?? (member.cpuPercentOfMachine.numericValue == nil ? member.cpuPercentOfMachine : .collecting())
+                    ?? (member.cpuPercentOfMachine.numericValue == nil
+                        ? member.cpuPercentOfMachine
+                        : .gap(reason: "No QoS counters for this process", source: member.cpuPercentOfMachine.source))
             }, overlap: nil))
         })
     }

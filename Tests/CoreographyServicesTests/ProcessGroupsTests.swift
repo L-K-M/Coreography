@@ -424,7 +424,8 @@ final class ProcessGroupsTests: XCTestCase {
             cpuTimeSeconds: try cpu.map { try .measured($0, source: source) } ?? .restricted(reason: "EPERM", source: source),
             threadCount: try threads.map { try .measured($0, source: source) } ?? .restricted(reason: "EPERM", source: source),
             instructionsPerSecond: try instructions.map { try .measured($0, source: source) }
-                ?? .unsupported(reason: "This Mac reports no instruction counter", source: source),
+                ?? (cpu == nil ? .restricted(reason: "EPERM", source: source)
+                    : .unsupported(reason: "This Mac reports no instruction counter", source: source)),
             qosCPUPercent: try qos.map { split in
                 Dictionary(uniqueKeysWithValues: try ProcessQoS.allCases.map {
                     ($0, try .measured(split[$0] ?? 0, source: source))
