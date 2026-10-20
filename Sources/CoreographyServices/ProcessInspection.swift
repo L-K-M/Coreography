@@ -109,12 +109,12 @@ enum ProcessExplanations {
     /// one leaves the path to decide.
     static func note(for process: ObservedProcess, signer: CapturedSigner? = nil) -> ProcessExplanation? {
         guard let note = notes[process.name] else { return nil }
+        // The kernel has no executable path; PID 0 cannot belong to a user process.
+        if process.id.pid == 0, process.name == "kernel_task" { return note }
         switch signer {
         case .developer, .unsigned: return nil
         case .apple, .unknown, nil: break
         }
-        // The kernel has no executable path; PID 0 cannot belong to a user process.
-        if process.id.pid == 0, process.name == "kernel_task" { return note }
         guard let path = process.executablePath else { return nil }
         return systemPrefixes.contains { path.hasPrefix($0) } ? note : nil
     }

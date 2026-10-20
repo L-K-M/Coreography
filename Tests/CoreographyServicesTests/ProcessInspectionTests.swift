@@ -105,6 +105,8 @@ final class ProcessInspectionTests: XCTestCase {
         let note = try XCTUnwrap(ProcessExplanations.note(for: snapshot.processes[0]))
         guard case .notAllowed = note.quitting else { return XCTFail("the kernel cannot be quit") }
         XCTAssertNil(ProcessExplanations.note(for: snapshot.processes[1]), "a same-named user process is not the kernel")
+        XCTAssertNotNil(ProcessExplanations.note(for: snapshot.processes[0], signer: .unsigned),
+                        "PID 0 outranks any signature read for it")
     }
 
     private func snapshot(_ rows: [(Int32, UInt32, String, String?)]) throws -> CapturedProcesses {
