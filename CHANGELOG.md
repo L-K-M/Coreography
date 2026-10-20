@@ -7,6 +7,8 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
 ## [Unreleased]
 
 ### Fixed
+- The inspector no longer explains a program as a macOS process when
+  its signature shows another developer or none.
 - App grouping and `#apps` recognize bundles whose extension is not
   lowercase, such as `Old.APP`.
 - A user name the account database failed to read is asked for again,
@@ -48,6 +50,10 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
 - A sampling rate in the toolbar: every second or every two seconds.
 - An opt-in Threads column and sort in the process table, and the
   header's thread total. `coreo top --sort threads` ranks by them.
+- Opt-in Instructions and QoS columns in the process table: retired
+  instructions per second, unsupported where the machine keeps no
+  counter, and the classes a row's CPU time ran under. `coreo top
+  --sort instructions` and the sort picker rank by instructions.
 - The network lane names its top apps by traffic, live and under the
   cursor, as the CPU, memory and disk lanes do.
 - The GPU and power lanes name the apps using the most GPU time and

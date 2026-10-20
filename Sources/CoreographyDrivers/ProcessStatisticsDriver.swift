@@ -14,6 +14,19 @@ public enum ProcessDriverError: Error, Equatable, Sendable {
     case systemCall(operation: String, code: Int32)
 }
 
+/// The QoS classes rusage_info_v6 splits a process's CPU time across,
+/// most user-visible first, matching the bridge's COREO_QOS_* order.
+public enum ProcessQoSClass: String, CaseIterable, Sendable {
+    case userInteractive
+    case userInitiated
+    case `default`
+    case utility
+    case background
+    case maintenance
+    /// Threads under the pre-QoS scheduler policy.
+    case legacy
+}
+
 public struct ProcessCounters: Equatable, Sendable {
     public let userNanoseconds: UInt64
     public let systemNanoseconds: UInt64
@@ -24,14 +37,21 @@ public struct ProcessCounters: Equatable, Sendable {
     public let wakeups: UInt64
     /// Cumulative energy from the kernel's model; zero where it keeps none.
     public let energyNanojoules: UInt64
+    /// Cumulative retired instructions; zero where the CPU or a VM keeps no counter.
+    public let instructions: UInt64
+    /// Cumulative CPU nanoseconds per QoS class.
+    public let qosNanoseconds: [ProcessQoSClass: UInt64]
 
     public init(
         userNanoseconds: UInt64, systemNanoseconds: UInt64,
         physicalFootprintBytes: UInt64, diskReadBytes: UInt64, diskWriteBytes: UInt64, wakeups: UInt64 = 0,
-        energyNanojoules: UInt64 = 0
+        energyNanojoules: UInt64 = 0, instructions: UInt64 = 0,
+        qosNanoseconds: [ProcessQoSClass: UInt64] = [:]
     ) {
         self.wakeups = wakeups
         self.energyNanojoules = energyNanojoules
+        self.instructions = instructions
+        self.qosNanoseconds = qosNanoseconds
         self.userNanoseconds = userNanoseconds
         self.systemNanoseconds = systemNanoseconds
         self.physicalFootprintBytes = physicalFootprintBytes
@@ -210,7 +230,9 @@ public actor ProcessStatisticsDriver: ProcessSampleReading {
                     systemNanoseconds: sample.system_nanoseconds,
                     physicalFootprintBytes: sample.physical_footprint_bytes,
                     diskReadBytes: sample.disk_read_bytes, diskWriteBytes: sample.disk_write_bytes,
-                    wakeups: sample.wakeups, energyNanojoules: sample.energy_nanojoules
+                    wakeups: sample.wakeups, energyNanojoules: sample.energy_nanojoules,
+                    instructions: sample.instructions,
+                    qosNanoseconds: Self.qosNanoseconds(sample.qos_cpu_nanoseconds)
                 ))
             } else {
                 counters = .failure(Self.failure(sample.usage_error, operation: "proc_pid_rusage"))
@@ -266,6 +288,21 @@ public actor ProcessStatisticsDriver: ProcessSampleReading {
         let type: ProcessCPUType = translated != 0 ? .x86_64Translated : .arm64
         cpuTypes[key] = type
         return .success(type)
+    }
+
+    /// Tuple positions follow the COREO_QOS_* order the header documents.
+    private static func qosNanoseconds(
+        _ values: (UInt64, UInt64, UInt64, UInt64, UInt64, UInt64, UInt64)
+    ) -> [ProcessQoSClass: UInt64] {
+        [
+            .userInteractive: values.0,
+            .userInitiated: values.1,
+            .default: values.2,
+            .utility: values.3,
+            .background: values.4,
+            .maintenance: values.5,
+            .legacy: values.6
+        ]
     }
 
     private static func readHostIsARM64() -> Result<Bool, ProcessDriverError> {

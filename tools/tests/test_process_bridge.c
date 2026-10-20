@@ -354,6 +354,38 @@ test_arguments(void)
     free(block);
 }
 
+/* The QoS buckets must partition this process's CPU time: they total to
+   real work and cannot exceed user+system beyond the kernel's
+   bookkeeping slop. Instructions are cumulative, but a VM may keep no
+   counter, so only the never-decreasing contract is asserted. */
+static void
+test_qos_split(void)
+{
+    coreo_process_sample self;
+    coreo_process_sample again;
+    uint64_t qos_total = 0;
+    uint64_t cpu_total;
+    /* Bucketing happens on a bookkeeping boundary, not exactly when
+       user+system is added up; allow 1 ms of slop. */
+    const uint64_t qos_slack_nanoseconds = 1000000;
+
+    assert(coreo_process_read((int32_t)getpid(), &self) == 0);
+    assert(self.usage_error == 0);
+    for (int i = 0; i < COREO_QOS_COUNT; i++) {
+        qos_total += self.qos_cpu_nanoseconds[i];
+    }
+    cpu_total = self.user_nanoseconds + self.system_nanoseconds;
+    assert(qos_total > 0);
+    assert(qos_total <= cpu_total + qos_slack_nanoseconds);
+
+    assert(coreo_process_read((int32_t)getpid(), &again) == 0);
+    assert(again.instructions >= self.instructions);
+    /* Each bucket is cumulative too; a shrinking one means a mis-indexed class. */
+    for (int i = 0; i < COREO_QOS_COUNT; i++) {
+        assert(again.qos_cpu_nanoseconds[i] >= self.qos_cpu_nanoseconds[i]);
+    }
+}
+
 /* This process has at least its main thread; a wrong start time must not read. */
 static void
 test_threads(void)
@@ -427,6 +459,10 @@ test_platform(void)
     assert(sample.responsible_pid == 0);
     assert(sample.threads_error == ENOTSUP);
     assert(sample.threads == 0);
+    assert(sample.instructions == 0);
+    for (int i = 0; i < COREO_QOS_COUNT; i++) {
+        assert(sample.qos_cpu_nanoseconds[i] == 0);
+    }
 
     assert(coreo_process_signal(42, 1, 0, COREO_SIGNAL_TERMINATE) == ENOTSUP);
     assert(coreo_process_signal(42, 1, 0, COREO_SIGNAL_STOP) == ENOTSUP);
@@ -480,6 +516,7 @@ main(void)
 #if defined(__APPLE__)
     test_sockets();
     test_arguments();
+    test_qos_split();
     test_threads();
     test_translation();
     test_files();

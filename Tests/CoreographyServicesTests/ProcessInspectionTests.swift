@@ -80,11 +80,33 @@ final class ProcessInspectionTests: XCTestCase {
         XCTAssertEqual(model.processInspection?.process.id, process.id)
     }
 
+    /// Plan: the catalogue matches on code signature as well as path. A
+    /// program another developer signed is not the macOS one, wherever it
+    /// sits; an unread signature leaves the path to decide.
+    func testAnExplanationNeedsAnAppleSignatureWhenOneWasRead() throws {
+        let snapshot = try snapshot([(10, 1, "mds", "/usr/libexec/mds")])
+        let mds = snapshot.processes[0]
+        XCTAssertNotNil(ProcessExplanations.note(for: mds, signer: .apple))
+        XCTAssertNotNil(ProcessExplanations.note(for: mds, signer: .unknown), "an unreadable signature proves nothing")
+        XCTAssertNil(ProcessExplanations.note(for: mds, signer: .developer(team: "ABCDE12345")))
+        XCTAssertNil(ProcessExplanations.note(for: mds, signer: .unsigned))
+
+        let signed = ProcessDetail(
+            process: mds.id, arguments: nil, argumentsProblem: nil,
+            signing: ProcessSigning(signer: .unsigned, identifier: nil)
+        )
+        XCTAssertNotNil(ProcessInspections.make(mds, in: snapshot, startup: nil, detail: nil, sockets: nil).explanation)
+        XCTAssertNil(ProcessInspections.make(mds, in: snapshot, startup: nil, detail: signed, sockets: nil).explanation,
+                     "the inspector checks the signature once it has read it")
+    }
+
     func testKernelTaskUsesItsUnforgeablePIDInsteadOfAnExecutablePath() throws {
         let snapshot = try snapshot([(0, 0, "kernel_task", nil), (10, 1, "kernel_task", nil)])
         let note = try XCTUnwrap(ProcessExplanations.note(for: snapshot.processes[0]))
         guard case .notAllowed = note.quitting else { return XCTFail("the kernel cannot be quit") }
         XCTAssertNil(ProcessExplanations.note(for: snapshot.processes[1]), "a same-named user process is not the kernel")
+        XCTAssertNotNil(ProcessExplanations.note(for: snapshot.processes[0], signer: .unsigned),
+                        "PID 0 outranks any signature read for it")
     }
 
     private func snapshot(_ rows: [(Int32, UInt32, String, String?)]) throws -> CapturedProcesses {

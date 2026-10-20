@@ -329,7 +329,10 @@ Implemented:
   notes qualified by name and a system executable path. Missing paths and
   writable `/usr/local` paths get no note; PID 0 identifies `kernel_task`
   without a path. Quitting guidance names possible interruption, never
-  guarantees safety. Signature/version matching remains pending.
+  guarantees safety. Once the inspector has read the signature, one by
+  another developer or none withdraws the note, except that PID 0 still
+  names `kernel_task`; an unreadable one leaves the path to decide.
+  Version matching remains pending: no entry needs it.
 - `get_sleep_history` and `coreo sleep` include up to 200 current
   sleep-preventing assertions, their read time, omitted count and explicit
   unavailable reasons. Names that may contain private paths or document
@@ -402,11 +405,15 @@ Implemented:
   processes. An opt-in Signed by column names Apple, the developer team
   or Unsigned; signatures are checked off the main actor once per
   program, four at a time, starting only while the column shows, and an
-  app lists each signer. An opt-in Ports column lists the local ports
-  each process, or an app's members, listens on; connections are read
-  while it shows, for your own processes only; "–" means not read,
-  as for another user's process, and blank means none.
-  QoS and instructions columns remain.
+  app lists each signer. Instructions and QoS are opt-in columns too:
+  instructions retired per second over the sample interval, unsupported
+  where the CPU or a VM keeps no counter, and a sort ranking by them;
+  QoS names the classes holding at least a tenth of the row's CPU time,
+  largest first, or a dash where the counters cannot be read. An opt-in
+  Ports column lists the local ports each process, or an app's members,
+  listens on; connections are read while it shows, for your own
+  processes only; "–" means not read, as for another user's process,
+  and blank means none.
 - The memory lane stacks the composition under the physical-memory line,
   draws a pressure band above it, and has a ten-column numeric table and
   per-layer chart accessibility. `coreo snapshot` exports the same detail.

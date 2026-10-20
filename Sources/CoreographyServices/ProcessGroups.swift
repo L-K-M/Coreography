@@ -59,6 +59,11 @@ public struct ProcessRow: Identifiable, Sendable {
     public let cpuTimeSeconds: MetricReading
     /// Threads now; an app sums its processes.
     public let threadCount: MetricReading
+    /// Retired instructions per second; an app sums its processes.
+    public let instructionsPerSecond: MetricReading
+    /// CPU percent of the machine per QoS class; an app sums per class.
+    /// Nil when no member's counters could be read.
+    public let qosCPUPercent: [ProcessQoS: MetricReading]?
     /// The architectures its processes run; empty when none was read.
     /// Example: a native app with one Rosetta helper has both.
     public let architectures: Set<ProcessArchitecture>
@@ -286,6 +291,8 @@ enum ProcessGroups {
             cpuPowerWatts: total(members.map(\.cpuPowerWatts), overlap: nil),
             cpuTimeSeconds: total(members.map(\.cpuTimeSeconds), overlap: nil),
             threadCount: total(members.map(\.threadCount), overlap: nil),
+            instructionsPerSecond: total(members.map(\.instructionsPerSecond), overlap: nil),
+            qosCPUPercent: qosTotal(members),
             architectures: Set(members.compactMap(\.architecture)),
             signers: Set(members.compactMap { $0.executablePath.flatMap { facts.signers[$0] } }),
             listeningPorts: groupPorts(members, facts.sockets),
@@ -373,6 +380,8 @@ enum ProcessGroups {
             cpuPowerWatts: process.cpuPowerWatts,
             cpuTimeSeconds: process.cpuTimeSeconds,
             threadCount: process.threadCount,
+            instructionsPerSecond: process.instructionsPerSecond,
+            qosCPUPercent: process.qosCPUPercent,
             architectures: Set([process.architecture].compactMap { $0 }),
             signers: Set([process.executablePath.flatMap { facts.signers[$0] }].compactMap { $0 }),
             listeningPorts: listeningPorts(process, facts.sockets),
@@ -425,6 +434,22 @@ enum ProcessGroups {
         return read.isEmpty ? nil : read.reduce(into: []) { $0.formUnion($1) }
     }
 
+    /// A group's split sums each class across members, a member without
+    /// counters counting as an unreadable share, not zero: its CPU reading
+    /// says why (restricted, collecting), and the sum is a lower bound. Nil
+    /// when no member's counters could be read at all.
+    private static func qosTotal(_ members: [ObservedProcess]) -> [ProcessQoS: MetricReading]? {
+        guard members.contains(where: { $0.qosCPUPercent != nil }) else { return nil }
+        return Dictionary(uniqueKeysWithValues: ProcessQoS.allCases.map { qosClass in
+            (qosClass, total(members.map { member in
+                member.qosCPUPercent?[qosClass]
+                    ?? (member.cpuPercentOfMachine.numericValue == nil
+                        ? member.cpuPercentOfMachine
+                        : .gap(reason: "No QoS counters for this process", source: member.cpuPercentOfMachine.source))
+            }, overlap: nil))
+        })
+    }
+
     private static func sorted(_ rows: [ProcessRow], by sort: ProcessSort) -> [ProcessRow] {
         rows.sorted { lhs, rhs in
             if sort != .name {
@@ -453,6 +478,7 @@ enum ProcessGroups {
         case .cpuTime: row.cpuTimeSeconds.numericValue
         case .started: row.started?.timeIntervalSince1970
         case .threads: row.threadCount.numericValue
+        case .instructions: row.instructionsPerSecond.numericValue
         case .name: nil
         }
     }
@@ -481,6 +507,7 @@ extension ProcessRow {
             wakeupsPerSecond: wakeupsPerSecond, networkReceivedBytesPerSecond: networkReceivedBytesPerSecond,
             networkSentBytesPerSecond: networkSentBytesPerSecond, gpuMillisecondsPerSecond: gpuMillisecondsPerSecond,
             cpuPowerWatts: cpuPowerWatts, cpuTimeSeconds: cpuTimeSeconds, threadCount: threadCount,
+            instructionsPerSecond: instructionsPerSecond, qosCPUPercent: qosCPUPercent,
             architectures: architectures, signers: signers, listeningPorts: listeningPorts, started: started,
             children: children
         )

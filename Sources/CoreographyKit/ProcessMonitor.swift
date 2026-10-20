@@ -27,7 +27,10 @@ public actor ProcessMonitor {
     private var rates: [ProcessIdentity: ProcessRates] = [:]
     private var gpuLedger: GPUTimeLedger
     /// Some process on this Mac has reported energy; until one does, zero is no counter at all.
-    private var energyCounters = EnergyCounters.absent
+    private var energyCounters = CounterPresence.absent
+    /// Some process has retired instructions; until one does, a zero
+    /// counter means the CPU or VM keeps none, not an idle process.
+    private var instructionCounters = CounterPresence.absent
 
     public init() throws { try self.init(driver: ProcessStatisticsDriver(), gpuClients: GPUClientDriver()) }
 
@@ -76,6 +79,11 @@ public actor ProcessMonitor {
             }) {
                 energyCounters = .present
             }
+            if instructionCounters == .absent, enumeration.processes.contains(where: {
+                if case .success(let counters) = $0.counters { counters.instructions > 0 } else { false }
+            }) {
+                instructionCounters = .present
+            }
             var processes: [ProcessReading] = []
             var issues = try enumeration.failures.map {
                 ProcessCollectionIssue(
@@ -109,7 +117,8 @@ public actor ProcessMonitor {
                 case .success(let counters):
                     readings = try state.record(
                         counters, at: processStamp,
-                        logicalCPUCount: raw.logicalCPUCount, interrupted: interrupted, energyCounters: energyCounters
+                        logicalCPUCount: raw.logicalCPUCount, interrupted: interrupted,
+                        energyCounters: energyCounters, instructionCounters: instructionCounters
                     )
                     nextRates[identity] = state
                 case .failure(let error):
@@ -127,6 +136,7 @@ public actor ProcessMonitor {
                     wakeupsPerSecond: readings.wakeups, gpuMillisecondsPerSecond: gpu, cpuPowerWatts: readings.power,
                     cpuTimeSeconds: try cpuTime(process.counters, unreadable: readings.cpu),
                     threadCount: try threadCount(process.threads),
+                    instructionsPerSecond: readings.instructions, qosCPUPercent: readings.qos,
                     architecture: architecture(process.cpuType),
                     executablePath: process.executablePath, responsiblePID: process.responsiblePID
                 ))
@@ -202,10 +212,14 @@ public actor ProcessMonitor {
         let write: MetricReading
         let wakeups: MetricReading
         let power: MetricReading
+        let instructions: MetricReading
+        /// Nil when the counters carrying the split could not be read.
+        let qos: [ProcessQoS: MetricReading]?
 
         init(
             cpu: MetricReading, memory: MetricReading, read: MetricReading, write: MetricReading,
-            wakeups: MetricReading, power: MetricReading
+            wakeups: MetricReading, power: MetricReading,
+            instructions: MetricReading, qos: [ProcessQoS: MetricReading]?
         ) {
             self.cpu = cpu
             self.memory = memory
@@ -213,10 +227,15 @@ public actor ProcessMonitor {
             self.write = write
             self.wakeups = wakeups
             self.power = power
+            self.instructions = instructions
+            self.qos = qos
         }
 
         init(missing: MetricReading) {
-            self.init(cpu: missing, memory: missing, read: missing, write: missing, wakeups: missing, power: missing)
+            self.init(
+                cpu: missing, memory: missing, read: missing, write: missing, wakeups: missing,
+                power: missing, instructions: missing, qos: nil
+            )
         }
     }
 
@@ -226,6 +245,8 @@ public actor ProcessMonitor {
         var write: CounterRateTracker
         var wakeups: CounterRateTracker
         var energy: CounterRateTracker
+        var instructions: CounterRateTracker
+        var qos: [ProcessQoS: CounterRateTracker]
 
         init(maximumGap: Duration) throws {
             cpu = try CounterRateTracker(maxGap: maximumGap, source: usageSource)
@@ -233,11 +254,26 @@ public actor ProcessMonitor {
             write = try CounterRateTracker(maxGap: maximumGap, source: usageSource)
             wakeups = try CounterRateTracker(maxGap: maximumGap, source: usageSource)
             energy = try CounterRateTracker(maxGap: maximumGap, source: usageSource)
+            instructions = try CounterRateTracker(maxGap: maximumGap, source: usageSource)
+            qos = Dictionary(uniqueKeysWithValues: try ProcessQoS.allCases.map {
+                ($0, try CounterRateTracker(maxGap: maximumGap, source: usageSource))
+            })
+        }
+
+        /// A per-second counter delta as a percent of the whole machine, the
+        /// same scale cpuPercentOfMachine uses.
+        private static func machinePercent(_ rate: MetricReading, logicalCPUCount: Int) throws -> MetricReading {
+            guard let value = rate.numericValue else { return rate }
+            let percent = value / nanosecondsPerSecond * percentScale / Double(logicalCPUCount)
+            return percent <= percentScale + cpuCapacityRoundingTolerance
+                ? try .measured(min(percent, percentScale), source: usageSource)
+                : .gap(reason: "Process CPU delta exceeds machine capacity", source: usageSource)
         }
 
         mutating func record(
             _ counters: ProcessCounters, at stamp: SampleStamp,
-            logicalCPUCount: Int, interrupted: Bool, energyCounters: EnergyCounters
+            logicalCPUCount: Int, interrupted: Bool,
+            energyCounters: CounterPresence, instructionCounters: CounterPresence
         ) throws -> UsageReadings {
             let total = counters.userNanoseconds.addingReportingOverflow(counters.systemNanoseconds)
             let cpuReading: MetricReading
@@ -245,15 +281,7 @@ public actor ProcessMonitor {
                 cpu.reset()
                 cpuReading = .gap(reason: "Invalid process CPU counters or CPU count", source: usageSource)
             } else {
-                let rate = cpu.record(total.partialValue, at: stamp)
-                if let value = rate.numericValue {
-                    let percent = value / nanosecondsPerSecond * percentScale / Double(logicalCPUCount)
-                    cpuReading = percent <= percentScale + cpuCapacityRoundingTolerance
-                        ? try .measured(min(percent, percentScale), source: usageSource)
-                        : .gap(reason: "Process CPU delta exceeds machine capacity", source: usageSource)
-                } else {
-                    cpuReading = rate
-                }
+                cpuReading = try Self.machinePercent(cpu.record(total.partialValue, at: stamp), logicalCPUCount: logicalCPUCount)
             }
             let readReading = read.record(counters.diskReadBytes, at: stamp)
             let writeReading = write.record(counters.diskWriteBytes, at: stamp)
@@ -270,19 +298,40 @@ public actor ProcessMonitor {
                     try .estimated($0 / nanojoulesPerJoule, method: energyMethod, source: usageSource)
                 } ?? rate
             }
+            let instructionReading: MetricReading
+            if counters.instructions == 0, instructionCounters == .absent {
+                // Zero in both samples: the CPU or VM keeps no counter, so
+                // no baseline exists for a later nonzero reading either.
+                instructions.reset()
+                instructionReading = .unsupported(reason: "This Mac reports no instruction counter", source: usageSource)
+            } else {
+                instructionReading = instructions.record(counters.instructions, at: stamp)
+            }
+            var qosSplit: [ProcessQoS: MetricReading] = [:]
+            for driverClass in ProcessQoSClass.allCases {
+                let qosClass = ProcessQoS(driverClass)
+                guard let rate = qos[qosClass]?.record(counters.qosNanoseconds[driverClass] ?? 0, at: stamp) else {
+                    continue
+                }
+                qosSplit[qosClass] = logicalCPUCount > 0
+                    ? try Self.machinePercent(rate, logicalCPUCount: logicalCPUCount)
+                    : .gap(reason: "Invalid process CPU counters or CPU count", source: usageSource)
+            }
             let gap = MetricReading.gap(reason: "Sampling interrupted", source: usageSource)
             return UsageReadings(
                 cpu: interrupted ? gap : cpuReading,
                 memory: try .measured(Double(counters.physicalFootprintBytes), source: usageSource),
                 read: interrupted ? gap : readReading, write: interrupted ? gap : writeReading,
                 wakeups: interrupted ? gap : wakeupReading,
-                power: interrupted ? gap : powerReading
+                power: interrupted ? gap : powerReading,
+                instructions: interrupted ? gap : instructionReading,
+                qos: qosSplit.mapValues { interrupted ? gap : $0 }
             )
         }
     }
 }
 
-/// Whether this Mac's kernel keeps per-process energy counters at all.
-enum EnergyCounters: Sendable {
+/// Whether this Mac's kernel keeps a counter of this kind at all.
+enum CounterPresence: Sendable {
     case present, absent
 }

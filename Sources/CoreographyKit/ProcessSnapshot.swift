@@ -1,4 +1,5 @@
 import Foundation
+import CoreographyDrivers
 
 public struct ProcessIdentity: Hashable, Codable, Sendable {
     public let pid: Int32
@@ -41,6 +42,32 @@ public enum ProcessArchitecture: String, Codable, Sendable {
     case intelTranslated
 }
 
+/// The QoS class a CPU-time slice ran under (plan: opt-in QoS column).
+/// rusage_info_v6 splits a process's CPU time across these classes;
+/// the case order and raw values mirror the driver's ProcessQoSClass.
+public enum ProcessQoS: String, Codable, Sendable, CaseIterable, CodingKeyRepresentable {
+    case userInteractive
+    case userInitiated
+    case `default`
+    case utility
+    case background
+    case maintenance
+    /// Threads under the pre-QoS scheduler policy.
+    case legacy
+
+    init(_ driverClass: ProcessQoSClass) {
+        switch driverClass {
+        case .userInteractive: self = .userInteractive
+        case .userInitiated: self = .userInitiated
+        case .default: self = .default
+        case .utility: self = .utility
+        case .background: self = .background
+        case .maintenance: self = .maintenance
+        case .legacy: self = .legacy
+        }
+    }
+}
+
 public struct ProcessReading: Identifiable, Codable, Sendable {
     public let id: ProcessIdentity
     public let parentPID: UInt32
@@ -61,6 +88,12 @@ public struct ProcessReading: Identifiable, Codable, Sendable {
     public let cpuTimeSeconds: MetricReading
     /// Threads the process has now (plan: opt-in threads column).
     public let threadCount: MetricReading
+    /// Retired instructions per second over the sample interval (plan:
+    /// opt-in instructions column).
+    public let instructionsPerSecond: MetricReading
+    /// CPU percent of the machine per QoS class over the interval, on the
+    /// cpuPercentOfMachine scale; nil when the counters could not be read.
+    public let qosCPUPercent: [ProcessQoS: MetricReading]?
     /// Nil when the OS did not say; it never changes while the process runs.
     public let architecture: ProcessArchitecture?
     public let executablePath: String?
@@ -78,6 +111,8 @@ public struct ProcessReading: Identifiable, Codable, Sendable {
         cpuPowerWatts: MetricReading = .unsupported(reason: "Energy was not collected"),
         cpuTimeSeconds: MetricReading = .unsupported(reason: "CPU time was not collected"),
         threadCount: MetricReading = .unsupported(reason: "Threads were not collected"),
+        instructionsPerSecond: MetricReading = .unsupported(reason: "Instructions were not collected"),
+        qosCPUPercent: [ProcessQoS: MetricReading]? = nil,
         architecture: ProcessArchitecture? = nil,
         executablePath: String?, responsiblePID: Int32?
     ) {
@@ -95,6 +130,8 @@ public struct ProcessReading: Identifiable, Codable, Sendable {
         self.cpuPowerWatts = cpuPowerWatts
         self.cpuTimeSeconds = cpuTimeSeconds
         self.threadCount = threadCount
+        self.instructionsPerSecond = instructionsPerSecond
+        self.qosCPUPercent = qosCPUPercent
         self.architecture = architecture
         self.executablePath = executablePath
         self.responsiblePID = responsiblePID

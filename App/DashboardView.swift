@@ -1723,6 +1723,7 @@ private struct ProcessPane: View {
                         Text("CPU time").tag(ProcessSort.cpuTime)
                         Text("Newest").tag(ProcessSort.started)
                         Text("Threads").tag(ProcessSort.threads)
+                        Text("Instructions").tag(ProcessSort.instructions)
                         Text("Name").tag(ProcessSort.name)
                     }
                     .frame(width: 180)
@@ -1855,6 +1856,21 @@ private struct ProcessPane: View {
                         }
                         .customizationID("threads")
                         .defaultVisibility(.hidden)
+                        TableColumn("Instructions") { (row: ProcessRow) in
+                            ProcessMetricCell(
+                                reading: row.instructionsPerSecond, format: .instructions,
+                                note: String(localized: "Instructions retired per second; an app sums its processes")
+                            )
+                        }
+                        .customizationID("instructions")
+                        .defaultVisibility(.hidden)
+                        TableColumn("QoS") { (row: ProcessRow) in
+                            Text(ProcessText.qos(row))
+                                .monospacedDigit()
+                                .help(String(localized: "How the row's CPU time splits across QoS classes, showing those with at least 10%; an app sums per class"))
+                        }
+                        .customizationID("qos")
+                        .defaultVisibility(.hidden)
                         TableColumn("Architecture") { (row: ProcessRow) in
                             Text(ProcessText.architectures(row.architectures))
                                 .help(row.architectures.isEmpty
@@ -1901,7 +1917,7 @@ private struct ProcessPane: View {
                         .help("Exit status is not available without the helper")
                 }
 
-                Text("\(ProcessText.cpuScaleNote(model.processCPUScaleInEffect)) App totals sum their members; footprint sums can count shared memory twice. Process sampling: \(model.processSamplingSeconds.formatted()) s; short-lived processes can be missed. Right-click a column header for wakeups, CPU time, start time, threads, architecture, signer and ports.")
+                Text("\(ProcessText.cpuScaleNote(model.processCPUScaleInEffect)) App totals sum their members; footprint sums can count shared memory twice. Process sampling: \(model.processSamplingSeconds.formatted()) s; short-lived processes can be missed. Right-click a column header for wakeups, CPU time, start time, threads, instructions, QoS, architecture, signer and ports.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -2440,6 +2456,48 @@ private enum ProcessText {
         date.formatted(.dateTime.month(.abbreviated).day().hour().minute().second())
     }
 
+    private static let instructionUnits = ["", " K", " M", " G", " T"]
+
+    /// Retired instructions per second. Example: 1_234_000_000 -> "1.2 G/s".
+    static func instructions(_ perSecond: Double) -> String {
+        guard perSecond.isFinite, perSecond >= 0 else { return "–" }
+        var scaled = perSecond
+        var unit = 0
+        while scaled >= 1000, unit < instructionUnits.count - 1 {
+            scaled /= 1000
+            unit += 1
+        }
+        let digits = unit == 0 || scaled >= 100 ? 0 : 1
+        return scaled.formatted(.number.precision(.fractionLength(digits))) + instructionUnits[unit] + "/s"
+    }
+
+    /// A row's largest classes holding at least a tenth of its CPU time.
+    /// Example: "Utility 70% · Default 30%"; "–" when unknown or idle.
+    static func qos(_ row: ProcessRow) -> String {
+        guard let split = row.qosCPUPercent else { return "–" }
+        let total = split.values.compactMap(\.numericValue).reduce(0, +)
+        guard total > 0 else { return "–" }
+        let shares = ObservedQoS.allCases.compactMap { qosClass -> (ObservedQoS, Double)? in
+            guard let value = split[qosClass]?.numericValue, value / total >= 0.1 else { return nil }
+            return (qosClass, value / total)
+        }
+        return shares.sorted { $0.1 > $1.1 }
+            .map { "\(qosName($0.0)) \($0.1.formatted(.percent.precision(.fractionLength(0))))" }
+            .joined(separator: " · ")
+    }
+
+    private static func qosName(_ qosClass: ObservedQoS) -> String {
+        switch qosClass {
+        case .userInteractive: String(localized: "User interactive")
+        case .userInitiated: String(localized: "User initiated")
+        case .default: String(localized: "Default")
+        case .utility: String(localized: "Utility")
+        case .background: String(localized: "Background")
+        case .maintenance: String(localized: "Maintenance")
+        case .legacy: String(localized: "Legacy")
+        }
+    }
+
     static func cpuColumn(_ scale: ProcessCPUScale) -> String {
         switch scale {
         case .machine: String(localized: "CPU, machine")
@@ -2844,7 +2902,7 @@ private enum ConnectionText {
 }
 
 private struct ProcessMetricCell: View {
-    enum Format { case percent, bytes, rate, watts, wakeups, gpuTime, processWatts, cpuTime, count }
+    enum Format { case percent, bytes, rate, watts, wakeups, gpuTime, processWatts, cpuTime, count, instructions }
     let reading: DashboardReading
     let format: Format
     /// 0-1 share of the column's largest value; shades the cell in its subsystem hue.
@@ -2885,6 +2943,7 @@ private struct ProcessMetricCell: View {
         case .processWatts: return ProcessText.power(value) + suffix
         case .cpuTime: return ProcessText.cpuTime(value) + suffix
         case .count: return Int(value).formatted() + suffix
+        case .instructions: return ProcessText.instructions(value) + suffix
         }
     }
 }
