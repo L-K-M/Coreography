@@ -3032,7 +3032,13 @@ private enum RangeText {
     static func lanes(_ report: RangeReport) -> String {
         var parts: [String] = []
         if let mean = report.cpuMeanPercent, let peak = report.cpuPeakPercent {
-            parts.append(String(localized: "CPU mean \(MetricText.percent(mean)), peak \(MetricText.percent(peak))"))
+            // Percentiles only where raw readings back them; rolled-up history keeps none.
+            // Whole sentences, so a translation can order them freely.
+            if let median = report.cpuMedianPercent, let p95 = report.cpuP95Percent {
+                parts.append(String(localized: "CPU mean \(MetricText.percent(mean)), median \(MetricText.percent(median)), 95th \(MetricText.percent(p95)), peak \(MetricText.percent(peak))"))
+            } else {
+                parts.append(String(localized: "CPU mean \(MetricText.percent(mean)), peak \(MetricText.percent(peak))"))
+            }
         }
         if let memory = report.memoryPeakBytes {
             parts.append(String(localized: "memory peak \(MetricText.bytes(memory))"))
