@@ -196,6 +196,124 @@ final class RecordingTests: XCTestCase {
                        "the same app keeps its placeholder across the seam")
     }
 
+    /// A replayed recording can carry no live frames at all; a range inside
+    /// its stored part still saves, and the save carries that stored part.
+    @MainActor
+    func testResavingARangeInsideAReplayedRecordingsStoredPart() async throws {
+        let (document, storedStart) = try await Self.spanningDocument(naming: .named, at: epoch)
+        let section = try XCTUnwrap(document.stored)
+        let storedOnly = Recording.make(
+            name: "Stored", range: document.start...document.end,
+            frames: DashboardFrames(host: [], network: [], disks: [], gpu: [], power: [], sensors: []),
+            ledger: AppLedger(capacity: 1),
+            stored: StoredHistory.RawData(replaying: section, range: document.start...document.end),
+            markers: [], naming: .named
+        )
+        let model = DashboardModel(monitor: try SystemMonitor(driver: Host()), interval: .milliseconds(10))
+        let refused = await model.openRecording(try Recording.encode(storedOnly), fileName: "Stored")
+        XCTAssertNil(refused)
+        XCTAssertTrue(model.frames.isEmpty, "the replayed recording holds its stored part only")
+
+        model.selection = storedStart...storedStart.addingTimeInterval(10)
+        let resaved = try await model.recordingData(name: "Cut")
+        let reread = try Recording.decode(resaved)
+        XCTAssertEqual(reread.start, storedStart)
+        XCTAssertEqual(reread.stored?.series[HistoryMetric.cpu.recordingKey]?.count, 10,
+                       "the stored readings inside the saved range are carried")
+
+        // With neither live frames nor stored history the range stays invalid.
+        let bare = DashboardModel(monitor: try SystemMonitor(driver: Host()), interval: .milliseconds(10))
+        bare.selection = storedStart...storedStart.addingTimeInterval(10)
+        do {
+            _ = try await bare.recordingData(name: "Cut")
+            XCTFail("expected .invalidRange")
+        } catch {
+            XCTAssertEqual(error, .invalidRange)
+        }
+    }
+
+    /// A stored load still in flight when a recording opens must not land
+    /// over the recording's own stored part, whenever it settles.
+    @MainActor
+    func testOpeningARecordingDuringAStoredLoadKeepsTheRecordingsStoredPart() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("coreo-race-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = try HistoryStore(directory: directory)
+        let now = Date()
+        try await store.append((0..<600).map {
+            HistorySample(metric: .cpu, time: now.addingTimeInterval(Double($0 - 600)), value: 50, availability: .measured)
+        }, now: now)
+        let model = DashboardModel(
+            monitor: try SystemMonitor(driver: Host()), interval: .milliseconds(10),
+            historyRecorder: HistoryRecorder(store: store)
+        )
+        model.timeRange = .sixHours
+        let (document, _) = try await Self.spanningDocument(naming: .named, at: epoch)
+
+        let refused = await model.openRecording(try Recording.encode(document), fileName: "Shift")
+        XCTAssertNil(refused)
+        // Give a load that outlived the open time to settle; it must not land.
+        try await Task.sleep(for: .milliseconds(100))
+        XCTAssertFalse(model.points(for: .cpu).contains { $0.value == 50 },
+                       "the store's load did not land over the replay")
+        XCTAssertTrue(model.points(for: .cpu).contains { $0.time < epoch && $0.value == 40 },
+                      "the recording's stored part is what shows")
+        XCTAssertNil(model.storedHistoryProblem)
+    }
+
+    /// A recording longer than the longest live-only range needs a window
+    /// that covers it, or its stored part sits outside what the lanes show.
+    @MainActor
+    func testOpeningAMultiHourStoredRecordingPicksARangeThatShowsIt() async throws {
+        let storedStart = epoch
+        let end = storedStart.addingTimeInterval(2 * 3600)
+        let buckets = (0..<6).map {
+            StoredPoint(
+                time: storedStart.addingTimeInterval(Double($0) * HistoryStore.dayBucket),
+                minimum: 10, maximum: 90, mean: 50, count: 10
+            )
+        }
+        let stored = StoredHistory.RawData(
+            start: storedStart, end: end, tier: .day, series: [.cpu: buckets], ledger: []
+        )
+        let document = Recording.make(
+            name: "Long", range: storedStart...end,
+            frames: DashboardFrames(host: [try Self.hostFrame(at: end)], network: [], disks: [], gpu: [], power: [], sensors: []),
+            ledger: AppLedger(capacity: 1), stored: stored, markers: [], naming: .named
+        )
+        let model = DashboardModel(monitor: try SystemMonitor(driver: Host()), interval: .milliseconds(10))
+
+        let refused = await model.openRecording(try Recording.encode(document), fileName: "Long")
+        XCTAssertNil(refused)
+        XCTAssertEqual(model.timeRange, .sixHours, "the smallest range covering the recording")
+        XCTAssertLessThanOrEqual(try XCTUnwrap(model.visibleWindow).lowerBound, storedStart,
+                                 "the stored part is inside the shown window")
+        XCTAssertTrue(model.points(for: .cpu).contains { $0.time < end.addingTimeInterval(-3600) },
+                      "the stored part draws right after opening")
+    }
+
+    /// A document the encoder cannot write reports .uncodable, not a read error.
+    func testAnEncodingFailureIsReportedAsUncodable() throws {
+        let document = Recording.Document(
+            schemaVersion: 2, name: "x", savedAt: epoch, start: epoch, end: epoch, appNames: .named,
+            host: [], network: [], disks: [], gpu: [], power: [], sensors: [],
+            ledger: [Recording.Interval(
+                start: epoch, end: epoch, cores: 4, coversNetwork: false,
+                entries: [Recording.Entry(app: "A", cpuSeconds: .infinity, diskBytes: 0, networkBytes: 0, isLowerBound: false)]
+            )],
+            markers: [], stored: nil
+        )
+        XCTAssertThrowsError(try Recording.encode(document)) {
+            guard case .uncodable(let detail) = $0 as? Recording.Failure else {
+                return XCTFail("expected .uncodable, got \($0)")
+            }
+            XCTAssertEqual(
+                Recording.Failure.uncodable(detail).message,
+                "The recording could not be written: \(detail)"
+            )
+        }
+    }
+
     /// A saved stored part opens back as stored history: lanes draw it and
     /// a range report over the earlier part reads it, until returning live.
     @MainActor
@@ -231,9 +349,10 @@ final class RecordingTests: XCTestCase {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("coreo-rec-day-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: directory) }
         let store = try HistoryStore(directory: directory)
-        // One 10 s bucket holding a 10% floor and a 90% spike; bucket
-        // times align to ten seconds.
-        let bucketStart = Date(timeIntervalSince1970: (epoch.timeIntervalSince1970 / 10).rounded(.down) * 10)
+        // One bucket holding a 10% floor and a 90% spike; bucket times
+        // align to the Day tier's bucket width.
+        let bucketStart = Date(timeIntervalSince1970:
+            (epoch.timeIntervalSince1970 / HistoryStore.dayBucket).rounded(.down) * HistoryStore.dayBucket)
         let samples = [
             HistorySample(metric: .cpu, time: bucketStart.addingTimeInterval(1), value: 10, availability: .measured),
             HistorySample(metric: .cpu, time: bucketStart.addingTimeInterval(6), value: 90, availability: .measured)
@@ -271,7 +390,10 @@ final class RecordingTests: XCTestCase {
     /// A recording whose range begins 100 s before the first live frame at
     /// epoch: ten stored readings for CPU, both network rates, the memory
     /// stack layers and both pressure bands, and a stored ledger interval
-    /// behind two live host frames and one live ledger interval.
+    /// behind two live host frames and the one ledger interval the two
+    /// recorded samples make (the first sample opens no interval).
+    /// Host frames hold machine readings only — a recording keeps no process
+    /// list — so nothing in them names an app for redaction to cover.
     private static func spanningDocument(
         naming: ExportNaming, at epoch: Date
     ) async throws -> (document: Recording.Document, storedStart: Date) {
@@ -322,6 +444,25 @@ final class RecordingTests: XCTestCase {
             ledger: ledger, stored: stored, markers: [], naming: naming
         )
         return (document, storedStart)
+    }
+
+    /// One deterministic host frame; machine readings only, no process names.
+    private static func hostFrame(at time: Date) throws -> CapturedSnapshot {
+        try CapturedSnapshot(
+            stamp: SampleStamp(clockID: UUID(), monotonicNanoseconds: 1, wallTime: time),
+            inventory: HostInventory(
+                operatingSystem: "Fixture", architecture: "fixture", logicalCPUCount: 4, physicalMemoryBytes: 1 << 30
+            ),
+            cpuPercentOfMachine: .measured(50), memoryUsedBytes: .measured(1),
+            memory: MemoryDetail(
+                appBytes: .measured(1), wiredBytes: .measured(1), compressedBytes: .measured(1),
+                cachedBytes: .measured(1), compressionRatio: .measured(1), swapUsedBytes: .measured(0),
+                swapTotalBytes: .measured(1), pageInBytesPerSecond: .measured(0),
+                swapInBytesPerSecond: .measured(0), swapOutBytesPerSecond: .measured(0),
+                pressure: .measured(0)
+            ),
+            thermalPressure: .measured(0), continuity: .continuous
+        )
     }
 
     private static func processes(

@@ -138,6 +138,8 @@ public enum Recording {
     public enum Failure: Error, Equatable, Sendable {
         case tooLarge
         case unreadable(String)
+        /// The document could not be serialized; the detail is the encoder's.
+        case uncodable(String)
         case newerSchema(Int)
         case invalidRange
         /// The part of the range before live data has no stored history; the
@@ -148,6 +150,7 @@ public enum Recording {
             switch self {
             case .tooLarge: "The file is larger than any recording"
             case .unreadable(let detail): "The recording could not be read: \(detail)"
+            case .uncodable(let detail): "The recording could not be written: \(detail)"
             case .newerSchema(let version): "The recording uses a newer format (\(version)); update Coreography"
             case .invalidRange: "The recording's time range is invalid"
             case .missingHistory(let reason): reason
@@ -229,7 +232,7 @@ public enum Recording {
         do {
             data = try encoder.encode(document)
         } catch {
-            throw .unreadable("\(error)")
+            throw .uncodable("\(error)")
         }
         // A stored part can push a long range past the cap; refuse rather than trim.
         guard data.count <= maximumBytes else { throw .tooLarge }

@@ -723,7 +723,12 @@ public final class DashboardModel {
     /// history keeps only the reduced form, not the raw series a file
     /// carries.
     public func recordingData(name: String) async throws(Recording.Failure) -> Data {
-        guard let selection, let liveStart = frames.first?.stamp.wallTime else { throw .invalidRange }
+        // A replayed recording can carry its stored part only, so absent
+        // frames mean the whole selection predates live data, not an invalid
+        // range; with neither it is invalid.
+        guard let selection else { throw .invalidRange }
+        let liveStart = frames.first?.stamp.wallTime
+        guard liveStart != nil || storedHistory != nil else { throw .invalidRange }
         // The frames and ledger are captured before the store read suspends,
         // so the document stays one instant's snapshot.
         let frames = DashboardFrames(
@@ -732,7 +737,7 @@ public final class DashboardModel {
         let ledger = ledger
         let markers = ownMarkers
         var stored: StoredHistory.RawData?
-        if selection.lowerBound < liveStart {
+        if selection.lowerBound < (liveStart ?? .distantFuture) {
             guard let history = storedHistory else {
                 throw .missingHistory(storedHistoryProblem ?? "The stored part is still loading; try again in a moment.")
             }
@@ -761,7 +766,7 @@ public final class DashboardModel {
         }
         // With stored history the recording starts at the selection; without
         // it, at the first live frame as before.
-        let start = stored == nil ? max(selection.lowerBound, liveStart) : selection.lowerBound
+        let start = stored == nil ? max(selection.lowerBound, liveStart ?? selection.lowerBound) : selection.lowerBound
         guard start <= selection.upperBound else { throw .invalidRange }
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         let document = Recording.make(
@@ -829,7 +834,12 @@ public final class DashboardModel {
         cursorTime = nil
         clearSelection()
         let duration = document.end.timeIntervalSince(document.start)
-        timeRange = TimeRange.allCases.first { $0.seconds >= duration && !$0.reachesStoredHistory } ?? .hour
+        // A recording carrying a stored part needs the smallest range that
+        // covers it, or its earlier part sits outside the window the lanes
+        // draw; a live-only one stays on the ranges live data alone fills.
+        timeRange = document.stored == nil
+            ? TimeRange.allCases.first { $0.seconds >= duration && !$0.reachesStoredHistory } ?? .hour
+            : TimeRange.allCases.first { $0.seconds >= duration } ?? .month
         // A live load still in flight must not land over the recording's stored part.
         storedLoad?.cancel()
         storedLoad = nil
@@ -915,7 +925,9 @@ public final class DashboardModel {
             } catch {
                 result = .failure(error)
             }
-            guard let self, !Task.isCancelled else { return }
+            // A load outliving its window — cancelled, or a recording opened
+            // meanwhile — must not land its state over the recording's.
+            guard let self, !Task.isCancelled, self.openRecording == nil else { return }
             self.storedLoad = nil
             switch result {
             case .success(let loaded):

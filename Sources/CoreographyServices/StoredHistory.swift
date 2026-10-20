@@ -31,17 +31,21 @@ struct StoredValue: Codable, Equatable, Sendable {
 struct StoredPoint: Codable, Equatable, Sendable {
     let time: Date
     let value: Double?
+    /// The reading's state under `recent`; nil for a bucket or a file saved
+    /// before availability was kept.
+    let availability: MetricAvailability?
     let minimum: Double?
     let maximum: Double?
     let mean: Double?
     let count: Int?
 
     init(
-        time: Date, value: Double? = nil, minimum: Double? = nil,
+        time: Date, value: Double? = nil, availability: MetricAvailability? = nil, minimum: Double? = nil,
         maximum: Double? = nil, mean: Double? = nil, count: Int? = nil
     ) {
         self.time = time
         self.value = value
+        self.availability = availability
         self.minimum = minimum
         self.maximum = maximum
         self.mean = mean
@@ -146,7 +150,9 @@ struct StoredHistory: Sendable {
         }
 
         /// Raw data as a recording's stored section carries it, over the
-        /// recording's range.
+        /// recording's range. The save side already cut the stored ledger at
+        /// the first live interval (`Recording.make`), so it replays exactly
+        /// what the recording kept.
         init(replaying stored: Recording.Stored, range: ClosedRange<Date>) {
             self.init(
                 start: range.lowerBound, end: range.upperBound, tier: stored.tier,
@@ -219,7 +225,7 @@ struct StoredHistory: Sendable {
         switch tier {
         case .recent:
             return try await recorder.samples(metric, from: start, to: end).map {
-                StoredPoint(time: $0.time, value: $0.value)
+                StoredPoint(time: $0.time, value: $0.value, availability: $0.availability)
             }
         case .day, .month:
             return try await recorder.rollups(metric, tier: tier.rollupTier ?? .day, from: start, to: end).map {
@@ -292,9 +298,14 @@ struct StoredHistory: Sendable {
         switch tier {
         case .recent:
             let samples = points.map {
+                // The state the store wrote travels with the point; a file
+                // saved before availability was kept rebuilds it from value
+                // nil-ness, which the store's writes — a measured or finer
+                // value, or a value-less state the lanes draw as a break —
+                // make exhaustive.
                 HistorySample(
                     metric: metric, time: $0.time, value: $0.value,
-                    availability: $0.value == nil ? .gap : .measured
+                    availability: $0.availability ?? ($0.value == nil ? .gap : .measured)
                 )
             }
             return Series(
@@ -304,14 +315,18 @@ struct StoredHistory: Sendable {
                 }
             )
         case .day, .month:
-            let middle = tier.span / 2
+            // Half the fetched rollup tier's bucket places the maximum mid-bucket.
+            let middle = (tier.rollupTier ?? .day).bucket / 2
             func sample(_ time: Date, _ value: Double) -> HistorySample {
                 HistorySample(metric: metric, time: time, value: value, availability: .measured)
             }
             // A saved bucket missing a field cannot be drawn; skip it.
             let buckets = points.compactMap { point -> (time: Date, minimum: Double, maximum: Double, mean: Double, count: Int)? in
                 guard let minimum = point.minimum, let maximum = point.maximum,
-                      let mean = point.mean, let count = point.count else { return nil }
+                      let mean = point.mean, let count = point.count else {
+                    assertionFailure("a stored bucket at \(point.time) is missing minimum, maximum, mean or count")
+                    return nil
+                }
                 return (point.time, minimum, maximum, mean, count)
             }
             return Series(
