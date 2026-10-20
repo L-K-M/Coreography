@@ -115,6 +115,9 @@ struct AppLedger: Sendable {
     /// process's first interval with traffic has no rate yet and adds nothing.
     /// Energy comes with the process sample itself: a process without an
     /// energy counter adds nothing, and a sample with none covers no energy.
+    /// Coverage is per sample because the counter is: energy comes from the
+    /// same usage read as CPU, so a process missing it misses CPU too and is
+    /// counted the way CPU counts it.
     @discardableResult
     mutating func record(
         _ processes: CapturedProcesses, traffic: CapturedTraffic? = nil, logicalCPUCount: Int?

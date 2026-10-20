@@ -2892,12 +2892,18 @@ private enum RangeText {
     }
 
     private static let joulesPerWattHour = 3600.0
+    private static let wattHoursPerKilowattHour = 1_000.0
 
     /// Joules below one watt-hour, then watt-hours. Example: 5400 J is "1.5 Wh".
     static func energy(_ joules: Double?) -> String {
         guard let joules, joules.isFinite else { return "–" }
-        guard joules >= joulesPerWattHour else { return joules.formatted(.number.precision(.fractionLength(0))) + " J" }
-        return (joules / joulesPerWattHour).formatted(.number.precision(.fractionLength(1))) + " Wh"
+        // Below 10 J one decimal, so a small figure is not shown as 0 J.
+        guard joules >= joulesPerWattHour else {
+            return joules.formatted(.number.precision(.fractionLength(joules < 10 ? 1 : 0))) + " J"
+        }
+        let wattHours = joules / joulesPerWattHour
+        guard wattHours >= wattHoursPerKilowattHour else { return wattHours.formatted(.number.precision(.fractionLength(1))) + " Wh" }
+        return (wattHours / wattHoursPerKilowattHour).formatted(.number.precision(.fractionLength(2))) + " kWh"
     }
 
     static func cpuSeconds(_ value: Double) -> String {

@@ -177,8 +177,8 @@ final class HistoryStoreTests: XCTestCase {
         let today = utc.startOfDay(for: now)
         let tomorrow = today.addingTimeInterval(86_400)
         try await store.append([], ledger: [
-            interval(-12, -10, [entry("Safari", 2, 100, energy: 7)]),
-            interval(-10, 0, [entry("Safari", 3, 50, energy: 11), entry("Mail", 1, 0, lowerBound: true)]),
+            interval(-12, -10, [entry("Safari", 2, 100, energy: 7)], coversEnergy: true),
+            interval(-10, 0, [entry("Safari", 3, 50, energy: 11), entry("Mail", 1, 0, lowerBound: true)], coversEnergy: true),
             interval(6_400, 6_410, [entry("Safari", 4, 0)])
         ], now: now.addingTimeInterval(6_410))
 
