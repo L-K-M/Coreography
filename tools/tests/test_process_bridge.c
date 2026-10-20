@@ -59,6 +59,7 @@ test_invalid_args(void)
     assert(coreo_process_signal(-1, 1, 0, COREO_SIGNAL_KILL) == EINVAL);
     assert(coreo_process_signal(42, 1, 0, 99) == EINVAL);
     assert(coreo_process_signal(42, 1, 0, 0) == EINVAL);
+    assert(coreo_process_signal(42, 1, 0, COREO_SIGNAL_INFO + 1) == EINVAL);
     assert(coreo_process_renice(0, 1, 0, 10) == EINVAL);
     assert(coreo_process_renice(42, 1, 0, COREO_NICE_MAX + 1) == EINVAL);
     assert(coreo_process_renice(42, 1, 0, COREO_NICE_MIN - 1) == EINVAL);
@@ -466,6 +467,9 @@ test_platform(void)
 
     assert(coreo_process_signal(42, 1, 0, COREO_SIGNAL_TERMINATE) == ENOTSUP);
     assert(coreo_process_signal(42, 1, 0, COREO_SIGNAL_STOP) == ENOTSUP);
+    assert(coreo_process_signal(42, 1, 0, COREO_SIGNAL_USER1) == ENOTSUP);
+    assert(coreo_process_signal(42, 1, 0, COREO_SIGNAL_USER2) == ENOTSUP);
+    assert(coreo_process_signal(42, 1, 0, COREO_SIGNAL_INFO) == ENOTSUP);
     assert(coreo_process_renice(42, 1, 0, 10) == ENOTSUP);
 
     /* PID 0 names kernel_task on macOS; it is a valid identity, not EINVAL. */

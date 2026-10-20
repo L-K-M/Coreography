@@ -15,7 +15,7 @@ public enum SampleState: Sendable {
 /// Everything the process menus can do (plan: Quit, Force Quit, Suspend
 /// and Resume, Send Signal, Renice).
 public enum ProcessAction: Hashable, Sendable {
-    case quit, forceQuit, suspend, resume, hangUp, interrupt, lowerPriority
+    case quit, forceQuit, suspend, resume, hangUp, interrupt, user1, user2, info, lowerPriority
 
     /// "Force quit", "Suspend", …: the verb for dialogs and markers.
     public var verb: String {
@@ -26,6 +26,9 @@ public enum ProcessAction: Hashable, Sendable {
         case .resume: "Resume"
         case .hangUp: "Send hang-up to"
         case .interrupt: "Interrupt"
+        case .user1: "Send SIGUSR1 to"
+        case .user2: "Send SIGUSR2 to"
+        case .info: "Send SIGINFO to"
         case .lowerPriority: "Lower the priority of"
         }
     }
@@ -113,6 +116,12 @@ enum ProcessActions {
         case .interrupt:
             if endsSession { consequences.append("This logs you out; unsaved work in every app is lost.") }
             consequences.append("As Control-C: most command-line tools stop.")
+        case .user1, .user2:
+            // Each program defines these itself; left unhandled, they terminate.
+            consequences.append("Its effect is defined by the program; many programs ignore it.")
+            consequences.append("A program that does not handle it terminates, which is the signal's default action.")
+        case .info:
+            consequences.append("Its effect is defined by the program; tools often print status, and most programs ignore it.")
         case .lowerPriority:
             consequences.append("It gets less CPU when others want it; only an administrator can raise it back.")
         }

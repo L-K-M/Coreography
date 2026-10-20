@@ -676,14 +676,17 @@ Implemented:
   with a zero counter has no energy model on that Mac and reads as
   unsupported. Both sum per app and sort the table.
 - More process actions: Suspend and Resume, Send Signal (hang-up,
-  interrupt), Lower Priority (nice 10), Reveal in Finder and Copy as
-  text or JSON join Quit and Force Quit, in the process menu and the
-  inspector. Signals and renice go through the same identity check as
-  Quit and confirm with their consequences; suspending the window
-  server, the login window or Coreography itself is refused, because
-  nothing could resume it. Lower Priority only lowers: a process already
-  at nice 10 or beyond keeps its own value. Hang-up and interrupt on the
-  window server or login window warn that they log you out, as Quit does.
+  interrupt, SIGUSR1, SIGUSR2 and SIGINFO), Lower Priority (nice 10),
+  Reveal in Finder and Copy as text or JSON join Quit and Force Quit,
+  in the process menu and the inspector. Signals and renice go through
+  the same identity check as Quit and confirm with their consequences;
+  suspending the window server, the login window or Coreography itself
+  is refused, because nothing could resume it. Lower Priority only
+  lowers: a process already at nice 10 or beyond keeps its own value.
+  Hang-up and interrupt on the window server or login window warn that
+  they log you out, as Quit does. The user and info signals' effects are
+  defined by the program; the confirmation says a program that does not
+  handle SIGUSR1 or SIGUSR2 terminates, as that is their default action.
   Raising priority again needs an administrator and says so. Sample and
   spindump remain.
 - Saved filters: the current process filter can be kept as a chip

@@ -2042,6 +2042,9 @@ private struct ProcessActionMenu: View {
         Menu("Send Signal") {
             Button("Hang Up (SIGHUP)…") { ask(.hangUp) }
             Button("Interrupt (SIGINT)…") { ask(.interrupt) }
+            Button("User 1 (SIGUSR1)…") { ask(.user1) }
+            Button("User 2 (SIGUSR2)…") { ask(.user2) }
+            Button("Info (SIGINFO)…") { ask(.info) }
         }
         Button("Lower Priority…") { ask(.lowerPriority) }
         Button("Sample for 3 Seconds") { Task { await model.sampleProcess(process) } }
@@ -2073,6 +2076,9 @@ private enum ActionText {
         case .resume: String(localized: "Resume")
         case .hangUp: String(localized: "Send Hang Up")
         case .interrupt: String(localized: "Interrupt")
+        case .user1: String(localized: "Send SIGUSR1")
+        case .user2: String(localized: "Send SIGUSR2")
+        case .info: String(localized: "Send SIGINFO")
         case .lowerPriority: String(localized: "Lower Priority")
         }
     }

@@ -1214,6 +1214,9 @@ public final class DashboardModel {
         case .resume: controller.send(.resume, to: request.target)
         case .hangUp: controller.send(.hangUp, to: request.target)
         case .interrupt: controller.send(.interrupt, to: request.target)
+        case .user1: controller.send(.user1, to: request.target)
+        case .user2: controller.send(.user2, to: request.target)
+        case .info: controller.send(.info, to: request.target)
         case .lowerPriority: controller.lowerPriority(of: request.target)
         }
         switch outcome {
@@ -1614,7 +1617,7 @@ public final class DashboardModel {
         let selected = selectedProcess
         let noSelection = selected == nil ? "Select a process first" : nil
         let name = selected?.name ?? "Selected Process"
-        let actions: [ProcessAction] = [.quit, .forceQuit, .suspend, .resume, .hangUp, .interrupt, .lowerPriority]
+        let actions: [ProcessAction] = [.quit, .forceQuit, .suspend, .resume, .hangUp, .interrupt, .user1, .user2, .info, .lowerPriority]
         entries += actions.map { entry(CommandPalette.processTitle($0, name), .processAction($0), unavailable: noSelection) }
         entries += [
             entry("Sample \(name) for 3 Seconds", .sampleSelected, unavailable: noSelection ?? (sampler == nil ? "Sampling is not available here" : nil)),
