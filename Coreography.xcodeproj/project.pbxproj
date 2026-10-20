@@ -21,10 +21,16 @@
 		A1000000000000000000000E /* DockTile.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000E; };
 		A1000000000000000000000F /* MCPAccessViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000F; };
 		A10000000000000000000007 /* coreo in Helpers */ = {isa = PBXBuildFile; fileRef = A20000000000000000000007; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		A10000000000000000000012 /* HelperViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000012; };
+		A10000000000000000000013 /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000013; };
+		A10000000000000000000014 /* CoreographyHelper in Embed Helper */ = {isa = PBXBuildFile; fileRef = A20000000000000000000014; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		A10000000000000000000015 /* ch.lkmc.Coreography.helper.plist in Embed Launch Daemon */ = {isa = PBXBuildFile; fileRef = A20000000000000000000015; };
+		A10000000000000000000016 /* CoreographyDrivers in Frameworks */ = {isa = PBXBuildFile; productRef = A90000000000000000000004; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
 		A30000000000000000000001 = {isa = PBXContainerItemProxy; containerPortal = A80000000000000000000001; proxyType = 1; remoteGlobalIDString = A70000000000000000000002; remoteInfo = coreo; };
+		A30000000000000000000003 = {isa = PBXContainerItemProxy; containerPortal = A80000000000000000000001; proxyType = 1; remoteGlobalIDString = A70000000000000000000003; remoteInfo = CoreographyHelper; };
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -35,6 +41,24 @@
 			dstSubfolderSpec = 1;
 			files = (A10000000000000000000007, );
 			name = "Embed CLI";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A40000000000000000000009 /* Embed Helper */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = Contents/MacOS;
+			dstSubfolderSpec = 1;
+			files = (A10000000000000000000014, );
+			name = "Embed Helper";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A4000000000000000000000A /* Embed Launch Daemon */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = Contents/Library/LaunchDaemons;
+			dstSubfolderSpec = 1;
+			files = (A10000000000000000000015, );
+			name = "Embed Launch Daemon";
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXCopyFilesBuildPhase section */
@@ -54,36 +78,41 @@
 		A2000000000000000000000D = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandPaletteView.swift; sourceTree = "<group>"; };
 		A2000000000000000000000E = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockTile.swift; sourceTree = "<group>"; };
 		A2000000000000000000000F = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MCPAccessViews.swift; sourceTree = "<group>"; };
+		A20000000000000000000012 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HelperViews.swift; sourceTree = "<group>"; };
+		A20000000000000000000013 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sources/CoreographyHelper/main.swift; sourceTree = SOURCE_ROOT; };
+		A20000000000000000000014 = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = CoreographyHelper; sourceTree = BUILT_PRODUCTS_DIR; };
+		A20000000000000000000015 = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = LaunchDaemons/ch.lkmc.Coreography.helper.plist; sourceTree = "<group>"; };
 		A20000000000000000000007 = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = coreo; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		A40000000000000000000002 = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (A10000000000000000000004, ); runOnlyForDeploymentPostprocessing = 0; };
 		A40000000000000000000005 = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (A10000000000000000000006, ); runOnlyForDeploymentPostprocessing = 0; };
+		A4000000000000000000000B = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (A10000000000000000000016, ); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
 		A50000000000000000000001 = {
 			isa = PBXGroup;
-			children = (A50000000000000000000002, A20000000000000000000005, A50000000000000000000003, );
+			children = (A50000000000000000000002, A20000000000000000000005, A20000000000000000000013, A50000000000000000000003, );
 			sourceTree = "<group>";
 		};
 		A50000000000000000000002 /* App */ = {
 			isa = PBXGroup;
-			children = (A20000000000000000000001, A20000000000000000000002, A20000000000000000000008, A20000000000000000000009, A2000000000000000000000A, A2000000000000000000000B, A2000000000000000000000C, A2000000000000000000000D, A2000000000000000000000E, A2000000000000000000000F, A20000000000000000000003, A20000000000000000000004, );
+			children = (A20000000000000000000001, A20000000000000000000002, A20000000000000000000008, A20000000000000000000009, A2000000000000000000000A, A2000000000000000000000B, A2000000000000000000000C, A2000000000000000000000D, A2000000000000000000000E, A2000000000000000000000F, A20000000000000000000012, A20000000000000000000015, A20000000000000000000003, A20000000000000000000004, );
 			path = App;
 			sourceTree = "<group>";
 		};
-		A50000000000000000000003 /* Products */ = {isa = PBXGroup; children = (A20000000000000000000006, A20000000000000000000007, ); name = Products; sourceTree = "<group>"; };
+		A50000000000000000000003 /* Products */ = {isa = PBXGroup; children = (A20000000000000000000006, A20000000000000000000007, A20000000000000000000014, ); name = Products; sourceTree = "<group>"; };
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
 		A70000000000000000000001 /* Coreography */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = AB0000000000000000000002;
-			buildPhases = (A40000000000000000000001, A40000000000000000000002, A40000000000000000000003, A40000000000000000000007, );
+			buildPhases = (A40000000000000000000001, A40000000000000000000002, A40000000000000000000003, A40000000000000000000007, A40000000000000000000009, A4000000000000000000000A, );
 			buildRules = ();
-			dependencies = (A30000000000000000000002, );
+			dependencies = (A30000000000000000000002, A30000000000000000000004, );
 			name = Coreography;
 			packageProductDependencies = (A90000000000000000000001, );
 			productName = Coreography;
@@ -102,6 +131,18 @@
 			productReference = A20000000000000000000007;
 			productType = "com.apple.product-type.tool";
 		};
+		A70000000000000000000003 /* CoreographyHelper */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = AB0000000000000000000004;
+			buildPhases = (A40000000000000000000008, A4000000000000000000000B, );
+			buildRules = ();
+			dependencies = ();
+			name = CoreographyHelper;
+			packageProductDependencies = (A90000000000000000000004, );
+			productName = CoreographyHelper;
+			productReference = A20000000000000000000014;
+			productType = "com.apple.product-type.tool";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -118,7 +159,7 @@
 			productRefGroup = A50000000000000000000003;
 			projectDirPath = "";
 			projectRoot = "";
-			targets = (A70000000000000000000001, A70000000000000000000002, );
+			targets = (A70000000000000000000001, A70000000000000000000002, A70000000000000000000003, );
 		};
 /* End PBXProject section */
 
@@ -127,12 +168,14 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
-		A40000000000000000000001 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (A10000000000000000000001, A10000000000000000000002, A10000000000000000000008, A10000000000000000000009, A1000000000000000000000A, A1000000000000000000000B, A1000000000000000000000C, A1000000000000000000000D, A1000000000000000000000E, A1000000000000000000000F, ); runOnlyForDeploymentPostprocessing = 0; };
+		A40000000000000000000001 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (A10000000000000000000001, A10000000000000000000002, A10000000000000000000008, A10000000000000000000009, A1000000000000000000000A, A1000000000000000000000B, A1000000000000000000000C, A1000000000000000000000D, A1000000000000000000000E, A1000000000000000000000F, A10000000000000000000012, ); runOnlyForDeploymentPostprocessing = 0; };
 		A40000000000000000000004 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (A10000000000000000000005, ); runOnlyForDeploymentPostprocessing = 0; };
+		A40000000000000000000008 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (A10000000000000000000013, ); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
 		A30000000000000000000002 = {isa = PBXTargetDependency; target = A70000000000000000000002; targetProxy = A30000000000000000000001; };
+		A30000000000000000000004 = {isa = PBXTargetDependency; target = A70000000000000000000003; targetProxy = A30000000000000000000003; };
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
@@ -171,12 +214,15 @@
 		AA0000000000000000000004 /* App Release */ = {isa = XCBuildConfiguration; buildSettings = {CODE_SIGN_IDENTITY = "-"; CODE_SIGN_STYLE = Manual; ENABLE_APP_SANDBOX = NO; ENABLE_HARDENED_RUNTIME = YES; INFOPLIST_FILE = App/Info.plist; PRODUCT_BUNDLE_IDENTIFIER = ch.lkmc.Coreography; PRODUCT_NAME = Coreography; }; name = Release; };
 		AA0000000000000000000005 /* CLI Debug */ = {isa = XCBuildConfiguration; buildSettings = {CODE_SIGN_IDENTITY = "-"; CODE_SIGN_STYLE = Manual; CREATE_INFOPLIST_SECTION_IN_BINARY = YES; GENERATE_INFOPLIST_FILE = YES; PRODUCT_BUNDLE_IDENTIFIER = ch.lkmc.Coreography.coreo; PRODUCT_NAME = coreo; SKIP_INSTALL = YES; }; name = Debug; };
 		AA0000000000000000000006 /* CLI Release */ = {isa = XCBuildConfiguration; buildSettings = {CODE_SIGN_IDENTITY = "-"; CODE_SIGN_STYLE = Manual; CREATE_INFOPLIST_SECTION_IN_BINARY = YES; GENERATE_INFOPLIST_FILE = YES; PRODUCT_BUNDLE_IDENTIFIER = ch.lkmc.Coreography.coreo; PRODUCT_NAME = coreo; SKIP_INSTALL = YES; }; name = Release; };
+		AA0000000000000000000007 /* Helper Debug */ = {isa = XCBuildConfiguration; buildSettings = {CODE_SIGN_IDENTITY = "-"; CODE_SIGN_STYLE = Manual; CREATE_INFOPLIST_SECTION_IN_BINARY = YES; ENABLE_HARDENED_RUNTIME = YES; GENERATE_INFOPLIST_FILE = YES; PRODUCT_BUNDLE_IDENTIFIER = ch.lkmc.Coreography.helper; PRODUCT_NAME = CoreographyHelper; SKIP_INSTALL = YES; }; name = Debug; };
+		AA0000000000000000000008 /* Helper Release */ = {isa = XCBuildConfiguration; buildSettings = {CODE_SIGN_IDENTITY = "-"; CODE_SIGN_STYLE = Manual; CREATE_INFOPLIST_SECTION_IN_BINARY = YES; ENABLE_HARDENED_RUNTIME = YES; GENERATE_INFOPLIST_FILE = YES; PRODUCT_BUNDLE_IDENTIFIER = ch.lkmc.Coreography.helper; PRODUCT_NAME = CoreographyHelper; SKIP_INSTALL = YES; }; name = Release; };
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
 		AB0000000000000000000001 = {isa = XCConfigurationList; buildConfigurations = (AA0000000000000000000001, AA0000000000000000000002, ); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
 		AB0000000000000000000002 = {isa = XCConfigurationList; buildConfigurations = (AA0000000000000000000003, AA0000000000000000000004, ); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
 		AB0000000000000000000003 = {isa = XCConfigurationList; buildConfigurations = (AA0000000000000000000005, AA0000000000000000000006, ); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+		AB0000000000000000000004 = {isa = XCConfigurationList; buildConfigurations = (AA0000000000000000000007, AA0000000000000000000008, ); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
@@ -186,6 +232,7 @@
 /* Begin XCSwiftPackageProductDependency section */
 		A90000000000000000000001 = {isa = XCSwiftPackageProductDependency; package = A90000000000000000000003; productName = CoreographyServices; };
 		A90000000000000000000002 = {isa = XCSwiftPackageProductDependency; package = A90000000000000000000003; productName = CoreographyServices; };
+		A90000000000000000000004 = {isa = XCSwiftPackageProductDependency; package = A90000000000000000000003; productName = CoreographyDrivers; };
 /* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = A80000000000000000000001;

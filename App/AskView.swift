@@ -98,6 +98,7 @@ struct SettingsView: View {
     @Bindable var model: DashboardModel
     let mcpAccess: MCPAccess
     @Bindable var hud: HUDController
+    let helperAccess: HelperAccess
     @State private var key = ""
     @State private var message: String?
     @State private var confirmingDelete = false
@@ -136,6 +137,7 @@ struct SettingsView: View {
                     }
             }
             MCPAccessSection(access: mcpAccess)
+            HelperSection(access: helperAccess)
             Section("Alerts") {
                 ForEach(model.alertRules) { rule in
                     Picker(rule.title, selection: Binding(

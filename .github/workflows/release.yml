@@ -53,7 +53,8 @@ jobs:
       - name: Verify universal slices
         run: |
           for bin in dist/Coreography.app/Contents/MacOS/Coreography \
-                     dist/Coreography.app/Contents/Helpers/coreo; do
+                     dist/Coreography.app/Contents/Helpers/coreo \
+                     dist/Coreography.app/Contents/MacOS/CoreographyHelper; do
             arches="$(lipo -archs "$bin")"
             echo "$bin: $arches"
             for want in arm64 x86_64; do

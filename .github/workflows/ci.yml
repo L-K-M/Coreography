@@ -152,7 +152,8 @@ jobs:
       - name: Verify universal slices
         run: |
           for bin in dist/Coreography.app/Contents/MacOS/Coreography \
-                     dist/Coreography.app/Contents/Helpers/coreo; do
+                     dist/Coreography.app/Contents/Helpers/coreo \
+                     dist/Coreography.app/Contents/MacOS/CoreographyHelper; do
             arches="$(lipo -archs "$bin")"
             echo "$bin: $arches"
             for want in arm64 x86_64; do
@@ -177,6 +178,21 @@ jobs:
             grep -rqa "$intent" "$metadata" || { echo "::error::$intent is not in the intent metadata"; exit 1; }
           done
           ls -R "$metadata"
+
+      # An ad-hoc build has no team ID to check clients against, so the
+      # helper must refuse to listen rather than trust any caller.
+      - name: Verify the privileged helper fails closed
+        run: |
+          set -euo pipefail
+          APP=dist/Coreography.app
+          plist="$APP/Contents/Library/LaunchDaemons/ch.lkmc.Coreography.helper.plist"
+          program=$(/usr/libexec/PlistBuddy -c 'Print :BundleProgram' "$plist")
+          test -x "$APP/$program" || { echo "::error::BundleProgram $program is not in the bundle"; exit 1; }
+          /usr/libexec/PlistBuddy -c 'Print :MachServices:ch.lkmc.Coreography.helper' "$plist"
+          if "$APP/$program" 2> "$RUNNER_TEMP/helper.err"; then
+            echo "::error::the ad-hoc helper started listening"; exit 1
+          fi
+          grep -q "not listening" "$RUNNER_TEMP/helper.err" || { cat "$RUNNER_TEMP/helper.err"; exit 1; }
 
       - name: Smoke-test embedded CLI
         run: |
