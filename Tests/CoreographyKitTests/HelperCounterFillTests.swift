@@ -6,14 +6,14 @@ import XCTest
 final class HelperCounterFillTests: XCTestCase {
     private static let team = "AB12CD34EF"
 
-    func testHandlerReadsEachPositivePIDOnce() throws {
+    func testHandlerReadsEachPositivePIDOnce() async throws {
         let reads = ReadLog()
         let handler = HelperRequestHandler(readCounters: {
             reads.record($0)
             return $0 == 7 ? nil : Self.counters(pid: $0)
         })
         let reply = try HelperWire.decode(
-            HelperReply.self, from: handler.reply(to: HelperWire.encode(HelperRequest.processCounters(pids: [9, 7, 3, 9])))
+            HelperReply.self, from: await handler.reply(to: HelperWire.encode(HelperRequest.processCounters(pids: [9, 7, 3, 9])))
         )
         XCTAssertEqual(reply, .processCounters([Self.counters(pid: 3), Self.counters(pid: 9)]), "sorted, unique, exited ones left out")
         XCTAssertEqual(reads.pids, [3, 7, 9], "each PID read once")
@@ -28,7 +28,7 @@ final class HelperCounterFillTests: XCTestCase {
         ]
         for (pids, reason) in cases {
             let reply = try HelperWire.decode(
-                HelperReply.self, from: handler.reply(to: HelperWire.encode(HelperRequest.processCounters(pids: pids)))
+                HelperReply.self, from: await handler.reply(to: HelperWire.encode(HelperRequest.processCounters(pids: pids)))
             )
             XCTAssertEqual(reply, .refused(reason), "\(pids.prefix(2))")
         }
@@ -219,7 +219,7 @@ private struct Answering: HelperTransport {
         handler = HelperRequestHandler(readCounters: { pid in entries.first { $0.pid == pid } })
     }
 
-    func exchange(_ message: Data) async throws -> Data { handler.reply(to: message) }
+    func exchange(_ message: Data) async throws -> Data { await handler.reply(to: message) }
 }
 
 private final class Registration: HelperRegistering, @unchecked Sendable {

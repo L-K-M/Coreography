@@ -21,15 +21,55 @@ public enum HelperRequest: HelperMessage, Equatable {
     /// Counters of processes the app may not read itself, such as other
     /// users'. Only numbers come back: no names, paths or arguments.
     case processCounters(pids: [Int32])
+    /// Open file paths of exactly these processes; a reused PID reads nothing.
+    case openFiles(processes: [HelperProcessIdentity])
+    /// TCP and UDP sockets of exactly these processes.
+    case sockets(processes: [HelperProcessIdentity])
+}
+
+/// A process as the app saw it: the start time tells a reused PID apart.
+public struct HelperProcessIdentity: Codable, Hashable, Sendable {
+    public let pid: Int32
+    public let startSeconds: UInt64
+    public let startMicroseconds: UInt64
+
+    public init(pid: Int32, startSeconds: UInt64, startMicroseconds: UInt64) {
+        self.pid = pid
+        self.startSeconds = startSeconds
+        self.startMicroseconds = startMicroseconds
+    }
+}
+
+public struct HelperProcessFiles: Codable, Equatable, Sendable {
+    public let process: HelperProcessIdentity
+    public let files: RawProcessFiles
+
+    public init(process: HelperProcessIdentity, files: RawProcessFiles) {
+        self.process = process
+        self.files = files
+    }
+}
+
+public struct HelperProcessSockets: Codable, Equatable, Sendable {
+    public let process: HelperProcessIdentity
+    public let sockets: RawProcessSockets
+
+    public init(process: HelperProcessIdentity, sockets: RawProcessSockets) {
+        self.process = process
+        self.sockets = sockets
+    }
 }
 
 public enum HelperReply: HelperMessage, Equatable {
-    /// Room for every process at a few hundred bytes each.
+    /// Room for every process's counters, or a descriptor batch of long paths.
     public static let maximumBytes = 8 * 1024 * 1024
 
     case hello(protocolVersion: Int)
     /// One entry per process the helper could read; exited ones are left out.
     case processCounters([IdentifiedProcessCounters])
+    /// One entry per process read; exited, reused or unreadable ones are left out.
+    case openFiles([HelperProcessFiles])
+    case sockets([HelperProcessSockets])
     /// The helper read the message but will not act on it.
     case refused(String)
 }
@@ -46,9 +86,12 @@ public enum HelperWire {
     public static let daemonPlistName = "ch.lkmc.Coreography.helper.plist"
     public static let appIdentifier = "ch.lkmc.Coreography"
     public static let helperIdentifier = "ch.lkmc.Coreography.helper"
-    public static let protocolVersion = 2
+    public static let protocolVersion = 3
     /// More PIDs per request are refused; a Mac rarely runs this many processes.
     public static let maximumPIDs = 4096
+    /// Processes per descriptor request: each may hold hundreds of paths,
+    /// so a batch stays well inside the reply limit.
+    public static let maximumDescriptorProcesses = 16
 
     public static func encode(_ value: some Encodable) -> Data {
         // Encoding these plain enums cannot fail; an empty message is refused as malformed.
@@ -81,12 +124,30 @@ public enum HelperWire {
 /// becomes a refusal the app can show; nothing is executed on its behalf.
 public struct HelperRequestHandler: Sendable {
     private let readCounters: @Sendable (Int32) -> IdentifiedProcessCounters?
+    private let readFiles: @Sendable (HelperProcessIdentity) async -> RawProcessFiles?
+    private let readSockets: @Sendable (HelperProcessIdentity) async -> RawProcessSockets?
 
-    public init() { self.init(readCounters: ProcessStatisticsDriver.identifiedCounters) }
+    public init() {
+        let files = ProcessFileDriver()
+        let sockets = ProcessSocketDriver()
+        self.init(
+            readCounters: ProcessStatisticsDriver.identifiedCounters,
+            readFiles: { try? await files.files(pid: $0.pid, startSeconds: $0.startSeconds, startMicroseconds: $0.startMicroseconds).get() },
+            readSockets: { try? await sockets.sockets(pid: $0.pid, startSeconds: $0.startSeconds, startMicroseconds: $0.startMicroseconds).get() }
+        )
+    }
 
-    init(readCounters: @escaping @Sendable (Int32) -> IdentifiedProcessCounters?) { self.readCounters = readCounters }
+    init(
+        readCounters: @escaping @Sendable (Int32) -> IdentifiedProcessCounters? = { _ in nil },
+        readFiles: @escaping @Sendable (HelperProcessIdentity) async -> RawProcessFiles? = { _ in nil },
+        readSockets: @escaping @Sendable (HelperProcessIdentity) async -> RawProcessSockets? = { _ in nil }
+    ) {
+        self.readCounters = readCounters
+        self.readFiles = readFiles
+        self.readSockets = readSockets
+    }
 
-    public func reply(to message: Data) -> Data {
+    public func reply(to message: Data) async -> Data {
         let request: HelperRequest
         do {
             request = try HelperWire.decode(HelperRequest.self, from: message)
@@ -108,6 +169,38 @@ public struct HelperRequestHandler: Sendable {
                 return HelperWire.encode(HelperReply.refused("A process ID must be positive."))
             }
             return HelperWire.encode(HelperReply.processCounters(Set(pids).sorted().compactMap(readCounters)))
+        case .openFiles(let processes):
+            if let refusal = Self.refusal(processes) { return refusal }
+            var read: [HelperProcessFiles] = []
+            for process in Self.unique(processes) {
+                guard let files = await readFiles(process) else { continue }
+                read.append(HelperProcessFiles(process: process, files: files))
+            }
+            return HelperWire.encode(HelperReply.openFiles(read))
+        case .sockets(let processes):
+            if let refusal = Self.refusal(processes) { return refusal }
+            var read: [HelperProcessSockets] = []
+            for process in Self.unique(processes) {
+                guard let sockets = await readSockets(process) else { continue }
+                read.append(HelperProcessSockets(process: process, sockets: sockets))
+            }
+            return HelperWire.encode(HelperReply.sockets(read))
         }
+    }
+
+    private static func refusal(_ processes: [HelperProcessIdentity]) -> Data? {
+        guard processes.count <= HelperWire.maximumDescriptorProcesses else {
+            return HelperWire.encode(HelperReply.refused("At most \(HelperWire.maximumDescriptorProcesses) processes per request."))
+        }
+        guard processes.allSatisfy({ $0.pid > 0 }) else {
+            return HelperWire.encode(HelperReply.refused("A process ID must be positive."))
+        }
+        return nil
+    }
+
+    /// In first-seen order, each process once.
+    private static func unique(_ processes: [HelperProcessIdentity]) -> [HelperProcessIdentity] {
+        var seen: Set<HelperProcessIdentity> = []
+        return processes.filter { seen.insert($0).inserted }
     }
 }

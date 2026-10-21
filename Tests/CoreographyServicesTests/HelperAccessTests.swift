@@ -59,5 +59,5 @@ private final class Registration: HelperRegistering, @unchecked Sendable {
 }
 
 private struct Hello: HelperTransport {
-    func exchange(_ message: Data) async throws -> Data { HelperRequestHandler().reply(to: message) }
+    func exchange(_ message: Data) async throws -> Data { await HelperRequestHandler().reply(to: message) }
 }

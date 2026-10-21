@@ -40,6 +40,10 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
   after the store first exceeds it.
 
 ### Added
+- With the privileged helper installed, open files, ports and
+  connections of other users' processes appear in the inspector, the
+  Connections tab, `file:`, `port:` and `#listening`, and the Shortcuts
+  holder lookups.
 - With the privileged helper installed, other users' processes show CPU,
   memory, disk, energy and thread counts instead of "restricted". The
   helper returns only numbers, for the PIDs and start times asked about.

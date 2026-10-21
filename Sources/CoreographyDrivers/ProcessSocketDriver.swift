@@ -7,12 +7,12 @@ import CoreographySystem
 import Glibc
 #endif
 
-public enum SocketTransport: Sendable {
+public enum SocketTransport: String, Codable, Sendable {
     case tcp, udp
 }
 
 /// One internet socket as the kernel described it.
-public struct RawSocket: Equatable, Sendable {
+public struct RawSocket: Codable, Equatable, Sendable {
     public let descriptor: Int32
     public let transport: SocketTransport
     /// xnu `TSI_S_*` numbering; nil for UDP.
@@ -37,7 +37,7 @@ public struct RawSocket: Equatable, Sendable {
     }
 }
 
-public struct RawProcessSockets: Equatable, Sendable {
+public struct RawProcessSockets: Codable, Equatable, Sendable {
     public let sockets: [RawSocket]
     /// The process held more internet sockets than one read keeps.
     public let truncated: Bool

@@ -19,22 +19,18 @@ final class PrivilegedHelperTests: XCTestCase {
         }
     }
 
-    func testHandlerAnswersHelloAndRefusesAnythingElse() throws {
+    func testHandlerAnswersHelloAndRefusesAnythingElse() async throws {
         let handler = HelperRequestHandler()
-        XCTAssertEqual(
-            try HelperWire.decode(HelperReply.self, from: handler.reply(to: HelperWire.encode(HelperRequest.hello))),
-            .hello(protocolVersion: HelperWire.protocolVersion)
-        )
+        let hello = try HelperWire.decode(HelperReply.self, from: await handler.reply(to: HelperWire.encode(HelperRequest.hello)))
+        XCTAssertEqual(hello, .hello(protocolVersion: HelperWire.protocolVersion))
 
         let unknown = Data(#"{"run":{"path":"/bin/sh","arguments":["-c","id"]}}"#.utf8)
-        guard case .refused = try HelperWire.decode(HelperReply.self, from: handler.reply(to: unknown)) else {
+        guard case .refused = try HelperWire.decode(HelperReply.self, from: await handler.reply(to: unknown)) else {
             return XCTFail("an unknown request must be refused")
         }
         let huge = Data(repeating: 0x20, count: HelperRequest.maximumBytes + 1)
-        XCTAssertEqual(
-            try HelperWire.decode(HelperReply.self, from: handler.reply(to: huge)),
-            .refused("The request is larger than \(HelperRequest.maximumBytes) bytes.")
-        )
+        let tooLarge = try HelperWire.decode(HelperReply.self, from: await handler.reply(to: huge))
+        XCTAssertEqual(tooLarge, .refused("The request is larger than \(HelperRequest.maximumBytes) bytes."))
     }
 
     func testStateFollowsRegistrationThenTheHello() async {
@@ -97,7 +93,7 @@ private final class Registration: HelperRegistering, @unchecked Sendable {
 
 /// Answers the way the real handler does.
 private struct Answer: HelperTransport {
-    func exchange(_ message: Data) async throws -> Data { HelperRequestHandler().reply(to: message) }
+    func exchange(_ message: Data) async throws -> Data { await HelperRequestHandler().reply(to: message) }
 }
 
 private struct Reply: HelperTransport {
