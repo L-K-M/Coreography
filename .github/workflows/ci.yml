@@ -188,7 +188,11 @@ jobs:
           plist="$APP/Contents/Library/LaunchDaemons/ch.lkmc.Coreography.helper.plist"
           program=$(/usr/libexec/PlistBuddy -c 'Print :BundleProgram' "$plist")
           test -x "$APP/$program" || { echo "::error::BundleProgram $program is not in the bundle"; exit 1; }
-          /usr/libexec/PlistBuddy -c 'Print :MachServices:ch.lkmc.Coreography.helper' "$plist"
+          mach=$(/usr/libexec/PlistBuddy -c 'Print :MachServices:ch.lkmc.Coreography.helper' "$plist")
+          test "$mach" = true || { echo "::error::MachServices entry is '$mach', expected true"; exit 1; }
+          # The app connects to the helper only under this identifier.
+          app_identifier=$(codesign --display --verbose=2 "$APP" 2>&1 | sed -n 's/^Identifier=//p')
+          test "$app_identifier" = ch.lkmc.Coreography || { echo "::error::app identifier is '$app_identifier'"; exit 1; }
           identifier=$(codesign --display --verbose=2 "$APP/$program" 2>&1 | sed -n 's/^Identifier=//p')
           test "$identifier" = ch.lkmc.Coreography.helper || { echo "::error::helper identifier is '$identifier'"; exit 1; }
           # Bounded: a helper that listens would never exit on its own.

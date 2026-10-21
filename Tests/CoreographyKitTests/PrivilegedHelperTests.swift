@@ -30,10 +30,10 @@ final class PrivilegedHelperTests: XCTestCase {
         guard case .refused = try HelperWire.decode(HelperReply.self, from: handler.reply(to: unknown)) else {
             return XCTFail("an unknown request must be refused")
         }
-        let huge = Data(repeating: 0x20, count: HelperWire.maximumMessageBytes + 1)
+        let huge = Data(repeating: 0x20, count: HelperRequest.maximumBytes + 1)
         XCTAssertEqual(
             try HelperWire.decode(HelperReply.self, from: handler.reply(to: huge)),
-            .refused("The request is larger than \(HelperWire.maximumMessageBytes) bytes.")
+            .refused("The request is larger than \(HelperRequest.maximumBytes) bytes.")
         )
     }
 

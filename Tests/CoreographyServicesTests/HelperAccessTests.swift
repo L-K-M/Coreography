@@ -33,6 +33,7 @@ final class HelperAccessTests: XCTestCase {
         XCTAssertEqual(access.state, .needsSignedBuild)
         XCTAssertEqual(access.problem, "This build is not signed with a Developer ID, so macOS will not run the helper.")
         XCTAssertEqual(registration.settingsOpened, 0)
+        XCTAssertEqual(registration.status(), .notRegistered, "nothing was registered")
     }
 }
 

@@ -18,15 +18,20 @@ public final class HelperAccess {
 
     @ObservationIgnored private let helper: PrivilegedHelper
 
-    public convenience init() { self.init(helper: PrivilegedHelper()) }
+    public convenience init() { self.init(helper: .shared) }
 
     init(helper: PrivilegedHelper) { self.helper = helper }
 
-    public func refresh() async { state = await helper.state() }
+    /// A refresh cancelled midway, as when Settings closes, keeps the last state.
+    public func refresh() async {
+        let fresh = await helper.state()
+        guard !Task.isCancelled else { return }
+        state = fresh
+    }
 
     /// Registers the helper, then opens Login Items when macOS waits for approval.
     public func install() async {
-        await run { () async throws(HelperFailure) in try await self.helper.install() }
+        guard await run({ () async throws(HelperFailure) in try await self.helper.install() }) else { return }
         if state == .awaitingApproval { await helper.openApprovalSettings() }
     }
 
@@ -34,8 +39,10 @@ public final class HelperAccess {
 
     public func openApprovalSettings() async { await helper.openApprovalSettings() }
 
-    private func run(_ change: @escaping () async throws(HelperFailure) -> Void) async {
-        guard !isBusy else { return }
+    /// False when another change is still running, so this one did nothing.
+    @discardableResult
+    private func run(_ change: @escaping () async throws(HelperFailure) -> Void) async -> Bool {
+        guard !isBusy else { return false }
         isBusy = true
         defer { isBusy = false }
 
@@ -46,6 +53,7 @@ public final class HelperAccess {
             problem = Self.message(error)
         }
         await refresh()
+        return true
     }
 
     private static func message(_ failure: HelperFailure) -> String {

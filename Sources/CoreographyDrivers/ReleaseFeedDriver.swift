@@ -18,8 +18,9 @@ public protocol ReleaseFeedFetching: Sendable {
     func fetchLatest() async throws -> ReleaseFeedReply
 }
 
-/// GETs the newest published release from the GitHub REST API. The
-/// request carries no identifiers beyond what any HTTPS request does.
+/// GETs the newest published release from the GitHub REST API. Besides
+/// the address, GitHub sees only URLSession's default User-Agent, which
+/// names the app and its version and the macOS version.
 public struct GitHubReleaseDriver: ReleaseFeedFetching {
     /// `/releases/latest` skips drafts and prereleases.
     private static let endpoint = URL(string: "https://api.github.com/repos/L-K-M/Coreography/releases/latest")!

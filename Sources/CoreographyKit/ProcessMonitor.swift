@@ -32,7 +32,12 @@ public actor ProcessMonitor {
     /// counter means the CPU or VM keeps none, not an idle process.
     private var instructionCounters = CounterPresence.absent
 
-    public init() throws { try self.init(driver: ProcessStatisticsDriver(), gpuClients: GPUClientDriver()) }
+    public init() throws {
+        try self.init(
+            driver: HelperCounterFill(base: ProcessStatisticsDriver(), helper: .shared),
+            gpuClients: GPUClientDriver()
+        )
+    }
 
     init(
         driver: any ProcessSampleReading, gpuClients: any GPUClientTimeReading = GPUClientDriver(),
