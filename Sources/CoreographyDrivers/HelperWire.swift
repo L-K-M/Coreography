@@ -25,6 +25,21 @@ public enum HelperRequest: HelperMessage, Equatable {
     case openFiles(processes: [HelperProcessIdentity])
     /// TCP and UDP sockets of exactly these processes.
     case sockets(processes: [HelperProcessIdentity])
+    /// A signal to exactly this process, after the app's own attempt was
+    /// refused and the person confirmed it.
+    case signal(process: HelperProcessIdentity, signal: HelperSignal)
+    /// A new nice value for exactly this process, -20 to 20.
+    case renice(process: HelperProcessIdentity, niceValue: Int32)
+}
+
+/// The signals the helper sends, named by intent: nothing else can be asked for.
+public enum HelperSignal: String, Codable, Sendable {
+    case terminate, kill, suspend, resume, hangUp, interrupt, user1, user2, info
+}
+
+/// Why the helper's action did not happen.
+public enum HelperActionFailure: String, Codable, Error, Sendable {
+    case exited, identityChanged, notPermitted, invalidTarget, failed
 }
 
 /// A process as the app saw it: the start time tells a reused PID apart.
@@ -70,6 +85,8 @@ public enum HelperReply: HelperMessage, Equatable {
     /// One entry per process read; exited, reused or unreadable ones are left out.
     case openFiles([HelperProcessFiles])
     case sockets([HelperProcessSockets])
+    case actionDone
+    case actionFailed(HelperActionFailure)
     /// The helper read the message but will not act on it.
     case refused(String)
 }
@@ -86,12 +103,14 @@ public enum HelperWire {
     public static let daemonPlistName = "ch.lkmc.Coreography.helper.plist"
     public static let appIdentifier = "ch.lkmc.Coreography"
     public static let helperIdentifier = "ch.lkmc.Coreography.helper"
-    public static let protocolVersion = 3
+    public static let protocolVersion = 4
     /// More PIDs per request are refused; a Mac rarely runs this many processes.
     public static let maximumPIDs = 4096
     /// Processes per descriptor request: each may hold hundreds of paths,
     /// so a batch stays well inside the reply limit.
     public static let maximumDescriptorProcesses = 16
+    /// setpriority's range.
+    public static let niceRange: ClosedRange<Int32> = -20...20
 
     public static func encode(_ value: some Encodable) -> Data {
         // Encoding these plain enums cannot fail; an empty message is refused as malformed.
@@ -126,25 +145,58 @@ public struct HelperRequestHandler: Sendable {
     private let readCounters: @Sendable (Int32) -> IdentifiedProcessCounters?
     private let readFiles: @Sendable (HelperProcessIdentity) async -> RawProcessFiles?
     private let readSockets: @Sendable (HelperProcessIdentity) async -> RawProcessSockets?
+    private let sendSignal: @Sendable (HelperProcessIdentity, HelperSignal) -> Result<Void, ProcessControlError>
+    private let setNice: @Sendable (HelperProcessIdentity, Int32) -> Result<Void, ProcessControlError>
+    /// The helper never signals itself.
+    private let ownPID: Int32
 
     public init() {
         let files = ProcessFileDriver()
         let sockets = ProcessSocketDriver()
+        let control = ProcessControlDriver()
         self.init(
             readCounters: ProcessStatisticsDriver.identifiedCounters,
             readFiles: { try? await files.files(pid: $0.pid, startSeconds: $0.startSeconds, startMicroseconds: $0.startMicroseconds).get() },
-            readSockets: { try? await sockets.sockets(pid: $0.pid, startSeconds: $0.startSeconds, startMicroseconds: $0.startMicroseconds).get() }
+            readSockets: { try? await sockets.sockets(pid: $0.pid, startSeconds: $0.startSeconds, startMicroseconds: $0.startMicroseconds).get() },
+            sendSignal: { Self.send($1, to: $0, with: control) },
+            setNice: { control.renice(pid: $0.pid, startSeconds: $0.startSeconds, startMicroseconds: $0.startMicroseconds, to: $1) },
+            ownPID: ProcessInfo.processInfo.processIdentifier
         )
     }
 
     init(
         readCounters: @escaping @Sendable (Int32) -> IdentifiedProcessCounters? = { _ in nil },
         readFiles: @escaping @Sendable (HelperProcessIdentity) async -> RawProcessFiles? = { _ in nil },
-        readSockets: @escaping @Sendable (HelperProcessIdentity) async -> RawProcessSockets? = { _ in nil }
+        readSockets: @escaping @Sendable (HelperProcessIdentity) async -> RawProcessSockets? = { _ in nil },
+        sendSignal: @escaping @Sendable (HelperProcessIdentity, HelperSignal) -> Result<Void, ProcessControlError> = { _, _ in .failure(.unsupportedPlatform) },
+        setNice: @escaping @Sendable (HelperProcessIdentity, Int32) -> Result<Void, ProcessControlError> = { _, _ in .failure(.unsupportedPlatform) },
+        ownPID: Int32 = ProcessInfo.processInfo.processIdentifier
     ) {
         self.readCounters = readCounters
         self.readFiles = readFiles
         self.readSockets = readSockets
+        self.sendSignal = sendSignal
+        self.setNice = setNice
+        self.ownPID = ownPID
+    }
+
+    private static func send(
+        _ signal: HelperSignal, to process: HelperProcessIdentity, with control: ProcessControlDriver
+    ) -> Result<Void, ProcessControlError> {
+        let (pid, seconds, micro) = (process.pid, process.startSeconds, process.startMicroseconds)
+        let intent: ProcessSignal
+        switch signal {
+        case .terminate: return control.terminateBySignal(pid: pid, startSeconds: seconds, startMicroseconds: micro, mode: .graceful)
+        case .kill: return control.terminateBySignal(pid: pid, startSeconds: seconds, startMicroseconds: micro, mode: .forced)
+        case .suspend: intent = .suspend
+        case .resume: intent = .resume
+        case .hangUp: intent = .hangUp
+        case .interrupt: intent = .interrupt
+        case .user1: intent = .user1
+        case .user2: intent = .user2
+        case .info: intent = .info
+        }
+        return control.send(intent, pid: pid, startSeconds: seconds, startMicroseconds: micro)
     }
 
     public func reply(to message: Data) async -> Data {
@@ -185,7 +237,42 @@ public struct HelperRequestHandler: Sendable {
                 read.append(HelperProcessSockets(process: process, sockets: sockets))
             }
             return Self.fitting(read, HelperReply.sockets)
+        case .signal(let process, let signal):
+            if let refusal = actionRefusal(process) { return refusal }
+            return Self.encode(sendSignal(process, signal))
+        case .renice(let process, let niceValue):
+            if let refusal = actionRefusal(process) { return refusal }
+            guard HelperWire.niceRange.contains(niceValue) else {
+                return HelperWire.encode(HelperReply.refused("A nice value must be between -20 and 20."))
+            }
+            return Self.encode(setNice(process, niceValue))
         }
+    }
+
+    /// The kernel, launchd and the helper itself are never acted on: ending
+    /// launchd brings the whole Mac down. Listed in the window, they can be
+    /// asked for, so this is an answer about the target, not a refusal of
+    /// the request, which the app would read as an outdated helper.
+    private func actionRefusal(_ process: HelperProcessIdentity) -> Data? {
+        guard process.pid > Self.launchdPID, process.pid != ownPID else {
+            return HelperWire.encode(HelperReply.actionFailed(.invalidTarget))
+        }
+        return nil
+    }
+
+    private static let launchdPID: Int32 = 1
+
+    private static func encode(_ result: Result<Void, ProcessControlError>) -> Data {
+        let failure: HelperActionFailure
+        switch result {
+        case .success: return HelperWire.encode(HelperReply.actionDone)
+        case .failure(.exited): failure = .exited
+        case .failure(.identityChanged): failure = .identityChanged
+        case .failure(.notPermitted), .failure(.needsAdministrator): failure = .notPermitted
+        case .failure(.invalidTarget): failure = .invalidTarget
+        case .failure(.unsupportedPlatform), .failure(.refusedByApp), .failure(.systemCall): failure = .failed
+        }
+        return HelperWire.encode(HelperReply.actionFailed(failure))
     }
 
     private static func refusal(_ processes: [HelperProcessIdentity]) -> Data? {

@@ -40,6 +40,10 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
   after the store first exceeds it.
 
 ### Added
+- With the privileged helper installed, Quit, Force Quit, Suspend, the
+  other signals and Lower Priority also work on other users' processes
+  after macOS refuses Coreography's own request. Quit is then a plain
+  SIGTERM. The helper never acts on the kernel, launchd or itself.
 - With the privileged helper installed, open files, ports and
   connections of other users' processes appear in the inspector, the
   Connections tab, `file:`, `port:` and `#listening`, and the Shortcuts

@@ -113,6 +113,34 @@ final class ProcessActionsTests: XCTestCase {
         XCTAssertTrue(model.copyJSON(for: worker).contains("\"name\" : \"Worker\""))
     }
 
+    func testARefusalForPermissionIsRetriedThroughTheHelper() async throws {
+        let signaler = RecordingSignaler(results: [.failure(.notPermitted)])
+        let answering = PrivilegedHelper(registration: StubRegistration(), transport: HelperAnswer(.actionDone), teamID: "AB12CD34EF")
+        let model = DashboardModel(
+            monitor: try SystemMonitor(driver: NoHostDriver()), interval: .seconds(1),
+            controller: ProcessController(driver: RecordingDriver(results: []), signaler: signaler, helper: answering)
+        )
+        let other = try process(pid: 300, name: "Daemon", start: 55)
+
+        model.perform(model.actionRequest(for: other, action: .suspend))
+        for _ in 0..<200 where model.markers.isEmpty || model.actionMessage == nil { try await Task.sleep(for: .milliseconds(5)) }
+        XCTAssertEqual(model.markers.map(\.label), ["Suspend Daemon"])
+        XCTAssertEqual(model.actionMessage, "Suspend Daemon (PID 300): requested through the privileged helper")
+
+        // Without an installed helper the app's own refusal stands.
+        let absent = PrivilegedHelper(registration: StubRegistration(isEnabled: false), transport: HelperAnswer(.actionDone), teamID: "AB12CD34EF")
+        let ownSignaler = RecordingSignaler(results: [.failure(.notPermitted)])
+        let refused = DashboardModel(
+            monitor: try SystemMonitor(driver: NoHostDriver()), interval: .seconds(1),
+            controller: ProcessController(driver: RecordingDriver(results: []), signaler: ownSignaler, helper: absent)
+        )
+        refused.perform(refused.actionRequest(for: other, action: .suspend))
+        for _ in 0..<200 where refused.actionMessage == nil { try await Task.sleep(for: .milliseconds(5)) }
+        XCTAssertEqual(refused.actionMessage, "Daemon: Not permitted: the process belongs to another user or is protected")
+        XCTAssertTrue(refused.markers.isEmpty)
+        XCTAssertEqual(ownSignaler.calls.count, 1, "one own attempt, nothing more")
+    }
+
     func testUserAndInfoSignalsGoByIdentity() async throws {
         let signaler = RecordingSignaler(results: [.success(()), .success(()), .success(())])
         let model = DashboardModel(
@@ -234,4 +262,18 @@ private actor NoHostDriver: HostSampleReading {
             thermalPressure: .failure(.unsupportedPlatform)
         )
     }
+}
+
+private struct StubRegistration: HelperRegistering {
+    var isEnabled = true
+    func status() -> HelperRegistrationStatus { isEnabled ? .enabled : .notRegistered }
+    func register() throws {}
+    func unregister() async throws {}
+    func openApprovalSettings() {}
+}
+
+private struct HelperAnswer: HelperTransport {
+    let reply: HelperReply
+    init(_ reply: HelperReply) { self.reply = reply }
+    func exchange(_ message: Data) async throws -> Data { HelperWire.encode(reply) }
 }

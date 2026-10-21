@@ -92,6 +92,22 @@ public struct ProcessControlDriver: ProcessTerminating {
     #endif
 }
 
+extension ProcessControlDriver {
+    /// Ends a process by signal only, never through AppKit: for the
+    /// privileged helper, which has no session to ask an app to quit in.
+    public func terminateBySignal(
+        pid: Int32, startSeconds: UInt64, startMicroseconds: UInt64, mode: ProcessTermination
+    ) -> Result<Void, ProcessControlError> {
+        #if os(macOS)
+        let kind = mode == .forced ? Int32(COREO_SIGNAL_KILL) : Int32(COREO_SIGNAL_TERMINATE)
+        let status = coreo_process_signal(pid, startSeconds, startMicroseconds, kind)
+        return status == 0 ? .success(()) : .failure(Self.error(status))
+        #else
+        return .failure(.unsupportedPlatform)
+        #endif
+    }
+}
+
 extension ProcessControlDriver: ProcessSignaling {
     public func send(
         _ signal: ProcessSignal, pid: Int32, startSeconds: UInt64, startMicroseconds: UInt64
