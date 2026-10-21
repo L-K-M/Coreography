@@ -43,6 +43,9 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
 - With the privileged helper installed, other users' processes show CPU,
   memory, disk, energy and thread counts instead of "restricted". The
   helper returns only numbers, for the PIDs and start times asked about.
+- Settings > Updates checks GitHub for a newer release at launch and
+  daily, and links to it; a new version is announced once. Coreography never
+  downloads or installs anything itself.
 - Settings > Privileged helper installs, removes and shows the state of
   an optional root helper registered with launchd. It answers only a
   version handshake so far, connects only to code of the same Developer

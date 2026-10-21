@@ -98,6 +98,7 @@ struct SettingsView: View {
     @Bindable var model: DashboardModel
     let mcpAccess: MCPAccess
     @Bindable var hud: HUDController
+    let updates: UpdateChecker
     let helperAccess: HelperAccess
     @State private var key = ""
     @State private var message: String?
@@ -137,6 +138,7 @@ struct SettingsView: View {
                     }
             }
             MCPAccessSection(access: mcpAccess)
+            UpdatesSection(updates: updates)
             HelperSection(access: helperAccess)
             Section("Alerts") {
                 ForEach(model.alertRules) { rule in
