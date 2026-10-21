@@ -88,15 +88,21 @@ final class HelperCounterFillTests: XCTestCase {
         XCTAssertEqual(asked, [])
     }
 
-    func testARefusalKeepsAsking() async {
+    func testAnOutdatedHelpersRefusalIsAskedAgainOnlyAfterAMinute() async {
         let refusing = Refusing()
-        let helper = Self.helper(refusing)
+        let clock = Clock()
+        let helper = PrivilegedHelper(registration: Registration(.enabled), transport: refusing, teamID: Self.team, now: clock.now)
+
         let first = await helper.counters(for: [3])
-        let second = await helper.counters(for: [3])
-        XCTAssertEqual(first, [])
-        XCTAssertEqual(second, [])
-        let asked = await refusing.count
-        XCTAssertEqual(asked, 2, "an answering helper is not put on a quiet minute")
+        XCTAssertNil(first)
+        clock.advance(.seconds(59))
+        _ = await helper.counters(for: [3])
+        var asked = await refusing.count
+        XCTAssertEqual(asked, 1, "quiet within the minute")
+        clock.advance(.seconds(2))
+        _ = await helper.counters(for: [3])
+        asked = await refusing.count
+        XCTAssertEqual(asked, 2)
     }
 
     func testOnlyTheTeamSignedAppAsks() async {

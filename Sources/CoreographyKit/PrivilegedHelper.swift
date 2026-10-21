@@ -98,9 +98,9 @@ public actor PrivilegedHelper {
 
         switch await send(.processCounters(pids: Array(pids.prefix(HelperWire.maximumPIDs)))) {
         case .reply(.processCounters(let counters)): return counters
-        // Answering, just not for these processes: no reason to go quiet.
-        case .reply(.refused): return []
-        case .reply(.hello), .failed: return unavailable()
+        // The app sends only positive PIDs within the cap, so a refusal comes
+        // from a helper of an older protocol, which will not change its answer.
+        case .reply(.refused), .reply(.hello), .failed: return unavailable()
         }
     }
 
