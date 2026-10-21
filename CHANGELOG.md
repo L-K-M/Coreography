@@ -40,6 +40,10 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
   after the store first exceeds it.
 
 ### Added
+- Settings > Privileged helper installs, removes and shows the state of
+  an optional root helper registered with launchd. It answers only a
+  version handshake so far, connects only to code of the same Developer
+  ID team, and cannot be installed from ad-hoc builds.
 - An English string catalog, so translations can be added later.
 - History keeps each Apple Silicon cluster kind's activity and frequency:
   efficiency and performance series per frame, folded to core-weighted

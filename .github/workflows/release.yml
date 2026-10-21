@@ -50,10 +50,14 @@ jobs:
       - name: Build universal app (ad-hoc signed)
         run: COREO_ARCH=universal ./scripts/assemble-app.sh
 
+      - name: Verify the helper's launch daemon definition
+        run: plutil -lint dist/Coreography.app/Contents/Library/LaunchDaemons/ch.lkmc.Coreography.helper.plist
+
       - name: Verify universal slices
         run: |
           for bin in dist/Coreography.app/Contents/MacOS/Coreography \
-                     dist/Coreography.app/Contents/Helpers/coreo; do
+                     dist/Coreography.app/Contents/Helpers/coreo \
+                     dist/Coreography.app/Contents/MacOS/CoreographyHelper; do
             arches="$(lipo -archs "$bin")"
             echo "$bin: $arches"
             for want in arm64 x86_64; do

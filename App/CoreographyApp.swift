@@ -12,6 +12,7 @@ private struct CoreographyApp: App {
     private let dockTile: DockTileController
     private let mcpAccess: MCPAccess
     private let mcpApproval: MCPApprovalPresenter
+    private let helperAccess = HelperAccess()
 
     /// One sampler for every surface, running from launch, so the menu bar
     /// extra stays live while the window is closed.
@@ -75,7 +76,7 @@ private struct CoreographyApp: App {
         .menuBarExtraStyle(.window)
 
         Settings {
-            SettingsView(model: dashboard, mcpAccess: mcpAccess, hud: hud)
+            SettingsView(model: dashboard, mcpAccess: mcpAccess, hud: hud, helperAccess: helperAccess)
         }
     }
 }
