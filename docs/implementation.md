@@ -863,6 +863,7 @@ outstanding. The store, MCP and model features above await stack delivery.
 | Native network MIB, wide-counter mapping and three-lane UI | Passed at `e62fac1`, including native C fixtures, live CLI and both executable architectures; integrated candidate pending |
 | Native IOKit storage counters and four-lane renderer | Passed [native CI](https://github.com/L-K-M/Coreography/actions/runs/39110306993) at `6434722`: 75 tests, 16 drivers, 32 measured rate fields, no inventory issues; owner checks pending |
 | On-disk history store and recorder | History slice: 148 Swift tests pass on Linux against the real system SQLite (round trip with gaps, duplicates, retention, reopen, permissions, WAL, batching); native CI checks the CLI and file permissions |
+| Notify-only update check | 442 Swift tests pass on Linux (tag parsing and ordering, failures mapped, foreign links refused, one notification per version, none from a manual check, the saved switch); the Settings section compiles only in native CI and a real GitHub answer is an owner check |
 | Privileged helper foundation | 431 Swift tests pass on Linux (the requirement pins team and identifier and refuses malformed team IDs, unknown and oversized requests are refused, state follows registration then the hello, an unsigned build never registers, install opens Login Items); native CI builds the helper into the bundle and checks that the ad-hoc helper refuses to listen. Installing needs a Developer ID build and is unverified |
 | Cluster sub-band | 307 Swift tests pass on Linux (cells reaching the next sample, breaks not bridged, holes for missing readings, clamped shares); the strip compiles only in native CI and its look is an owner check |
 | Low Power Mode cadence | 306 Swift tests pass on Linux (the cadence following the mode both ways, the interval doubling); reading the flag and the note compile only in native CI; behaviour with Low Power Mode on is an owner check |
@@ -930,7 +931,7 @@ outstanding. The store, MCP and model features above await stack delivery.
 | Native executable paths, responsibility lookup and grouped table | App-grouping slice: 88 Swift tests pass on Linux, including a fail-first regression for bundle-less owners combining unrelated apps; current native CI pending |
 | Native swap/pressure sysctls, memory composition and stacked lane | Passed [native CI](https://github.com/L-K-M/Coreography/actions/runs/39112973077) at `1274ff0`: 83 tests including real sysctl reads, and the snapshot gate's composition sum |
 | CPU, memory and wakeup budgets | In-app readout of own CPU and footprint against budget (111 Swift tests pass on Linux); wakeups and S2 measurements pending |
-| Developer ID, notarization and signed update delivery | Pending credentials and M7 |
+| Developer ID and notarization | Pending credentials; the owner chose ad-hoc builds for now (2026-10-20) |
 
 Portable tests use declared fixtures. They do not validate private APIs,
 sensor calibration, fullscreen behavior or Mac energy overhead.
@@ -950,7 +951,7 @@ implemented and listed above; native behavior still awaits the
 | M4 | `log show` sleep and wake import; `pmset` history covers sleep and wake today |
 | M5 | What needs the privileged helper, now installable from Settings in Developer ID builds: other users' processes, spindump, not-responding detection, login and background items, raising priority, exit status. Separately, connections grouped by domain |
 | M6 / S9 | Frame rate: `metalperftrace` capture, the HUD's frame-rate slot, FPS in sessions and the performance view |
-| M7 | Translations (English only for now), integration, soak and performance checks, the updater, Developer ID signing and notarized releases |
+| M7 | Translations (English only for now), integration, soak and performance checks, Developer ID signing and notarized releases |
 | Deferred by the plan | Desktop widget, Control Center control, per-file tracing, ES launch timeline, Prometheus export, Wi-Fi details |
 
 ## Owner Mac checks
@@ -1164,6 +1165,10 @@ empty virtual-machine inventory does not validate hardware rates.
 
 ## Review decisions carried forward
 
+- Updates are notify-only by owner decision (2026-10-20), replacing the
+  plan's Sparkle: Coreography checks GitHub's latest release at launch
+  and daily, links to its page and never downloads or installs anything
+  itself.
 - The privileged helper is opt-in from Settings by owner decision
   (2026-10-20). Builds stay ad-hoc signed for now, and macOS runs a
   launch daemon only from a properly signed app, so these builds show

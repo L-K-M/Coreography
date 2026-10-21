@@ -40,6 +40,9 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
   after the store first exceeds it.
 
 ### Added
+- Settings > Updates checks GitHub for a newer release at launch and
+  daily, and links to it; a new version is announced once. Coreography never
+  downloads or installs anything itself.
 - Settings > Privileged helper installs, removes and shows the state of
   an optional root helper registered with launchd. It answers only a
   version handshake so far, connects only to code of the same Developer
