@@ -35,11 +35,27 @@ final class HelperDescriptorTests: XCTestCase {
             (tooMany, "At most \(HelperWire.maximumDescriptorProcesses) processes per request.")
         ]
         for (processes, reason) in cases {
-            let reply = try HelperWire.decode(
-                HelperReply.self, from: await handler.reply(to: HelperWire.encode(HelperRequest.sockets(processes: processes)))
-            )
-            XCTAssertEqual(reply, .refused(reason))
+            for request in [HelperRequest.openFiles(processes: processes), .sockets(processes: processes)] {
+                let reply = try HelperWire.decode(HelperReply.self, from: await handler.reply(to: HelperWire.encode(request)))
+                XCTAssertEqual(reply, .refused(reason), "\(request)".prefix(40).description)
+            }
         }
+    }
+
+    func testAReplyTooLargeKeepsTheProcessesThatFit() async throws {
+        // 512 paths near PATH_MAX per process: 16 of them pass the reply limit.
+        let long = String(repeating: "x", count: 1023)
+        let handler = HelperRequestHandler(readFiles: { _ in RawProcessFiles(paths: Array(repeating: long, count: 512), truncated: false) })
+        let processes = (1...Int32(HelperWire.maximumDescriptorProcesses)).map {
+            HelperProcessIdentity(pid: $0, startSeconds: 1, startMicroseconds: 0)
+        }
+
+        let message = await handler.reply(to: HelperWire.encode(HelperRequest.openFiles(processes: processes)))
+        XCTAssertLessThanOrEqual(message.count, HelperReply.maximumBytes)
+        guard case .openFiles(let kept) = try HelperWire.decode(HelperReply.self, from: message) else { return XCTFail("files expected") }
+        XCTAssertFalse(kept.isEmpty)
+        XCTAssertLessThan(kept.count, processes.count)
+        XCTAssertEqual(kept.map(\.process), Array(processes.prefix(kept.count)), "the first ones are kept")
     }
 
     func testAFullCounterRequestFitsTheRequestLimit() {
@@ -66,6 +82,7 @@ final class HelperDescriptorTests: XCTestCase {
         let helper = PrivilegedHelper(registration: Enabled(), transport: Recording(), teamID: Self.team)
 
         let files = await OpenFileMonitor(driver: OwnFilesOnly(), helper: helper).sample(snapshot)
+        XCTAssertEqual(files.files[snapshot.processes[0].id], ["/Users/me/a"], "the app's own read is kept; the helper only fills gaps")
         XCTAssertEqual(files.files[snapshot.processes[1].id], ["/helper/11"])
         XCTAssertEqual(files.restrictedProcesses, 0)
         let inspected = await OpenFileMonitor(driver: OwnFilesOnly(), helper: helper).files(of: snapshot.processes[1])

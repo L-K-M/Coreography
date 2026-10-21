@@ -110,15 +110,14 @@ public actor ConnectionMonitor {
             }
         }
         var asked = Dictionary(restricted.map { ($0.id.helperIdentity, $0) }, uniquingKeysWith: { first, _ in first })
-        var filled = 0
         for read in await helper?.sockets(of: restricted.map(\.id.helperIdentity)) ?? [] {
             guard let process = asked.removeValue(forKey: read.process) else { continue }
             connections += read.sockets.sockets.map { Self.reading($0, of: process) }
             if read.sockets.truncated { truncated += 1 }
-            filled += 1
         }
         return ConnectionSnapshot(
-            takenAt: time, connections: connections, restrictedProcesses: restricted.count - filled,
+            takenAt: time, connections: connections,
+            restrictedProcesses: restricted.count(where: { asked[$0.id.helperIdentity] != nil }),
             truncatedProcesses: truncated, failedProcesses: failed, unavailableReason: nil
         )
     }

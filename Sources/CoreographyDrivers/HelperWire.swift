@@ -176,7 +176,7 @@ public struct HelperRequestHandler: Sendable {
                 guard let files = await readFiles(process) else { continue }
                 read.append(HelperProcessFiles(process: process, files: files))
             }
-            return HelperWire.encode(HelperReply.openFiles(read))
+            return Self.fitting(read, HelperReply.openFiles)
         case .sockets(let processes):
             if let refusal = Self.refusal(processes) { return refusal }
             var read: [HelperProcessSockets] = []
@@ -184,7 +184,7 @@ public struct HelperRequestHandler: Sendable {
                 guard let sockets = await readSockets(process) else { continue }
                 read.append(HelperProcessSockets(process: process, sockets: sockets))
             }
-            return HelperWire.encode(HelperReply.sockets(read))
+            return Self.fitting(read, HelperReply.sockets)
         }
     }
 
@@ -196,6 +196,18 @@ public struct HelperRequestHandler: Sendable {
             return HelperWire.encode(HelperReply.refused("A process ID must be positive."))
         }
         return nil
+    }
+
+    /// The reply with as many entries as fit the reply limit: 16 processes of
+    /// 512 long paths each can exceed it. Those left out stay restricted.
+    private static func fitting<Entry>(_ entries: [Entry], _ reply: ([Entry]) -> HelperReply) -> Data {
+        var kept = entries
+        var message = HelperWire.encode(reply(kept))
+        while message.count > HelperReply.maximumBytes, !kept.isEmpty {
+            kept.removeLast()
+            message = HelperWire.encode(reply(kept))
+        }
+        return message
     }
 
     /// In first-seen order, each process once.
