@@ -22,7 +22,12 @@ public final class HelperAccess {
 
     init(helper: PrivilegedHelper) { self.helper = helper }
 
-    public func refresh() async { state = await helper.state() }
+    /// A refresh cancelled midway, as when Settings closes, keeps the last state.
+    public func refresh() async {
+        let fresh = await helper.state()
+        guard !Task.isCancelled else { return }
+        state = fresh
+    }
 
     /// Registers the helper, then opens Login Items when macOS waits for approval.
     public func install() async {

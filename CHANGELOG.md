@@ -40,6 +40,9 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
   after the store first exceeds it.
 
 ### Added
+- With the privileged helper installed, other users' processes show CPU,
+  memory, disk, energy and thread counts instead of "restricted". The
+  helper returns only numbers, for the PIDs and start times asked about.
 - Settings > Privileged helper installs, removes and shows the state of
   an optional root helper registered with launchd. It answers only a
   version handshake so far, connects only to code of the same Developer

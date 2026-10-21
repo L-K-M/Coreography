@@ -863,6 +863,7 @@ outstanding. The store, MCP and model features above await stack delivery.
 | Native network MIB, wide-counter mapping and three-lane UI | Passed at `e62fac1`, including native C fixtures, live CLI and both executable architectures; integrated candidate pending |
 | Native IOKit storage counters and four-lane renderer | Passed [native CI](https://github.com/L-K-M/Coreography/actions/runs/39110306993) at `6434722`: 75 tests, 16 drivers, 32 measured rate fields, no inventory issues; owner checks pending |
 | On-disk history store and recorder | History slice: 148 Swift tests pass on Linux against the real system SQLite (round trip with gaps, duplicates, retention, reopen, permissions, WAL, batching); native CI checks the CLI and file permissions |
+| Other users' processes through the helper | 436 Swift tests pass on Linux (each positive PID read once, PID 0, negative and oversized lists refused, a restricted row filled only for the same start time and with the helper's read time, an unavailable helper asked again only after a minute, the CLI and unsigned builds never asking, a full reply within the limit); reading as root needs an installed helper and is unverified |
 | Privileged helper foundation | 431 Swift tests pass on Linux (the requirement pins team and identifier and refuses malformed team IDs, unknown and oversized requests are refused, state follows registration then the hello, an unsigned build never registers, install opens Login Items); native CI builds the helper into the bundle and checks that the ad-hoc helper refuses to listen. Installing needs a Developer ID build and is unverified |
 | Cluster sub-band | 307 Swift tests pass on Linux (cells reaching the next sample, breaks not bridged, holes for missing readings, clamped shares); the strip compiles only in native CI and its look is an owner check |
 | Low Power Mode cadence | 306 Swift tests pass on Linux (the cadence following the mode both ways, the interval doubling); reading the flag and the note compile only in native CI; behaviour with Low Power Mode on is an owner check |
@@ -948,7 +949,7 @@ implemented and listed above; native behavior still awaits the
 | M2 | Chip profiles as bundled data rather than code, voltage sensors, GPU frequency detail |
 | M3 | Audio graphs beyond the chart descriptors; an opt-in 60 Hz redraw |
 | M4 | `log show` sleep and wake import; `pmset` history covers sleep and wake today |
-| M5 | What needs the privileged helper, now installable from Settings in Developer ID builds: other users' processes, spindump, not-responding detection, login and background items, raising priority, exit status. Separately, connections grouped by domain |
+| M5 | What else needs the privileged helper, installable from Settings in Developer ID builds (other users' process counters are done): spindump, not-responding detection, login and background items, raising priority, exit status. Separately, connections grouped by domain |
 | M6 / S9 | Frame rate: `metalperftrace` capture, the HUD's frame-rate slot, FPS in sessions and the performance view |
 | M7 | Translations (English only for now), integration, soak and performance checks, the updater, Developer ID signing and notarized releases |
 | Deferred by the plan | Desktop widget, Control Center control, per-file tracing, ES launch timeline, Prometheus export, Wi-Fi details |

@@ -25,19 +25,34 @@ public enum HelperFailure: Error, Equatable, Sendable {
 /// The optional root helper: registration through launchd and the typed
 /// requests it answers. Declining it costs only restricted readings.
 public actor PrivilegedHelper {
+    /// How long to stay quiet after the helper was found unavailable, so a
+    /// declined helper costs one status check a minute, not one per sample.
+    private static let unavailableBackoff: Duration = .seconds(60)
+
     private let registration: any HelperRegistering
     private let transport: any HelperTransport
     private let isTeamSigned: Bool
+    /// Only the app may connect; the helper refuses the CLI's identifier anyway.
+    private let isApp: Bool
+    private var quietUntil: ContinuousClock.Instant?
+    private var enabledUntil: ContinuousClock.Instant?
 
     public init() {
-        let teamID = CodeSignatureReader.signing(path: Bundle.main.executablePath ?? "").teamID
-        self.init(registration: HelperRegistrationDriver(), transport: HelperXPCDriver(teamID: teamID), teamID: teamID)
+        let signing = CodeSignatureReader.signing(path: Bundle.main.executablePath ?? "")
+        self.init(
+            registration: HelperRegistrationDriver(), transport: HelperXPCDriver(teamID: signing.teamID),
+            teamID: signing.teamID, identifier: signing.identifier
+        )
     }
 
-    init(registration: any HelperRegistering, transport: any HelperTransport, teamID: String?) {
+    init(
+        registration: any HelperRegistering, transport: any HelperTransport, teamID: String?,
+        identifier: String? = HelperWire.appIdentifier
+    ) {
         self.registration = registration
         self.transport = transport
         isTeamSigned = HelperWire.peerRequirement(identifier: HelperWire.appIdentifier, teamID: teamID) != nil
+        isApp = identifier == HelperWire.appIdentifier
     }
 
     /// Registration first; an enabled helper must also answer a hello in the expected version.
@@ -55,8 +70,33 @@ public actor PrivilegedHelper {
         case .reply(.hello(let version)) where version == HelperWire.protocolVersion: return .ready
         case .reply(.hello(let version)): return .outdated(protocolVersion: version)
         case .reply(.refused(let reason)): return .notResponding(reason)
+        case .reply(.processCounters): return .notResponding("Its answer did not match the request.")
         case .failed(let reason): return .notResponding(reason)
         }
+    }
+
+    /// Counters for processes the app cannot read itself; nil while the
+    /// helper is not installed, approved and answering.
+    func counters(for pids: [Int32]) async -> [IdentifiedProcessCounters]? {
+        guard isTeamSigned, isApp, !pids.isEmpty else { return nil }
+        if let quietUntil, ContinuousClock.now < quietUntil { return nil }
+
+        // The registration is read again at most once a minute.
+        if enabledUntil.map({ ContinuousClock.now >= $0 }) ?? true {
+            guard registration.status() == .enabled else { return unavailable() }
+            enabledUntil = .now + Self.unavailableBackoff
+        }
+
+        guard case .reply(.processCounters(let counters)) = await send(.processCounters(pids: pids)) else {
+            return unavailable()
+        }
+        return counters
+    }
+
+    private func unavailable() -> [IdentifiedProcessCounters]? {
+        quietUntil = .now + Self.unavailableBackoff
+        enabledUntil = nil
+        return nil
     }
 
     /// Registers the daemon; macOS then asks the person to approve it in Login Items.

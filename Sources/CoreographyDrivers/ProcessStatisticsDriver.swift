@@ -16,7 +16,7 @@ public enum ProcessDriverError: Error, Equatable, Sendable {
 
 /// The QoS classes rusage_info_v6 splits a process's CPU time across,
 /// most user-visible first, matching the bridge's COREO_QOS_* order.
-public enum ProcessQoSClass: String, CaseIterable, Sendable {
+public enum ProcessQoSClass: String, CaseIterable, Codable, Sendable {
     case userInteractive
     case userInitiated
     case `default`
@@ -27,7 +27,7 @@ public enum ProcessQoSClass: String, CaseIterable, Sendable {
     case legacy
 }
 
-public struct ProcessCounters: Equatable, Sendable {
+public struct ProcessCounters: Codable, Equatable, Sendable {
     public let userNanoseconds: UInt64
     public let systemNanoseconds: UInt64
     public let physicalFootprintBytes: UInt64
@@ -225,15 +225,7 @@ public actor ProcessStatisticsDriver: ProcessSampleReading {
             }
             let counters: Result<ProcessCounters, ProcessDriverError>
             if sample.usage_error == 0 {
-                counters = .success(ProcessCounters(
-                    userNanoseconds: sample.user_nanoseconds,
-                    systemNanoseconds: sample.system_nanoseconds,
-                    physicalFootprintBytes: sample.physical_footprint_bytes,
-                    diskReadBytes: sample.disk_read_bytes, diskWriteBytes: sample.disk_write_bytes,
-                    wakeups: sample.wakeups, energyNanojoules: sample.energy_nanojoules,
-                    instructions: sample.instructions,
-                    qosNanoseconds: Self.qosNanoseconds(sample.qos_cpu_nanoseconds)
-                ))
+                counters = .success(Self.counters(sample))
             } else {
                 counters = .failure(Self.failure(sample.usage_error, operation: "proc_pid_rusage"))
             }
@@ -290,6 +282,18 @@ public actor ProcessStatisticsDriver: ProcessSampleReading {
         return .success(type)
     }
 
+    private static func counters(_ sample: coreo_process_sample) -> ProcessCounters {
+        ProcessCounters(
+            userNanoseconds: sample.user_nanoseconds,
+            systemNanoseconds: sample.system_nanoseconds,
+            physicalFootprintBytes: sample.physical_footprint_bytes,
+            diskReadBytes: sample.disk_read_bytes, diskWriteBytes: sample.disk_write_bytes,
+            wakeups: sample.wakeups, energyNanojoules: sample.energy_nanojoules,
+            instructions: sample.instructions,
+            qosNanoseconds: qosNanoseconds(sample.qos_cpu_nanoseconds)
+        )
+    }
+
     /// Tuple positions follow the COREO_QOS_* order the header documents.
     private static func qosNanoseconds(
         _ values: (UInt64, UInt64, UInt64, UInt64, UInt64, UInt64, UInt64)
@@ -321,4 +325,47 @@ public actor ProcessStatisticsDriver: ProcessSampleReading {
         }
     }
     #endif
+}
+
+/// One process's counters read by PID, as the privileged helper returns
+/// them: the start time lets the app confirm it is the process it asked
+/// about, and the read time keeps its rates exact.
+public struct IdentifiedProcessCounters: Codable, Equatable, Sendable {
+    public let pid: Int32
+    public let startSeconds: UInt64
+    public let startMicroseconds: UInt64
+    public let monotonicNanoseconds: UInt64
+    public let counters: ProcessCounters
+    /// Nil when the task port stayed closed, as for some protected processes.
+    public let threads: Int?
+
+    public init(
+        pid: Int32, startSeconds: UInt64, startMicroseconds: UInt64, monotonicNanoseconds: UInt64,
+        counters: ProcessCounters, threads: Int?
+    ) {
+        self.pid = pid
+        self.startSeconds = startSeconds
+        self.startMicroseconds = startMicroseconds
+        self.monotonicNanoseconds = monotonicNanoseconds
+        self.counters = counters
+        self.threads = threads
+    }
+}
+
+extension ProcessStatisticsDriver {
+    /// Reads one process with the caller's rights; nil when even those do
+    /// not reach its counters, or when it has exited.
+    public static func identifiedCounters(pid: Int32) -> IdentifiedProcessCounters? {
+        #if os(macOS)
+        var sample = coreo_process_sample()
+        guard coreo_process_read(pid, &sample) == 0, sample.usage_error == 0 else { return nil }
+        return IdentifiedProcessCounters(
+            pid: pid, startSeconds: sample.start_seconds, startMicroseconds: sample.start_microseconds,
+            monotonicNanoseconds: DispatchTime.now().uptimeNanoseconds, counters: counters(sample),
+            threads: sample.threads_error == 0 ? Int(sample.threads) : nil
+        )
+        #else
+        return nil
+        #endif
+    }
 }
