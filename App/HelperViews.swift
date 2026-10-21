@@ -21,8 +21,10 @@ struct HelperSection: View {
                 .font(.caption).foregroundStyle(.secondary)
         }
         .task { await access.refresh() }
-        // Approving happens in System Settings; read the state again on return.
+        // Approving happens in System Settings; read the state again on return,
+        // unless an install or removal is running and will refresh when done.
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            guard !access.isBusy else { return }
             Task { await access.refresh() }
         }
     }
