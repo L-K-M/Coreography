@@ -24,7 +24,7 @@ final class HelperActionTests: XCTestCase {
 
         for pid: Int32 in [0, 1, 400] {
             reply = try await Self.reply(handler, .signal(process: HelperProcessIdentity(pid: pid, startSeconds: 5, startMicroseconds: 0), signal: .terminate))
-            XCTAssertEqual(reply, .refused("The helper does not act on this process."), "PID \(pid)")
+            XCTAssertEqual(reply, .actionFailed(.invalidTarget), "PID \(pid)")
         }
         reply = try await Self.reply(handler, .renice(process: Self.other, niceValue: 21))
         XCTAssertEqual(reply, .refused("A nice value must be between -20 and 20."))
@@ -53,6 +53,20 @@ final class HelperActionTests: XCTestCase {
         ])
 
         XCTAssertFalse(ProcessController(driver: Refusing(), signaler: Refusing()).canAskHelper)
+    }
+
+    func testAProtectedTargetDoesNotSilenceTheHelper() async throws {
+        // A Force Quit of launchd is refused by the helper itself, which is still answering.
+        let launchd = try ProcessIdentity(pid: 1, startSeconds: 5, startMicroseconds: 0)
+        let transport = RealHandler()
+        let helper = PrivilegedHelper(registration: Enabled(), transport: transport, teamID: Self.team)
+        let controller = ProcessController(driver: Refusing(), signaler: Refusing(), helper: helper)
+
+        let quit = await controller.terminateThroughHelper(launchd, mode: .forced)
+        XCTAssertEqual(quit, .failed(reason: "This process cannot be targeted"))
+        _ = await helper.counters(for: [300])
+        let asked = await transport.count
+        XCTAssertEqual(asked, 2, "the next request still goes to the helper")
     }
 
     func testAnAnswerOfTheWrongKindStartsTheQuietMinute() async {
@@ -84,6 +98,17 @@ private actor Acting: HelperTransport {
     func exchange(_ message: Data) async throws -> Data {
         requests.append(try HelperWire.decode(HelperRequest.self, from: message))
         return HelperWire.encode(HelperReply.actionDone)
+    }
+}
+
+/// The helper's real request handling, with no process to act on.
+private actor RealHandler: HelperTransport {
+    private let handler = HelperRequestHandler(ownPID: 400)
+    private(set) var count = 0
+
+    func exchange(_ message: Data) async throws -> Data {
+        count += 1
+        return await handler.reply(to: message)
     }
 }
 

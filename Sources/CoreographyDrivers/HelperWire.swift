@@ -250,10 +250,12 @@ public struct HelperRequestHandler: Sendable {
     }
 
     /// The kernel, launchd and the helper itself are never acted on: ending
-    /// launchd brings the whole Mac down.
+    /// launchd brings the whole Mac down. Listed in the window, they can be
+    /// asked for, so this is an answer about the target, not a refusal of
+    /// the request, which the app would read as an outdated helper.
     private func actionRefusal(_ process: HelperProcessIdentity) -> Data? {
         guard process.pid > Self.launchdPID, process.pid != ownPID else {
-            return HelperWire.encode(HelperReply.refused("The helper does not act on this process."))
+            return HelperWire.encode(HelperReply.actionFailed(.invalidTarget))
         }
         return nil
     }
