@@ -78,12 +78,19 @@ verify_arches() {
 echo "==> Verifying architectures…"
 verify_arches "$APP_DST/Contents/MacOS/Coreography"
 verify_arches "$APP_DST/Contents/Helpers/coreo"
+verify_arches "$APP_DST/Contents/MacOS/CoreographyHelper"
+HELPER_PLIST="$APP_DST/Contents/Library/LaunchDaemons/ch.lkmc.Coreography.helper.plist"
+[[ -f "$HELPER_PLIST" ]] || die "the helper's launch daemon definition is missing."
+plutil -lint "$HELPER_PLIST" >/dev/null || die "the helper's launch daemon definition is malformed."
 
-# Sign inside-out: the helper first, then the bundle seals it. Ad-hoc ("-") only;
+# Sign inside-out: the helpers first, then the bundle seals them. Ad-hoc ("-") only;
 # there are no Developer ID / notary credentials for this project. --options
 # runtime keeps the hardened runtime the project enables at build time.
-echo "==> Ad-hoc signing (helper, then bundle)…"
+echo "==> Ad-hoc signing (helpers, then bundle)…"
 codesign --force --options runtime --sign - "$APP_DST/Contents/Helpers/coreo"
+# The app pins this identifier, so it is stated rather than derived.
+codesign --force --options runtime --identifier ch.lkmc.Coreography.helper \
+  --sign - "$APP_DST/Contents/MacOS/CoreographyHelper"
 codesign --force --options runtime --sign - "$APP_DST"
 codesign --verify --deep --strict --verbose=1 "$APP_DST"
 

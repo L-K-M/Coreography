@@ -12,6 +12,7 @@ private struct CoreographyApp: App {
     private let dockTile: DockTileController
     private let mcpAccess: MCPAccess
     private let mcpApproval: MCPApprovalPresenter
+    private let helperAccess = HelperAccess()
     private let updates: UpdateChecker
 
     /// One sampler for every surface, running from launch, so the menu bar
@@ -78,7 +79,7 @@ private struct CoreographyApp: App {
         .menuBarExtraStyle(.window)
 
         Settings {
-            SettingsView(model: dashboard, mcpAccess: mcpAccess, hud: hud, updates: updates)
+            SettingsView(model: dashboard, mcpAccess: mcpAccess, hud: hud, updates: updates, helperAccess: helperAccess)
         }
     }
 }

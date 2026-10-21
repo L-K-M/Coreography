@@ -5,9 +5,11 @@ let package = Package(
     name: "Coreography",
     platforms: [.macOS("26.0")],
     products: [
+        .library(name: "CoreographyDrivers", targets: ["CoreographyDrivers"]),
         .library(name: "CoreographyKit", targets: ["CoreographyKit"]),
         .library(name: "CoreographyServices", targets: ["CoreographyServices"]),
-        .executable(name: "coreo", targets: ["coreo"])
+        .executable(name: "coreo", targets: ["coreo"]),
+        .executable(name: "CoreographyHelper", targets: ["CoreographyHelper"])
     ],
     targets: [
         .target(name: "CoreographySystem", linkerSettings: [
@@ -21,6 +23,7 @@ let package = Package(
         .target(name: "CoreographyKit", dependencies: ["CoreographyDrivers"]),
         .target(name: "CoreographyServices", dependencies: ["CoreographyKit"]),
         .executableTarget(name: "coreo", dependencies: ["CoreographyServices"]),
+        .executableTarget(name: "CoreographyHelper", dependencies: ["CoreographyDrivers"]),
         .testTarget(
             name: "CoreographyKitTests",
             dependencies: ["CoreographyKit", "CoreographyDrivers"]
