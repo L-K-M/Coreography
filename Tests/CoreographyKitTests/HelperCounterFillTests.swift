@@ -7,17 +7,32 @@ final class HelperCounterFillTests: XCTestCase {
     private static let team = "AB12CD34EF"
 
     func testHandlerReadsEachPositivePIDOnce() throws {
-        let handler = HelperRequestHandler(readCounters: { $0 == 7 ? nil : Self.counters(pid: $0) })
+        let reads = ReadLog()
+        let handler = HelperRequestHandler(readCounters: {
+            reads.record($0)
+            return $0 == 7 ? nil : Self.counters(pid: $0)
+        })
         let reply = try HelperWire.decode(
             HelperReply.self, from: handler.reply(to: HelperWire.encode(HelperRequest.processCounters(pids: [9, 7, 3, 9])))
         )
         XCTAssertEqual(reply, .processCounters([Self.counters(pid: 3), Self.counters(pid: 9)]), "sorted, unique, exited ones left out")
+        XCTAssertEqual(reads.pids, [3, 7, 9], "each PID read once")
 
-        for pids: [Int32] in [[0], [-1], [Int32](repeating: 1, count: HelperWire.maximumPIDs + 1)] {
-            guard case .refused = try HelperWire.decode(
+        // Distinct small PIDs keep the oversized list under the byte limit, so the count is what refuses it.
+        let tooMany = Array(1...Int32(HelperWire.maximumPIDs + 1))
+        XCTAssertLessThan(HelperWire.encode(HelperRequest.processCounters(pids: tooMany)).count, HelperRequest.maximumBytes)
+        let cases: [([Int32], String)] = [
+            ([0], "A process ID must be positive."),
+            ([5, -1], "A process ID must be positive."),
+            (tooMany, "At most \(HelperWire.maximumPIDs) processes per request.")
+        ]
+        for (pids, reason) in cases {
+            let reply = try HelperWire.decode(
                 HelperReply.self, from: handler.reply(to: HelperWire.encode(HelperRequest.processCounters(pids: pids)))
-            ) else { return XCTFail("\(pids.prefix(2)) must be refused") }
+            )
+            XCTAssertEqual(reply, .refused(reason), "\(pids.prefix(2))")
         }
+        XCTAssertEqual(reads.pids, [3, 7, 9], "a refused list reads nothing")
     }
 
     func testARestrictedRowTakesTheHelpersCountersForTheSameProcess() async {
@@ -39,18 +54,49 @@ final class HelperCounterFillTests: XCTestCase {
         XCTAssertEqual(asked, [.processCounters(pids: [3, 4])])
     }
 
+    func testKernelTaskDoesNotSpoilTheRequest() async {
+        // PID 0 is listed and restricted like other root processes, but the helper refuses it.
+        let base = Sample([
+            Self.row(pid: 0, counters: .failure(.restricted(code: EPERM))),
+            Self.row(pid: 3, counters: .failure(.restricted(code: EPERM)))
+        ])
+        let fill = HelperCounterFill(base: base, helper: Self.helper(Answering(Self.counters(pid: 3))))
+
+        let processes = await fill.read().processes
+        XCTAssertEqual(processes[0].counters, .failure(.restricted(code: EPERM)))
+        XCTAssertEqual(processes[1].counters, .success(Self.counters(pid: 3).counters))
+    }
+
     func testAnUnavailableHelperIsAskedAgainOnlyAfterAMinute() async {
         let rows = Sample([Self.row(pid: 3, counters: .failure(.restricted(code: EPERM)))])
         let registration = Registration(.notRegistered)
         let transport = Counting()
-        let helper = PrivilegedHelper(registration: registration, transport: transport, teamID: Self.team)
+        let clock = Clock()
+        let helper = PrivilegedHelper(registration: registration, transport: transport, teamID: Self.team, now: clock.now)
         let fill = HelperCounterFill(base: rows, helper: helper)
 
         _ = await fill.read()
         _ = await fill.read()
         XCTAssertEqual(registration.reads, 1, "one status check, then quiet")
+        clock.advance(.seconds(59))
+        _ = await fill.read()
+        XCTAssertEqual(registration.reads, 1, "still quiet within the minute")
+        clock.advance(.seconds(2))
+        _ = await fill.read()
+        XCTAssertEqual(registration.reads, 2, "asked again after a minute")
         let asked = await transport.requests
         XCTAssertEqual(asked, [])
+    }
+
+    func testARefusalKeepsAsking() async {
+        let refusing = Refusing()
+        let helper = Self.helper(refusing)
+        let first = await helper.counters(for: [3])
+        let second = await helper.counters(for: [3])
+        XCTAssertEqual(first, [])
+        XCTAssertEqual(second, [])
+        let asked = await refusing.count
+        XCTAssertEqual(asked, 2, "an answering helper is not put on a quiet minute")
     }
 
     func testOnlyTheTeamSignedAppAsks() async {
@@ -129,6 +175,45 @@ private actor Counting: HelperTransport {
         requests.append(request)
         return HelperWire.encode(HelperReply.processCounters(entries))
     }
+}
+
+private actor Refusing: HelperTransport {
+    private(set) var count = 0
+
+    func exchange(_ message: Data) async throws -> Data {
+        count += 1
+        return HelperWire.encode(HelperReply.refused("no"))
+    }
+}
+
+private final class ReadLog: @unchecked Sendable {
+    private let lock = NSLock()
+    private var read: [Int32] = []
+
+    var pids: [Int32] { lock.withLock { read } }
+
+    func record(_ pid: Int32) { lock.withLock { read.append(pid) } }
+}
+
+/// A clock the test moves by hand.
+private final class Clock: @unchecked Sendable {
+    private let lock = NSLock()
+    private var current = ContinuousClock.now
+
+    var now: @Sendable () -> ContinuousClock.Instant { { self.lock.withLock { self.current } } }
+
+    func advance(_ duration: Duration) { lock.withLock { current += duration } }
+}
+
+/// Answers the way the real handler does, from fixed entries.
+private struct Answering: HelperTransport {
+    let handler: HelperRequestHandler
+
+    init(_ entries: IdentifiedProcessCounters...) {
+        handler = HelperRequestHandler(readCounters: { pid in entries.first { $0.pid == pid } })
+    }
+
+    func exchange(_ message: Data) async throws -> Data { handler.reply(to: message) }
 }
 
 private final class Registration: HelperRegistering, @unchecked Sendable {

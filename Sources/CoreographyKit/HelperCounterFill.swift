@@ -22,7 +22,8 @@ struct HelperCounterFill: ProcessSampleReading {
         let raw = await base.read()
         guard case .success(let enumeration) = raw.enumeration else { return raw }
 
-        let restricted = enumeration.processes.filter(\.isRestricted).map(\.pid)
+        // PID 0 is the kernel, never one the helper reads; it would refuse the whole list.
+        let restricted = enumeration.processes.filter { $0.isRestricted && $0.pid > 0 }.map(\.pid)
         guard let filled = await helper.counters(for: Array(restricted.prefix(HelperWire.maximumPIDs))),
               !filled.isEmpty else { return raw }
 

@@ -18,7 +18,7 @@ public final class HelperAccess {
 
     @ObservationIgnored private let helper: PrivilegedHelper
 
-    public convenience init() { self.init(helper: PrivilegedHelper()) }
+    public convenience init() { self.init(helper: .shared) }
 
     init(helper: PrivilegedHelper) { self.helper = helper }
 

@@ -34,7 +34,7 @@ public actor ProcessMonitor {
 
     public init() throws {
         try self.init(
-            driver: HelperCounterFill(base: ProcessStatisticsDriver(), helper: PrivilegedHelper()),
+            driver: HelperCounterFill(base: ProcessStatisticsDriver(), helper: .shared),
             gpuClients: GPUClientDriver()
         )
     }

@@ -34,10 +34,15 @@ public actor PrivilegedHelper {
     private let isTeamSigned: Bool
     /// Only the app may connect; the helper refuses the CLI's identifier anyway.
     private let isApp: Bool
+    private let now: @Sendable () -> ContinuousClock.Instant
     private var quietUntil: ContinuousClock.Instant?
     private var enabledUntil: ContinuousClock.Instant?
 
-    public init() {
+    /// One instance for Settings and the sampler, so an install or removal
+    /// is seen by both at once.
+    public static let shared = PrivilegedHelper()
+
+    private init() {
         let signing = CodeSignatureReader.signing(path: Bundle.main.executablePath ?? "")
         self.init(
             registration: HelperRegistrationDriver(), transport: HelperXPCDriver(teamID: signing.teamID),
@@ -47,8 +52,9 @@ public actor PrivilegedHelper {
 
     init(
         registration: any HelperRegistering, transport: any HelperTransport, teamID: String?,
-        identifier: String? = HelperWire.appIdentifier
+        identifier: String? = HelperWire.appIdentifier, now: @escaping @Sendable () -> ContinuousClock.Instant = { .now }
     ) {
+        self.now = now
         self.registration = registration
         self.transport = transport
         isTeamSigned = HelperWire.peerRequirement(identifier: HelperWire.appIdentifier, teamID: teamID) != nil
@@ -67,7 +73,10 @@ public actor PrivilegedHelper {
         }
 
         switch await send(.hello) {
-        case .reply(.hello(let version)) where version == HelperWire.protocolVersion: return .ready
+        case .reply(.hello(let version)) where version == HelperWire.protocolVersion:
+            // Seen answering: the sampler need not wait out an earlier quiet minute.
+            quietUntil = nil
+            return .ready
         case .reply(.hello(let version)): return .outdated(protocolVersion: version)
         case .reply(.refused(let reason)): return .notResponding(reason)
         case .reply(.processCounters): return .notResponding("Its answer did not match the request.")
@@ -79,22 +88,24 @@ public actor PrivilegedHelper {
     /// helper is not installed, approved and answering.
     func counters(for pids: [Int32]) async -> [IdentifiedProcessCounters]? {
         guard isTeamSigned, isApp, !pids.isEmpty else { return nil }
-        if let quietUntil, ContinuousClock.now < quietUntil { return nil }
+        if let quietUntil, now() < quietUntil { return nil }
 
         // The registration is read again at most once a minute.
-        if enabledUntil.map({ ContinuousClock.now >= $0 }) ?? true {
+        if enabledUntil.map({ now() >= $0 }) ?? true {
             guard registration.status() == .enabled else { return unavailable() }
-            enabledUntil = .now + Self.unavailableBackoff
+            enabledUntil = now() + Self.unavailableBackoff
         }
 
-        guard case .reply(.processCounters(let counters)) = await send(.processCounters(pids: pids)) else {
-            return unavailable()
+        switch await send(.processCounters(pids: Array(pids.prefix(HelperWire.maximumPIDs)))) {
+        case .reply(.processCounters(let counters)): return counters
+        // Answering, just not for these processes: no reason to go quiet.
+        case .reply(.refused): return []
+        case .reply(.hello), .failed: return unavailable()
         }
-        return counters
     }
 
     private func unavailable() -> [IdentifiedProcessCounters]? {
-        quietUntil = .now + Self.unavailableBackoff
+        quietUntil = now() + Self.unavailableBackoff
         enabledUntil = nil
         return nil
     }
