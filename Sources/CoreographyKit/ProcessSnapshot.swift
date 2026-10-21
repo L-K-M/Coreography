@@ -162,3 +162,10 @@ public struct ProcessSnapshot: Codable, Sendable {
         return (counts.compactMap { $0 }.reduce(0) { $0 + Int($1) }, counts.filter { $0 == nil }.count)
     }
 }
+
+extension ProcessIdentity {
+    /// The same process as the privileged helper names it.
+    var helperIdentity: HelperProcessIdentity {
+        HelperProcessIdentity(pid: pid, startSeconds: startSeconds, startMicroseconds: startMicroseconds)
+    }
+}

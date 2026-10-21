@@ -78,7 +78,7 @@ struct StopRecordingIntent: AppIntent {
 
 struct FindPortHolderIntent: AppIntent {
     static let title: LocalizedStringResource = "Find Who Uses a Port"
-    static let description = IntentDescription("Your processes with a socket on this local or remote port.")
+    static let description = IntentDescription("Processes with a socket on this local or remote port. Other users' processes need the privileged helper.")
 
     @Parameter(title: "Port")
     var port: Int
@@ -94,7 +94,7 @@ struct FindPortHolderIntent: AppIntent {
 
 struct FindFileHolderIntent: AppIntent {
     static let title: LocalizedStringResource = "Find Who Has a File Open"
-    static let description = IntentDescription("Your processes with an open file whose path contains this text.")
+    static let description = IntentDescription("Processes with an open file whose path contains this text. Other users' processes need the privileged helper.")
 
     @Parameter(title: "Path or Name")
     var path: String

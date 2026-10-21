@@ -79,7 +79,8 @@ public actor PrivilegedHelper {
             return .ready
         case .reply(.hello(let version)): return .outdated(protocolVersion: version)
         case .reply(.refused(let reason)): return .notResponding(reason)
-        case .reply(.processCounters): return .notResponding("Its answer did not match the request.")
+        case .reply(.processCounters), .reply(.openFiles), .reply(.sockets):
+            return .notResponding("Its answer did not match the request.")
         case .failed(let reason): return .notResponding(reason)
         }
     }
@@ -87,7 +88,45 @@ public actor PrivilegedHelper {
     /// Counters for processes the app cannot read itself; nil while the
     /// helper is not installed, approved and answering.
     func counters(for pids: [Int32]) async -> [IdentifiedProcessCounters]? {
-        guard isTeamSigned, isApp, !pids.isEmpty else { return nil }
+        guard !pids.isEmpty, case .processCounters(let counters) = await ask(.processCounters(pids: Array(pids.prefix(HelperWire.maximumPIDs)))) else {
+            return nil
+        }
+        return counters
+    }
+
+    /// Open files of processes the app cannot read itself, in batches the
+    /// helper accepts; nil while it is unavailable.
+    func openFiles(of processes: [HelperProcessIdentity]) async -> [HelperProcessFiles]? {
+        var read: [HelperProcessFiles] = []
+        for batch in Self.batches(processes) {
+            guard case .openFiles(let files) = await ask(.openFiles(processes: batch)) else { return read.isEmpty ? nil : read }
+            read += files
+        }
+        return processes.isEmpty ? nil : read
+    }
+
+    /// Sockets of processes the app cannot read itself; nil while the helper is unavailable.
+    func sockets(of processes: [HelperProcessIdentity]) async -> [HelperProcessSockets]? {
+        var read: [HelperProcessSockets] = []
+        for batch in Self.batches(processes) {
+            guard case .sockets(let sockets) = await ask(.sockets(processes: batch)) else { return read.isEmpty ? nil : read }
+            read += sockets
+        }
+        return processes.isEmpty ? nil : read
+    }
+
+    private static func batches(_ processes: [HelperProcessIdentity]) -> [[HelperProcessIdentity]] {
+        // The kernel is never one the helper reads; it would refuse the whole batch.
+        let readable = processes.filter { $0.pid > 0 }
+        return stride(from: 0, to: readable.count, by: HelperWire.maximumDescriptorProcesses).map {
+            Array(readable[$0..<min($0 + HelperWire.maximumDescriptorProcesses, readable.count)])
+        }
+    }
+
+    /// One request to an installed, approved helper, or nil while it is
+    /// unavailable. Any failure starts the quiet minute.
+    private func ask(_ request: HelperRequest) async -> HelperReply? {
+        guard isTeamSigned, isApp else { return nil }
         if let quietUntil, now() < quietUntil { return nil }
 
         // The registration is read again at most once a minute.
@@ -96,15 +135,15 @@ public actor PrivilegedHelper {
             enabledUntil = now() + Self.unavailableBackoff
         }
 
-        switch await send(.processCounters(pids: Array(pids.prefix(HelperWire.maximumPIDs)))) {
-        case .reply(.processCounters(let counters)): return counters
-        // The app sends only positive PIDs within the cap, so a refusal comes
+        switch await send(request) {
+        // The app sends only positive PIDs within the caps, so a refusal comes
         // from a helper of an older protocol, which will not change its answer.
         case .reply(.refused), .reply(.hello), .failed: return unavailable()
+        case .reply(let reply): return reply
         }
     }
 
-    private func unavailable() -> [IdentifiedProcessCounters]? {
+    private func unavailable() -> HelperReply? {
         quietUntil = now() + Self.unavailableBackoff
         enabledUntil = nil
         return nil

@@ -6,7 +6,7 @@ import CoreographyDrivers
 public struct OpenFileSnapshot: Sendable {
     public let takenAt: Date
     public let files: [ProcessIdentity: [String]]
-    /// Processes of other users; reading their files needs the helper.
+    /// Processes of other users the helper did not read: it is not installed, or they exited.
     public let restrictedProcesses: Int
     public let truncatedProcesses: Int
     public let failedProcesses: Int
@@ -17,14 +17,19 @@ public struct OpenFileSnapshot: Sendable {
 /// every descriptor of every process.
 public actor OpenFileMonitor {
     private let driver: any ProcessFileReading
+    /// Reads other users' processes, when installed.
+    private let helper: PrivilegedHelper?
 
-    public init() { self.init(driver: ProcessFileDriver()) }
+    public init() { self.init(driver: ProcessFileDriver(), helper: .shared) }
 
-    init(driver: any ProcessFileReading) { self.driver = driver }
+    init(driver: any ProcessFileReading, helper: PrivilegedHelper? = nil) {
+        self.driver = driver
+        self.helper = helper
+    }
 
     public func sample(_ processes: ProcessSnapshot, at time: Date = Date()) async -> OpenFileSnapshot {
         var files: [ProcessIdentity: [String]] = [:]
-        var restricted = 0
+        var restricted: [ProcessIdentity] = []
         var truncated = 0
         var failed = 0
         for process in processes.processes where process.id.pid > 0 {
@@ -33,7 +38,7 @@ public actor OpenFileMonitor {
                 files[process.id] = read.paths
                 if read.truncated { truncated += 1 }
             case .failure(.notPermitted):
-                restricted += 1
+                restricted.append(process.id)
             case .failure(.exited):
                 continue
             case .failure(.unsupportedPlatform):
@@ -45,16 +50,29 @@ public actor OpenFileMonitor {
                 failed += 1
             }
         }
+        let asked = Dictionary(restricted.map { ($0.helperIdentity, $0) }, uniquingKeysWith: { first, _ in first })
+        for read in await helper?.openFiles(of: restricted.map(\.helperIdentity)) ?? [] {
+            guard let process = asked[read.process] else { continue }
+            files[process] = read.files.paths
+            if read.files.truncated { truncated += 1 }
+        }
         return OpenFileSnapshot(
-            takenAt: time, files: files, restrictedProcesses: restricted, truncatedProcesses: truncated,
-            failedProcesses: failed, unavailableReason: nil
+            takenAt: time, files: files, restrictedProcesses: restricted.count(where: { files[$0] == nil }),
+            truncatedProcesses: truncated, failedProcesses: failed, unavailableReason: nil
         )
     }
 
     /// One process's open files, for the inspector; nil when they cannot be read.
     public func files(of process: ProcessReading) async -> OpenFileList? {
-        guard case .success(let read) = await read(process) else { return nil }
-        return OpenFileList(paths: read.paths, isComplete: !read.truncated)
+        switch await read(process) {
+        case .success(let read):
+            return OpenFileList(paths: read.paths, isComplete: !read.truncated)
+        case .failure(.notPermitted):
+            guard let read = await helper?.openFiles(of: [process.id.helperIdentity])?.first?.files else { return nil }
+            return OpenFileList(paths: read.paths, isComplete: !read.truncated)
+        case .failure:
+            return nil
+        }
     }
 
     private func read(_ process: ProcessReading) async -> Result<RawProcessFiles, DescriptorReadError> {

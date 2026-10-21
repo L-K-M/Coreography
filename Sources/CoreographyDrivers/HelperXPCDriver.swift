@@ -124,7 +124,9 @@ private final class HelperExport: NSObject, HelperXPCProtocol {
 
     init(handler: HelperRequestHandler) { self.handler = handler }
 
-    func exchange(_ message: Data, withReply reply: @escaping @Sendable (Data) -> Void) { reply(handler.reply(to: message)) }
+    func exchange(_ message: Data, withReply reply: @escaping @Sendable (Data) -> Void) {
+        Task { [handler] in reply(await handler.reply(to: message)) }
+    }
 }
 #endif
 

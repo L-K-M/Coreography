@@ -72,14 +72,19 @@ public struct ConnectionSnapshot: Codable, Sendable {
 /// the window asks only while connections are shown or filtered on.
 public actor ConnectionMonitor {
     private let driver: any ProcessSocketReading
+    /// Reads other users' processes, when installed.
+    private let helper: PrivilegedHelper?
 
-    public init() { self.init(driver: ProcessSocketDriver()) }
+    public init() { self.init(driver: ProcessSocketDriver(), helper: .shared) }
 
-    init(driver: any ProcessSocketReading) { self.driver = driver }
+    init(driver: any ProcessSocketReading, helper: PrivilegedHelper? = nil) {
+        self.driver = driver
+        self.helper = helper
+    }
 
     public func sample(_ processes: ProcessSnapshot, at time: Date = Date()) async -> ConnectionSnapshot {
         var connections: [ConnectionReading] = []
-        var restricted = 0
+        var restricted: [ProcessReading] = []
         var truncated = 0
         var failed = 0
         // PID 0 is the kernel; it holds no user sockets to read.
@@ -92,7 +97,7 @@ public actor ConnectionMonitor {
                 connections += read.sockets.map { Self.reading($0, of: process) }
                 if read.truncated { truncated += 1 }
             case .failure(.notPermitted):
-                restricted += 1
+                restricted.append(process)
             case .failure(.exited):
                 continue
             case .failure(.unsupportedPlatform):
@@ -104,8 +109,15 @@ public actor ConnectionMonitor {
                 failed += 1
             }
         }
+        var asked = Dictionary(restricted.map { ($0.id.helperIdentity, $0) }, uniquingKeysWith: { first, _ in first })
+        for read in await helper?.sockets(of: restricted.map(\.id.helperIdentity)) ?? [] {
+            guard let process = asked.removeValue(forKey: read.process) else { continue }
+            connections += read.sockets.sockets.map { Self.reading($0, of: process) }
+            if read.sockets.truncated { truncated += 1 }
+        }
         return ConnectionSnapshot(
-            takenAt: time, connections: connections, restrictedProcesses: restricted,
+            takenAt: time, connections: connections,
+            restrictedProcesses: restricted.count(where: { asked[$0.id.helperIdentity] != nil }),
             truncatedProcesses: truncated, failedProcesses: failed, unavailableReason: nil
         )
     }
@@ -115,8 +127,15 @@ public actor ConnectionMonitor {
         let result = await driver.sockets(
             pid: process.id.pid, startSeconds: process.id.startSeconds, startMicroseconds: process.id.startMicroseconds
         )
-        guard case .success(let read) = result else { return nil }
-        return read.sockets.map { Self.reading($0, of: process) }
+        switch result {
+        case .success(let read):
+            return read.sockets.map { Self.reading($0, of: process) }
+        case .failure(.notPermitted):
+            guard let read = await helper?.sockets(of: [process.id.helperIdentity])?.first?.sockets else { return nil }
+            return read.sockets.map { Self.reading($0, of: process) }
+        case .failure:
+            return nil
+        }
     }
 
     private static func reading(_ socket: RawSocket, of process: ProcessReading) -> ConnectionReading {

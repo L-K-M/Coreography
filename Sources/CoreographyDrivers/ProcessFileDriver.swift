@@ -8,7 +8,7 @@ import CoreographySystem
 /// Reading any descriptor table fails the same ways as reading sockets.
 public typealias DescriptorReadError = SocketReadError
 
-public struct RawProcessFiles: Equatable, Sendable {
+public struct RawProcessFiles: Codable, Equatable, Sendable {
     /// Open file and directory paths, in descriptor order.
     public let paths: [String]
     /// The process held more open files than one read keeps.
