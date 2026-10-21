@@ -79,7 +79,7 @@ public actor PrivilegedHelper {
             return .ready
         case .reply(.hello(let version)): return .outdated(protocolVersion: version)
         case .reply(.refused(let reason)): return .notResponding(reason)
-        case .reply(.processCounters), .reply(.openFiles), .reply(.sockets):
+        case .reply(.processCounters), .reply(.openFiles), .reply(.sockets), .reply(.actionDone), .reply(.actionFailed):
             return .notResponding("Its answer did not match the request.")
         case .failed(let reason): return .notResponding(reason)
         }
@@ -115,6 +115,16 @@ public actor PrivilegedHelper {
         return processes.isEmpty ? nil : read
     }
 
+    /// A confirmed action on a process the app could not act on itself;
+    /// nil while the helper is unavailable.
+    func act(_ request: HelperRequest) async -> Result<Void, HelperActionFailure>? {
+        switch await ask(request) {
+        case .actionDone: .success(())
+        case .actionFailed(let failure): .failure(failure)
+        default: nil
+        }
+    }
+
     private static func batches(_ processes: [HelperProcessIdentity]) -> [[HelperProcessIdentity]] {
         // The kernel is never one the helper reads; it would refuse the whole batch.
         let readable = processes.filter { $0.pid > 0 }
@@ -139,7 +149,19 @@ public actor PrivilegedHelper {
         // The app sends only positive PIDs within the caps, so a refusal comes
         // from a helper of an older protocol, which will not change its answer.
         case .reply(.refused), .reply(.hello), .failed: return unavailable()
-        case .reply(let reply): return reply
+        case .reply(let reply):
+            // An answer of another kind means a broken helper: go quiet too.
+            return Self.answers(request, with: reply) ? reply : unavailable()
+        }
+    }
+
+    private static func answers(_ request: HelperRequest, with reply: HelperReply) -> Bool {
+        switch (request, reply) {
+        case (.processCounters, .processCounters), (.openFiles, .openFiles), (.sockets, .sockets),
+             (.signal, .actionDone), (.signal, .actionFailed), (.renice, .actionDone), (.renice, .actionFailed):
+            true
+        default:
+            false
         }
     }
 

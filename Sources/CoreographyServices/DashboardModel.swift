@@ -1296,12 +1296,43 @@ public final class DashboardModel {
         case .info: controller.send(.info, to: request.target)
         case .lowerPriority: controller.lowerPriority(of: request.target)
         }
+        guard case .notPermitted(let reason) = outcome, controller.canAskHelper else {
+            return finish(request, outcome, route: .direct)
+        }
+
+        // Another user's process, or a priority only root may raise: ask the
+        // helper; without it, the refusal stands as it was.
+        Task {
+            let helped = await performThroughHelper(request)
+            finish(request, helped ?? .failed(reason: reason), route: helped == nil ? .direct : .helper)
+        }
+    }
+
+    private enum ActionRoute { case direct, helper }
+
+    private func performThroughHelper(_ request: ProcessActionRequest) async -> ProcessActionOutcome? {
+        switch request.action {
+        case .quit: await controller.terminateThroughHelper(request.target, mode: .graceful)
+        case .forceQuit: await controller.terminateThroughHelper(request.target, mode: .forced)
+        case .suspend: await controller.sendThroughHelper(.suspend, to: request.target)
+        case .resume: await controller.sendThroughHelper(.resume, to: request.target)
+        case .hangUp: await controller.sendThroughHelper(.hangUp, to: request.target)
+        case .interrupt: await controller.sendThroughHelper(.interrupt, to: request.target)
+        case .user1: await controller.sendThroughHelper(.user1, to: request.target)
+        case .user2: await controller.sendThroughHelper(.user2, to: request.target)
+        case .info: await controller.sendThroughHelper(.info, to: request.target)
+        case .lowerPriority: await controller.lowerPriorityThroughHelper(of: request.target)
+        }
+    }
+
+    private func finish(_ request: ProcessActionRequest, _ outcome: ProcessActionOutcome, route: ActionRoute) {
         switch outcome {
         case .requested:
             let verb = request.action.verb
             markers.append(TimelineMarker(time: Date(), label: "\(verb) \(request.name)", kind: .action))
-            actionMessage = "\(verb) \(request.name) (PID \(request.target.pid)): requested"
-        case .failed(let reason):
+            let through = route == .helper ? " through the privileged helper" : ""
+            actionMessage = "\(verb) \(request.name) (PID \(request.target.pid)): requested\(through)"
+        case .failed(let reason), .notPermitted(let reason):
             actionMessage = "\(request.name): \(reason)"
         }
     }

@@ -8,6 +8,9 @@ public typealias ProcessSignalIntent = ProcessSignal
 public enum ProcessActionOutcome: Equatable, Sendable {
     case requested
     case failed(reason: String)
+    /// Refused for permission: another user's process, or a priority only
+    /// root may raise. The privileged helper may be able to do it.
+    case notPermitted(reason: String)
 }
 
 /// Quits, signals and renices processes by identity; never by a bare PID.
@@ -16,12 +19,14 @@ public struct ProcessController: Sendable {
     public static let lowPriorityNice: Int32 = 10
     private let driver: any ProcessTerminating
     private let signaler: any ProcessSignaling
+    private let helper: PrivilegedHelper?
 
-    public init() { self.init(driver: ProcessControlDriver()) }
+    public init() { self.init(driver: ProcessControlDriver(), helper: .shared) }
 
-    init(driver: any ProcessTerminating, signaler: any ProcessSignaling = ProcessControlDriver()) {
+    init(driver: any ProcessTerminating, signaler: any ProcessSignaling = ProcessControlDriver(), helper: PrivilegedHelper? = nil) {
         self.driver = driver
         self.signaler = signaler
+        self.helper = helper
     }
 
     public func send(_ signal: ProcessSignalIntent, to identity: ProcessIdentity) -> ProcessActionOutcome {
@@ -38,9 +43,45 @@ public struct ProcessController: Sendable {
         ))
     }
 
+    /// Whether refusals for permission can be retried through the helper.
+    public var canAskHelper: Bool { helper != nil }
+
+    /// The same requests through the privileged helper, after a refusal for
+    /// permission; nil while it is not installed, approved and answering.
+    /// A quit is a plain SIGTERM there: the helper has no session to ask an app in.
+    public func sendThroughHelper(_ signal: ProcessSignalIntent, to identity: ProcessIdentity) async -> ProcessActionOutcome? {
+        let request: HelperSignal = switch signal {
+        case .suspend: .suspend
+        case .resume: .resume
+        case .hangUp: .hangUp
+        case .interrupt: .interrupt
+        case .user1: .user1
+        case .user2: .user2
+        case .info: .info
+        }
+        return await act(.signal(process: identity.helperIdentity, signal: request))
+    }
+
+    public func terminateThroughHelper(_ identity: ProcessIdentity, mode: ProcessQuitMode) async -> ProcessActionOutcome? {
+        await act(.signal(process: identity.helperIdentity, signal: mode == .forced ? .kill : .terminate))
+    }
+
+    public func lowerPriorityThroughHelper(of identity: ProcessIdentity) async -> ProcessActionOutcome? {
+        await act(.renice(process: identity.helperIdentity, niceValue: Self.lowPriorityNice))
+    }
+
+    private func act(_ request: HelperRequest) async -> ProcessActionOutcome? {
+        switch await helper?.act(request) {
+        case nil: nil
+        case .success: .requested
+        case .failure(let failure): .failed(reason: Self.reason(failure))
+        }
+    }
+
     private func outcome(_ result: Result<Void, ProcessControlError>) -> ProcessActionOutcome {
         switch result {
         case .success: .requested
+        case .failure(let error) where error == .notPermitted || error == .needsAdministrator: .notPermitted(reason: Self.reason(error))
         case .failure(let error): .failed(reason: Self.reason(error))
         }
     }
@@ -51,9 +92,16 @@ public struct ProcessController: Sendable {
             pid: identity.pid, startSeconds: identity.startSeconds,
             startMicroseconds: identity.startMicroseconds, mode: mode
         )
-        switch result {
-        case .success: return .requested
-        case .failure(let error): return .failed(reason: Self.reason(error))
+        return outcome(result)
+    }
+
+    private static func reason(_ failure: HelperActionFailure) -> String {
+        switch failure {
+        case .exited: reason(ProcessControlError.exited)
+        case .identityChanged: reason(ProcessControlError.identityChanged)
+        case .invalidTarget: reason(ProcessControlError.invalidTarget)
+        case .notPermitted: "Not permitted even for the privileged helper: the process is protected"
+        case .failed: "The privileged helper could not send the request"
         }
     }
 
