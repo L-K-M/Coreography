@@ -1,9 +1,5 @@
 import Foundation
 
-#if os(macOS)
-import CoreographySystem
-#endif
-
 public enum ProcessSampleError: Error, Equatable, Sendable {
     case unsupportedPlatform
     /// Gone, or the pid now names another process.
@@ -36,7 +32,7 @@ public struct ProcessSampleDriver: ProcessSampling {
         guard pid > 0, Self.allowedSeconds.contains(seconds) else { return .failure(.failed("Invalid sample request")) }
         // sample attaches to the task at launch, so only the instant between
         // this check and that launch could meet a reused pid.
-        guard Self.matches(pid, startSeconds, startMicroseconds) else { return .failure(.exited) }
+        guard ProcessIdentityCheck.matches(pid, startSeconds, startMicroseconds) else { return .failure(.exited) }
 
         let report = FileManager.default.temporaryDirectory
             .appendingPathComponent("coreo-sample-\(UUID().uuidString).txt")
@@ -65,12 +61,4 @@ public struct ProcessSampleDriver: ProcessSampling {
         return .failure(.unsupportedPlatform)
         #endif
     }
-
-    #if os(macOS)
-    private static func matches(_ pid: Int32, _ seconds: UInt64, _ microseconds: UInt64) -> Bool {
-        var sample = coreo_process_sample()
-        guard coreo_process_read(pid, &sample) == 0 else { return false }
-        return sample.start_seconds == seconds && sample.start_microseconds == microseconds
-    }
-    #endif
 }

@@ -1997,10 +1997,12 @@ private struct SampleReportView: View {
             switch model.sampleState {
             case .idle:
                 EmptyView()
-            case .running(let name, let seconds):
-                ProgressView("Sampling \(name) for \(seconds) seconds…")
-            case .failed(let name, let reason):
-                Text("\(name) could not be sampled").font(.headline)
+            case .running(let name, let tool, let seconds):
+                ProgressView(tool == .spindump
+                    ? "Running a spindump of \(name) for \(seconds) seconds…"
+                    : "Sampling \(name) for \(seconds) seconds…")
+            case .failed(let name, let tool, let reason):
+                Text("\(name) could not be \(tool == .spindump ? "spindumped" : "sampled")").font(.headline)
                 Text(reason).foregroundStyle(.secondary)
             case .finished(let report):
                 Text("\(report.name), \(report.seconds) s at \(report.takenAt.formatted(date: .omitted, time: .standard))")
@@ -2011,7 +2013,7 @@ private struct SampleReportView: View {
                 }
                 Button("Save…") {
                     exportError = nil
-                    exportName = "Sample of \(report.name)"
+                    exportName = "\(report.tool == .spindump ? "Spindump" : "Sample") of \(report.name)"
                     exportFile = ExportFile(data: Data(report.text.utf8))
                 }
                 if let exportError { Text("Not saved: \(exportError)").font(.caption).foregroundStyle(.red) }
@@ -2039,7 +2041,7 @@ private enum QuitEntries {
 }
 
 /// Every action for one process (plan: Quit, Force Quit, Suspend and Resume,
-/// Send Signal, Renice, Reveal in Finder, Copy). Each confirms first, except Resume, which only undoes a suspend.
+/// Send Signal, Renice, Sample, Spindump, Reveal in Finder, Copy). Each confirms first, except Resume, which only undoes a suspend.
 private struct ProcessActionMenu: View {
     let model: DashboardModel
     let process: ObservedProcess
@@ -2064,6 +2066,8 @@ private struct ProcessActionMenu: View {
         Button("Lower Priority…") { ask(.lowerPriority) }
         Button("Sample for 3 Seconds") { Task { await model.sampleProcess(process) } }
             .help("Records its call stacks with the system sample tool; the process pauses briefly while it is read")
+        Button("Spindump for 3 Seconds") { Task { await model.spindumpProcess(process) } }
+            .help("Records a spindump with the privileged helper, the only way the tool may run")
         Divider()
         if let path = process.executablePath {
             Button("Reveal in Finder") { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)]) }

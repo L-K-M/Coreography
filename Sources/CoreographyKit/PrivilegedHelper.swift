@@ -79,7 +79,8 @@ public actor PrivilegedHelper {
             return .ready
         case .reply(.hello(let version)): return .outdated(protocolVersion: version)
         case .reply(.refused(let reason)): return .notResponding(reason)
-        case .reply(.processCounters), .reply(.openFiles), .reply(.sockets), .reply(.actionDone), .reply(.actionFailed):
+        case .reply(.processCounters), .reply(.openFiles), .reply(.sockets), .reply(.actionDone), .reply(.actionFailed),
+             .reply(.spindumpReport), .reply(.spindumpFailed):
             return .notResponding("Its answer did not match the request.")
         case .failed(let reason): return .notResponding(reason)
         }
@@ -113,6 +114,16 @@ public actor PrivilegedHelper {
             read += sockets
         }
         return processes.isEmpty ? nil : read
+    }
+
+    /// A spindump report for a process, run by the helper because the tool
+    /// only runs as root; nil while the helper is unavailable.
+    func spindump(_ process: HelperProcessIdentity, seconds: Int) async -> Result<String, ProcessSampleFailure>? {
+        switch await ask(.spindump(process: process, seconds: Int32(seconds))) {
+        case .spindumpReport(let text): .success(text)
+        case .spindumpFailed(let reason): .failure(ProcessSampleFailure(reason: reason))
+        default: nil
+        }
     }
 
     /// A confirmed action on a process the app could not act on itself;
@@ -158,7 +169,8 @@ public actor PrivilegedHelper {
     private static func answers(_ request: HelperRequest, with reply: HelperReply) -> Bool {
         switch (request, reply) {
         case (.processCounters, .processCounters), (.openFiles, .openFiles), (.sockets, .sockets),
-             (.signal, .actionDone), (.signal, .actionFailed), (.renice, .actionDone), (.renice, .actionFailed):
+             (.signal, .actionDone), (.signal, .actionFailed), (.renice, .actionDone), (.renice, .actionFailed),
+             (.spindump, .spindumpReport), (.spindump, .spindumpFailed):
             true
         default:
             false
@@ -190,7 +202,7 @@ public actor PrivilegedHelper {
 
     private func send(_ request: HelperRequest) async -> Exchange {
         do {
-            let message = try await transport.exchange(HelperWire.encode(request))
+            let message = try await transport.exchange(HelperWire.encode(request), timeout: request.replyTimeout)
             return .reply(try HelperWire.decode(HelperReply.self, from: message))
         } catch let error as HelperTransportError {
             return .failed(Self.describe(error))

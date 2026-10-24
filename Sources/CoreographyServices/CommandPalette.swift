@@ -21,6 +21,7 @@ public enum PaletteAction: Hashable, Sendable {
     case resetSensorStats
     case refreshStartup
     case sampleSelected
+    case spindumpSelected
     /// The app confirms every one except Resume first.
     case processAction(ProcessAction)
     case copySelected

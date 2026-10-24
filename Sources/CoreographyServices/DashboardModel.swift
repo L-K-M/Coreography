@@ -271,6 +271,7 @@ public final class DashboardModel {
     private var sessionRecording: SessionRecording?
     @ObservationIgnored private let sessionArchive: SessionArchive?
     @ObservationIgnored private let sampler: ProcessSampler?
+    @ObservationIgnored private let spindumper: ProcessSpindumper?
     @ObservationIgnored private var sensorStats = SensorStats()
     @ObservationIgnored private let startupProvider: StartupProvider?
     @ObservationIgnored private let inspector: ProcessInspector?
@@ -368,6 +369,7 @@ public final class DashboardModel {
         energyMode = EnergyModeMonitor()
         sessionArchive = SessionArchive.makeDefault()
         sampler = ProcessSampler()
+        spindumper = ProcessSpindumper()
         interval = .seconds(1)
         processInterval = .seconds(2)
         do {
@@ -420,7 +422,8 @@ public final class DashboardModel {
         connectionMonitor: ConnectionMonitor? = nil, startupProvider: StartupProvider? = nil,
         inspector: ProcessInspector? = nil, assertionReader: AssertionReader? = nil,
         openFileMonitor: OpenFileMonitor? = nil, sessionArchive: SessionArchive? = nil,
-        sampler: ProcessSampler? = nil, maintenanceProvider: MaintenanceStatusProvider? = nil,
+        sampler: ProcessSampler? = nil, spindumper: ProcessSpindumper? = nil,
+        maintenanceProvider: MaintenanceStatusProvider? = nil,
         shortcutRunner: ShortcutLauncher? = nil, volumeReader: VolumeMonitor? = nil,
         energyMode: EnergyModeMonitor? = nil
     ) {
@@ -440,6 +443,7 @@ public final class DashboardModel {
         self.openFileMonitor = openFileMonitor
         self.sessionArchive = sessionArchive
         self.sampler = sampler
+        self.spindumper = spindumper
         self.monitor = monitor
         self.interval = interval
         self.processMonitor = processMonitor
@@ -1340,17 +1344,42 @@ public final class DashboardModel {
     /// Sample one process's call stacks with the system tool; the report opens in the app.
     public func sampleProcess(_ process: ObservedProcess) async {
         guard let sampler else { return }
-        if case .running = sampleState { return }
-        let run = UUID()
-        sampleRun = run
-        sampleState = .running(name: process.name, seconds: ProcessSampler.defaultSeconds)
-        let result = await sampler.sample(process)
-        // Closed while it ran: the tool stops at its own time limit, and its report is dropped.
-        guard sampleRun == run else { return }
-        switch result {
-        case .success(let report): sampleState = .finished(report)
-        case .failure(let failure): sampleState = .failed(name: process.name, reason: failure.reason)
+        await capture(process, tool: .sample, seconds: ProcessSampler.defaultSeconds) {
+            switch await sampler.sample(process) {
+            case .success(let report): .finished(report)
+            case .failure(let failure): .failed(name: process.name, tool: .sample, reason: failure.reason)
+            }
         }
+    }
+
+    /// A spindump of one process through the privileged helper; the report opens in the app.
+    public func spindumpProcess(_ process: ObservedProcess) async {
+        guard let spindumper else { return }
+        await capture(process, tool: .spindump, seconds: ProcessSpindumper.defaultSeconds) {
+            switch await spindumper.spindump(process) {
+            case .success(let report): .finished(report)
+            case .failure(let failure): .failed(name: process.name, tool: .spindump, reason: failure.reason)
+            case nil:
+                .failed(
+                    name: process.name,
+                    tool: .spindump,
+                    reason: "The privileged helper is not answering; install or approve it in Settings."
+                )
+            }
+        }
+    }
+
+    /// Runs one report tool while the sheet shows progress; a second request
+    /// while one runs is ignored, and a report for a dismissed run is dropped.
+    private func capture(_ process: ObservedProcess, tool: ProcessReportTool, seconds: Int, _ run: () async -> SampleState) async {
+        if case .running = sampleState { return }
+        let token = UUID()
+        sampleRun = token
+        sampleState = .running(name: process.name, tool: tool, seconds: seconds)
+        let outcome = await run()
+        // Closed while it ran: the tool stops at its own time limit, and its report is dropped.
+        guard sampleRun == token else { return }
+        sampleState = outcome
     }
 
     /// Also closes a running sample, so the sheet's Close and Escape always work.
@@ -1734,6 +1763,7 @@ public final class DashboardModel {
         entries += actions.map { entry(CommandPalette.processTitle($0, name), .processAction($0), unavailable: noSelection) }
         entries += [
             entry("Sample \(name) for 3 Seconds", .sampleSelected, unavailable: noSelection ?? (sampler == nil ? "Sampling is not available here" : nil)),
+            entry("Spindump \(name) for 3 Seconds", .spindumpSelected, unavailable: noSelection ?? (spindumper == nil ? "Spindump is not available here" : nil)),
             entry("Copy \(name) as Text", .copySelected, unavailable: noSelection)
         ]
         return entries
@@ -1764,6 +1794,8 @@ public final class DashboardModel {
         case .refreshStartup: refreshStartupItems()
         case .sampleSelected:
             if let process = selectedProcess { await sampleProcess(process) }
+        case .spindumpSelected:
+            if let process = selectedProcess { await spindumpProcess(process) }
         case .processAction(.resume):
             if let process = selectedProcess { perform(actionRequest(for: process, action: .resume)) }
         case .processAction, .copySelected, .toggleHUD, .openSettings, .addMarker:

@@ -4,12 +4,12 @@ import CoreographyKit
 public typealias QuitMode = ProcessQuitMode
 public typealias CapturedSampleReport = ProcessSampleReport
 
-/// Where a requested call-stack sample stands.
+/// Where a requested call-stack report stands.
 public enum SampleState: Sendable {
     case idle
-    case running(name: String, seconds: Int)
+    case running(name: String, tool: ProcessReportTool, seconds: Int)
     case finished(CapturedSampleReport)
-    case failed(name: String, reason: String)
+    case failed(name: String, tool: ProcessReportTool, reason: String)
 }
 
 /// Everything the process menus can do (plan: Quit, Force Quit, Suspend

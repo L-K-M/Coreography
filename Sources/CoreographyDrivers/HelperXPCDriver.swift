@@ -15,6 +15,16 @@ public enum HelperTransportError: Error, Equatable, Sendable {
 /// One encoded request out, one encoded reply back.
 public protocol HelperTransport: Sendable {
     func exchange(_ message: Data) async throws -> Data
+    /// The same exchange for slow requests: a spindump legitimately takes
+    /// the sampling window plus symbolication before the helper replies.
+    func exchange(_ message: Data, timeout: TimeInterval) async throws -> Data
+}
+
+extension HelperTransport {
+    /// A transport without a slower clock keeps its built-in bound.
+    public func exchange(_ message: Data, timeout: TimeInterval) async throws -> Data {
+        try await exchange(message)
+    }
 }
 
 #if os(macOS)
@@ -38,6 +48,10 @@ public struct HelperXPCDriver: HelperTransport {
     }
 
     public func exchange(_ message: Data) async throws -> Data {
+        try await exchange(message, timeout: Self.timeout)
+    }
+
+    public func exchange(_ message: Data, timeout: TimeInterval) async throws -> Data {
         #if os(macOS)
         guard let requirement else { throw HelperTransportError.unsignedBuild }
         let connection = NSXPCConnection(machServiceName: HelperWire.machServiceName, options: .privileged)
@@ -59,7 +73,7 @@ public struct HelperXPCDriver: HelperTransport {
                 guard let proxy else { return reply.fail(.unreachable("The connection offered no helper interface.")) }
 
                 proxy.exchange(message) { reply.succeed($0) }
-                DispatchQueue.global().asyncAfter(deadline: .now() + Self.timeout) { reply.fail(.timedOut) }
+                DispatchQueue.global().asyncAfter(deadline: .now() + timeout) { reply.fail(.timedOut) }
             }
         } onCancel: {
             reply.fail(.cancelled)

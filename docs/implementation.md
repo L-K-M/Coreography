@@ -633,11 +633,13 @@ Implemented:
   reaching into it carries the stored part; JSON and CSV exports still
   cover live data only and say so. Cursor readouts and contributors
   over the stored part and the 24 h range (the Day tier) remain.
-- Sample: "Sample for 3 Seconds" in the process menu runs the
-  allowlisted `/usr/bin/sample` (fixed path, validated pid and duration,
-  runtime and output caps) after an identity check, and opens the report
-  in the app to read or save. Spindump needs root and waits for the
-  helper.
+- Sample and spindump: "Sample for 3 Seconds" in the process menu runs
+  the allowlisted `/usr/bin/sample` (fixed path, validated pid and
+  duration, runtime and output caps) after an identity check, and opens
+  the report in the app to read or save. "Spindump for 3 Seconds" asks
+  the privileged helper, which alone may run `/usr/sbin/spindump` as
+  root, under the same allowlisting and caps; a report past the reply
+  limit arrives cut and marked. Both share one report sheet.
 - HUD, first part: Control-Command-H or the menu bar extra shows a small
   readout of CPU, GPU, the hottest sensor and system power in the top
   right corner, above full-screen apps and on every Space. It never takes
@@ -879,6 +881,7 @@ outstanding. The store, MCP and model features above await stack delivery.
 | On-disk history store and recorder | History slice: 148 Swift tests pass on Linux against the real system SQLite (round trip with gaps, duplicates, retention, reopen, permissions, WAL, batching); native CI checks the CLI and file permissions |
 | Process actions through the helper | 459 Swift tests pass on Linux (signals and priority sent for the named identity, the kernel, launchd and the helper itself answered as invalid targets without silencing the helper, out-of-range nice values refused, failures mapped, the controller and the window retrying a permission refusal only through an answering helper, an answer of the wrong kind starting the quiet minute); acting as root needs an installed helper and is unverified |
 | Other users' open files and sockets through the helper | 454 Swift tests pass on Linux (each process read once, unreadable ones left out, the kernel and oversized batches refused, a reply over the limit cut to the processes that fit, large lists sent in batches of 16 without the kernel, both monitors and the inspector filled from the helper and still counting restricted processes without it, a full counters request within its limit); reading as root needs an installed helper and is unverified |
+| Spindump through the helper | 473 Swift tests pass on Linux (the named identity and its window reach the tool, the kernel and out-of-range windows refused before it runs, tool failures returned as the reason, a report over the reply limit cut and marked, the request allowed a longer wait, an unavailable or wrongly-answering helper answered nil and went quiet); running `/usr/sbin/spindump` as root needs an installed helper and is unverified |
 | Other users' processes through the helper | 449 Swift tests pass on Linux (each positive PID read once, PID 0, negative and oversized lists refused, the kernel's row never sent, a restricted row filled only for the same start time and with the helper's read time, an unavailable helper quiet for a minute and asked again after it, an outdated helper's refusal also quiet for a minute, the CLI and unsigned builds never asking, a full reply within the limit); reading as root needs an installed helper and is unverified |
 | Notify-only update check | 442 Swift tests pass on Linux (tag parsing and ordering, failures mapped, foreign links refused, one notification per version, none from a manual check, the saved switch); the Settings section compiles only in native CI and a real GitHub answer is an owner check |
 | Privileged helper foundation | 431 Swift tests pass on Linux (the requirement pins team and identifier and refuses malformed team IDs, unknown and oversized requests are refused, state follows registration then the hello, an unsigned build never registers, install opens Login Items); native CI builds the helper into the bundle and checks that the ad-hoc helper refuses to listen. Installing needs a Developer ID build and is unverified |
@@ -966,7 +969,7 @@ implemented and listed above; native behavior still awaits the
 | M2 | Chip profiles as bundled data rather than code, voltage sensors, GPU frequency detail |
 | M3 | Audio graphs beyond the chart descriptors; an opt-in 60 Hz redraw |
 | M4 | `log show` sleep and wake import; `pmset` history covers sleep and wake today |
-| M5 | What else needs the privileged helper, installable from Settings in Developer ID builds (other users' process counters, open files, sockets, signals and lowered priority are done): spindump, not-responding detection, login and background items, raising priority, exit status. Separately, connections grouped by domain |
+| M5 | What else needs the privileged helper, installable from Settings in Developer ID builds (other users' process counters, open files, sockets, signals, lowered priority and spindump are done): not-responding detection, login and background items, raising priority, exit status. Separately, connections grouped by domain |
 | M6 / S9 | Frame rate: `metalperftrace` capture, the HUD's frame-rate slot, FPS in sessions and the performance view |
 | M7 | Translations (English only for now), integration, soak and performance checks, Developer ID signing and notarized releases |
 | Deferred by the plan | Control Center control, per-file tracing, ES launch timeline, Prometheus export, Wi-Fi details |

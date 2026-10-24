@@ -1,11 +1,17 @@
 import Foundation
 import CoreographyDrivers
 
-/// A call-stack sample of one process, as `sample` wrote it.
+/// Which allowlisted system tool wrote a call-stack report.
+public enum ProcessReportTool: String, Sendable {
+    case sample, spindump
+}
+
+/// A call-stack report of one process, as the tool wrote it.
 public struct ProcessSampleReport: Identifiable, Sendable {
     public let id = UUID()
     public let process: ProcessIdentity
     public let name: String
+    public let tool: ProcessReportTool
     public let takenAt: Date
     public let seconds: Int
     public let text: String
@@ -29,7 +35,7 @@ public struct ProcessSampler: Sendable {
         )
         switch result {
         case .success(let text):
-            return .success(ProcessSampleReport(process: process.id, name: process.name, takenAt: start, seconds: seconds, text: text))
+            return .success(ProcessSampleReport(process: process.id, name: process.name, tool: .sample, takenAt: start, seconds: seconds, text: text))
         case .failure(.unsupportedPlatform):
             return .failure(ProcessSampleFailure(reason: "Sampling needs macOS"))
         case .failure(.exited):

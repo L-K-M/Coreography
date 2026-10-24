@@ -171,7 +171,8 @@ final class ProcessActionsTests: XCTestCase {
         XCTAssertTrue(report.text.hasPrefix("Call graph"))
 
         await model.sampleProcess(try process(pid: 78, name: "Gone"))
-        guard case .failed(let name, let reason) = model.sampleState else { return XCTFail("expected a failure") }
+        guard case .failed(let name, let tool, let reason) = model.sampleState else { return XCTFail("expected a failure") }
+        XCTAssertEqual(tool, .sample)
         XCTAssertEqual(name, "Gone")
         XCTAssertEqual(reason, "The process exited before it could be sampled")
         model.dismissSample()
