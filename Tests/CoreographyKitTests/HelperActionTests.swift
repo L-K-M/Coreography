@@ -45,11 +45,14 @@ final class HelperActionTests: XCTestCase {
         XCTAssertEqual(quit, .requested)
         let lowered = await controller.lowerPriorityThroughHelper(of: target)
         XCTAssertEqual(lowered, .requested)
+        let raised = await controller.raisePriorityThroughHelper(of: target)
+        XCTAssertEqual(raised, .requested)
         let requests = await transport.requests
         XCTAssertEqual(requests, [
             .signal(process: target.helperIdentity, signal: .hangUp),
             .signal(process: target.helperIdentity, signal: .terminate),
-            .renice(process: target.helperIdentity, niceValue: ProcessController.lowPriorityNice)
+            .renice(process: target.helperIdentity, niceValue: ProcessController.lowPriorityNice),
+            .renice(process: target.helperIdentity, niceValue: ProcessController.highPriorityNice)
         ])
 
         XCTAssertFalse(ProcessController(driver: Refusing(), signaler: Refusing()).canAskHelper)

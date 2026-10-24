@@ -138,6 +138,7 @@ public enum CommandPalette {
         case .user2: "Send SIGUSR2 to \(name)…"
         case .info: "Send SIGINFO to \(name)…"
         case .lowerPriority: "Lower Priority of \(name)…"
+        case .raisePriority: "Raise Priority of \(name)…"
         }
     }
 }

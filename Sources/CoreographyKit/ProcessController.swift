@@ -17,6 +17,8 @@ public enum ProcessActionOutcome: Equatable, Sendable {
 public struct ProcessController: Sendable {
     /// Lowered priority for work that should yield to everything else.
     public static let lowPriorityNice: Int32 = 10
+    /// Raised priority for work that should run first; only root may set it.
+    public static let highPriorityNice: Int32 = -10
     private let driver: any ProcessTerminating
     private let signaler: any ProcessSignaling
     private let helper: PrivilegedHelper?
@@ -40,6 +42,15 @@ public struct ProcessController: Sendable {
         outcome(signaler.renice(
             pid: identity.pid, startSeconds: identity.startSeconds, startMicroseconds: identity.startMicroseconds,
             to: Self.lowPriorityNice
+        ))
+    }
+
+    /// Raising is never permitted to the app, so the answer is a refusal the
+    /// caller may retry through the helper.
+    public func raisePriority(of identity: ProcessIdentity) -> ProcessActionOutcome {
+        outcome(signaler.renice(
+            pid: identity.pid, startSeconds: identity.startSeconds, startMicroseconds: identity.startMicroseconds,
+            to: Self.highPriorityNice
         ))
     }
 
@@ -68,6 +79,10 @@ public struct ProcessController: Sendable {
 
     public func lowerPriorityThroughHelper(of identity: ProcessIdentity) async -> ProcessActionOutcome? {
         await act(.renice(process: identity.helperIdentity, niceValue: Self.lowPriorityNice))
+    }
+
+    public func raisePriorityThroughHelper(of identity: ProcessIdentity) async -> ProcessActionOutcome? {
+        await act(.renice(process: identity.helperIdentity, niceValue: Self.highPriorityNice))
     }
 
     private func act(_ request: HelperRequest) async -> ProcessActionOutcome? {
