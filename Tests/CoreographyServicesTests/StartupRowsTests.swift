@@ -34,18 +34,39 @@ final class StartupRowsTests: XCTestCase {
         XCTAssertEqual(all.count, 3)
     }
 
-    private func item(_ label: String, program: String, apple: Bool = false) -> StartupItem {
+    func testUserOwnedRegistrationsDoNotBorrowAnotherUsersCosts() throws {
+        let inventory = StartupInventory(
+            takenAt: epoch, items: [
+                item("mine", program: "/opt/sync/syncd", owner: 501),
+                item("theirs", program: "/opt/sync/syncd", owner: 502)
+            ], unreadableDefinitions: 0, stateProblem: nil, loginItemsProblem: nil
+        )
+        var ledger = AppLedger(capacity: 10)
+        ledger.record(try processes(at: 0, secondUID: 502), logicalCPUCount: 4)
+        ledger.record(try processes(at: 2, secondUID: 502), logicalCPUCount: 4)
+        let rows = StartupRows.rows(
+            inventory, processes: try processes(at: 2, secondUID: 502), ledger: ledger,
+            now: epoch.addingTimeInterval(2), visibility: .all
+        )
+        XCTAssertEqual(rows.map(\.processCount), [1, 1])
+        XCTAssertEqual(rows.map(\.cpuPercentOfMachine), [20, 10])
+        XCTAssertEqual(rows.map(\.memoryFootprintBytes), [1024, 1024])
+        XCTAssertTrue(rows.allSatisfy { $0.appCPUSecondsLastHour == nil }, "the app ledger has no user dimension")
+    }
+
+    private func item(_ label: String, program: String, apple: Bool = false, owner: Int? = nil) -> StartupItem {
         StartupItem(
             label: label, kind: apple ? .systemDaemon : .userAgent, plistPath: "/x/\(label).plist", program: program,
-            runsAtLoad: true, keepsAlive: false, state: .enabled, isApple: apple, ownerUID: nil, registrationID: nil
+            runsAtLoad: true, keepsAlive: false, state: .enabled, isApple: apple, ownerUID: owner, registrationID: nil
         )
     }
 
-    private func processes(at second: TimeInterval) throws -> CapturedProcesses {
+    private func processes(at second: TimeInterval, secondUID: UInt32 = 501) throws -> CapturedProcesses {
         let stamp = SampleStamp(clockID: UUID(), monotonicNanoseconds: UInt64(second * 1e9), wallTime: epoch.addingTimeInterval(second))
         let rows = try [(10, 20.0), (11, 10.0)].map { pid, cpu in
             ProcessReading(
-                id: try ProcessIdentity(pid: Int32(pid), startSeconds: 1, startMicroseconds: 0), parentPID: 1, uid: 501,
+                id: try ProcessIdentity(pid: Int32(pid), startSeconds: 1, startMicroseconds: 0), parentPID: 1,
+                uid: pid == 11 ? secondUID : 501,
                 name: "syncd", stamp: stamp, cpuPercentOfMachine: try .measured(cpu), memoryFootprintBytes: try .measured(1024),
                 diskReadBytesPerSecond: try .measured(0), diskWriteBytesPerSecond: try .measured(0),
                 executablePath: "/opt/sync/syncd", responsiblePID: nil

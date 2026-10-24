@@ -43,11 +43,16 @@ enum StartupRows {
         return inventory.items
             .filter { visibility == .all || !$0.isApple }
             .map { item in
-                let matched = item.program.flatMap { byProgram[$0] } ?? []
+                let candidates = item.program.flatMap { byProgram[$0] } ?? []
+                let matched = candidates.filter { process in
+                    guard let owner = item.ownerUID, owner >= 0 else { return true }
+                    return Int(process.uid) == owner
+                }
                 let apps = Set(matched.compactMap { appNames[$0.id] })
                 let cpu = matched.compactMap(\.cpuPercentOfMachine.numericValue)
                 let memory = matched.compactMap(\.memoryFootprintBytes.numericValue)
-                let appSeconds = apps.compactMap { appCPU[$0] }
+                // The ledger groups apps across users, so it cannot supply a user-owned total.
+                let appSeconds = item.ownerUID == nil ? apps.compactMap { appCPU[$0] } : []
                 return StartupRow(
                     item: item, processCount: matched.count,
                     cpuPercentOfMachine: cpu.isEmpty ? nil : cpu.reduce(0, +),
