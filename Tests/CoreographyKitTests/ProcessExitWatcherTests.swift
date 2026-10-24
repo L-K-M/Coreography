@@ -4,6 +4,32 @@ import XCTest
 @testable import CoreographyKit
 
 final class ProcessExitWatcherTests: XCTestCase {
+    #if os(macOS)
+    func testNativeDriverReportsAChildExit() throws {
+        let driver = try XCTUnwrap(ProcessExitDriver())
+        let child = Process()
+        child.executableURL = URL(fileURLWithPath: "/bin/sh")
+        child.arguments = ["-c", "read value; exit 42"]
+        let input = Pipe()
+        child.standardInput = input
+        try child.run()
+        defer { if child.isRunning { child.terminate() }; child.waitUntilExit() }
+
+        driver.watch([child.processIdentifier])
+        try input.fileHandleForWriting.write(contentsOf: Data("finish\n".utf8))
+        child.waitUntilExit()
+        let deadline = Date().addingTimeInterval(5)
+        var events: [ExitEvent] = []
+        repeat {
+            events += driver.drain()
+            if !events.isEmpty { break }
+            Thread.sleep(forTimeInterval: 0.01)
+        } while Date() < deadline
+        XCTAssertEqual(events, [ExitEvent(pid: child.processIdentifier, status: 42 << 8)])
+        XCTAssertTrue(driver.drain().isEmpty, "each exit is delivered once")
+    }
+    #endif
+
     private final class StubWatcher: ProcessExitWatching, @unchecked Sendable {
         var watched: Set<Int32> = []
         var events: [ExitEvent] = []
