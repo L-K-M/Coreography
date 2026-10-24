@@ -2587,6 +2587,7 @@ private struct ConnectionsPane: View {
                     TableColumn("State") { Text(ConnectionText.state($0.connection)) }
                     TableColumn("Local") { Text(ConnectionText.endpoint($0.connection.local)) }
                     TableColumn("Remote") { Text($0.connection.remote.map(ConnectionText.endpoint) ?? "–") }
+                    TableColumn("Server") { Text($0.connection.remote.flatMap { model.serverNames[$0.address] } ?? "–") }
                 }
                 .frame(height: 260)
             }

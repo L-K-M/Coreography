@@ -258,6 +258,12 @@ public final class DashboardModel {
     @ObservationIgnored private let maintenanceProvider: MaintenanceStatusProvider?
     @ObservationIgnored private var maintenanceRead: Task<Void, Never>?
     @ObservationIgnored private let connectionMonitor: ConnectionMonitor?
+    /// Peers' hostnames, resolved once each and merged into `serverNames`.
+    @ObservationIgnored private let serverNameResolver: ServerNameResolver?
+    @ObservationIgnored private var serverNameTask: Task<Void, Never>?
+    /// Resolved PTR names by peer address, for the Connections tab's
+    /// domain grouping.
+    public private(set) var serverNames: [String: String] = [:]
     @ObservationIgnored private var connectionSample: Task<Void, Never>?
     @ObservationIgnored private var liveConnections: CapturedConnections?
     @ObservationIgnored private let assertionReader: AssertionReader?
@@ -364,6 +370,7 @@ public final class DashboardModel {
         sleepProvider = SleepHistoryProvider()
         maintenanceProvider = MaintenanceStatusProvider()
         connectionMonitor = ConnectionMonitor()
+        serverNameResolver = ServerNameResolver()
         startupProvider = StartupProvider()
         inspector = ProcessInspector()
         assertionReader = AssertionReader()
@@ -424,7 +431,8 @@ public final class DashboardModel {
         trafficMonitor: ProcessTrafficMonitor? = nil, controller: ProcessController = ProcessController(),
         askService: AskService = AskService(), notifier: AlertDelivery? = nil,
         historyRecorder: HistoryRecorder? = nil, sleepProvider: SleepHistoryProvider? = nil,
-        connectionMonitor: ConnectionMonitor? = nil, startupProvider: StartupProvider? = nil,
+        connectionMonitor: ConnectionMonitor? = nil, serverNameResolver: ServerNameResolver? = nil,
+        startupProvider: StartupProvider? = nil,
         inspector: ProcessInspector? = nil, assertionReader: AssertionReader? = nil,
         openFileMonitor: OpenFileMonitor? = nil, sessionArchive: SessionArchive? = nil,
         sampler: ProcessSampler? = nil, spindumper: ProcessSpindumper? = nil,
@@ -443,6 +451,7 @@ public final class DashboardModel {
         self.sleepProvider = sleepProvider
         self.maintenanceProvider = maintenanceProvider
         self.connectionMonitor = connectionMonitor
+        self.serverNameResolver = serverNameResolver
         self.startupProvider = startupProvider
         self.inspector = inspector
         self.assertionReader = assertionReader
@@ -1568,7 +1577,9 @@ public final class DashboardModel {
     /// The Connections tab's rows, by app, from displayed (possibly held) data.
     public var appConnections: [AppConnections] {
         guard let connectionSnapshot else { return [] }
-        return ConnectionGroups.apps(in: connectionSnapshot, processes: processSnapshot, matching: connectionFilter)
+        return ConnectionGroups.apps(
+            in: connectionSnapshot, processes: processSnapshot, matching: connectionFilter, serverNames: serverNames
+        )
     }
 
     private var wantsOpenFiles: Bool { ProcessFilter.parse(processFilter).usesFiles }
@@ -1860,6 +1871,21 @@ public final class DashboardModel {
             self.connectionSample = nil
             self.liveConnections = snapshot
             if self.displayMode == .live { self.connectionSnapshot = snapshot }
+            self.resolveServerNames(of: snapshot)
+        }
+    }
+
+    /// Peers' names fill in behind the table; one batch at a time, only
+    /// while the Connections pane shows.
+    private func resolveServerNames(of snapshot: CapturedConnections) {
+        guard detailPane == .connections, let serverNameResolver, serverNameTask == nil else { return }
+        let addresses = snapshot.connections.compactMap { $0.remote?.address }
+        guard !addresses.isEmpty else { return }
+        serverNameTask = Task { [weak self] in
+            let names = await serverNameResolver.resolve(addresses)
+            guard let self, !Task.isCancelled else { return }
+            self.serverNameTask = nil
+            self.serverNames = names
         }
     }
 
