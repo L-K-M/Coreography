@@ -4,6 +4,10 @@ import XCTest
 @testable import CoreographyServices
 
 final class ConnectionDomainTests: XCTestCase {
+    func testIPv4MappedIPv6IsItsOwnGroup() {
+        XCTAssertEqual(DomainName.domain(of: "::ffff:192.0.2.1"), "::ffff:192.0.2.1")
+    }
+
     private func connection(pid: Int32 = 42, remote: String, port: UInt16 = 443) -> CapturedConnection {
         ConnectionReading(
             process: try! ProcessIdentity(pid: pid, startSeconds: 1, startMicroseconds: 0),

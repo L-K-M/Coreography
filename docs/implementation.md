@@ -847,10 +847,12 @@ Implemented:
   seen, and only while the tab shows or the filter uses `#listening`,
   which now works. Other users' processes are counted as needing the
   helper, not dropped. `coreo connections --once --json` prints the same
-  data. Connected peers group by domain, then server: a resolver caches
-  each address's PTR answer (negatives included, at most 64 lookups a
-  pass) while the pane shows, and the table shows the resolved name
-  beside the address; the name is searchable text. Per-connection
+  data. Connected peers sort by an approximate domain key, then server.
+  Reverse DNS asks the Mac's configured resolver while the pane shows;
+  PTR names need not identify the site using an address. Answers and
+  misses stay cached only while peers remain connected, with 64 lookups
+  per pass and four at once, off Swift's task pool. The table shows the
+  searchable name beside the address. Per-connection
   traffic and the helper remain.
 - Sleep and wake history, first part: `pmset -g log` runs with a fixed
   path and arguments, a 20-second limit and an 8 MB tail cap, off the

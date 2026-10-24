@@ -5,12 +5,19 @@ public protocol ServerNameResolving: Sendable {
     func lookup(_ address: String) async -> String?
 }
 
-/// Reverse-resolves socket peers with `getnameinfo`: a blocking DNS call the
-/// caller must keep off the main thread.
+/// Runs blocking reverse DNS outside Swift's cooperative task pool.
 public struct ServerNameDriver: ServerNameResolving {
     public init() {}
 
-    public func lookup(_ address: String) -> String? {
+    public func lookup(_ address: String) async -> String? {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .utility).async {
+                continuation.resume(returning: Self.blockingLookup(address))
+            }
+        }
+    }
+
+    private static func blockingLookup(_ address: String) -> String? {
         var storage = sockaddr_storage()
         var length = 0
         var v4 = in_addr()
@@ -18,15 +25,21 @@ public struct ServerNameDriver: ServerNameResolving {
         if inet_pton(AF_INET, address, &v4) == 1 {
             var sa = sockaddr_in()
             sa.sin_family = sa_family_t(AF_INET)
+            #if os(macOS)
+            sa.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+            #endif
             sa.sin_addr = v4
             length = MemoryLayout<sockaddr_in>.size
-            withUnsafeBytes(of: &sa) { memcpy(&storage, $0.baseAddress!, length) }
+            _ = withUnsafeBytes(of: &sa) { memcpy(&storage, $0.baseAddress!, length) }
         } else if inet_pton(AF_INET6, address, &v6) == 1 {
             var sa = sockaddr_in6()
             sa.sin6_family = sa_family_t(AF_INET6)
+            #if os(macOS)
+            sa.sin6_len = UInt8(MemoryLayout<sockaddr_in6>.size)
+            #endif
             sa.sin6_addr = v6
             length = MemoryLayout<sockaddr_in6>.size
-            withUnsafeBytes(of: &sa) { memcpy(&storage, $0.baseAddress!, length) }
+            _ = withUnsafeBytes(of: &sa) { memcpy(&storage, $0.baseAddress!, length) }
         } else {
             return nil
         }
@@ -37,7 +50,7 @@ public struct ServerNameDriver: ServerNameResolving {
             }
         }
         guard result == 0 else { return nil }
-        let name = String(cString: host)
+        let name = String(decoding: host.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
         return name.isEmpty ? nil : name
     }
 }

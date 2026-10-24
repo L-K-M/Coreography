@@ -75,9 +75,9 @@ enum ConnectionGroups {
     }
 }
 
-/// The registrable part of a resolved peer name, for grouping (plan: domain
-/// before server). An approximation: the last two labels, or three under a
+/// An approximate grouping key: the last two labels, or three under a
 /// country-code second level like `co.uk`. Raw addresses answer themselves.
+/// shortcut: not public-suffix data; use that when exact registration boundaries matter.
 enum DomainName {
     /// Second-level names countries commonly nest domains under.
     private static let secondLevel: Set<String> = [
@@ -85,6 +85,7 @@ enum DomainName {
     ]
 
     static func domain(of host: String) -> String {
+        guard !host.contains(":") else { return host }
         let labels = host.lowercased()
             .trimmingCharacters(in: CharacterSet(charactersIn: "."))
             .split(separator: ".")
