@@ -69,11 +69,11 @@ public final class ProcessExitDriver: ProcessExitWatching, @unchecked Sendable {
         #if os(macOS)
         lock.lock()
         defer { lock.unlock() }
-        var events: [Darwin.kevent] = .init(repeating: .init(), count: Self.batchSize)
+        var events = [kevent64_s](repeating: .init(), count: Self.batchSize)
         var timeout = timespec(tv_sec: 0, tv_nsec: 0)
         var found: [ExitEvent] = []
         while true {
-            let count = Darwin.kevent(queue, nil, 0, &events, Int32(events.count), &timeout)
+            let count = kevent64(queue, nil, 0, &events, Int32(events.count), 0, &timeout)
             guard count > 0 else { return found }
             for event in events.prefix(Int(count)) where event.fflags & UInt32(NOTE_EXIT) != 0 {
                 guard let pid = Int32(exactly: event.ident) else { continue }
@@ -91,12 +91,13 @@ public final class ProcessExitDriver: ProcessExitWatching, @unchecked Sendable {
     #if os(macOS)
     /// Receipts keep registration errors out of the exit event stream.
     private func change(_ pid: Int32, flags: UInt16, notes: UInt32) -> Int32 {
-        var event = Darwin.kevent(
-            ident: UInt(pid), filter: Int16(EVFILT_PROC), flags: flags | UInt16(EV_RECEIPT),
-            fflags: notes, data: 0, udata: nil
-        )
-        var receipt = Darwin.kevent()
-        let result = Darwin.kevent(queue, &event, 1, &receipt, 1, nil)
+        var event = kevent64_s()
+        event.ident = UInt64(pid)
+        event.filter = Int16(EVFILT_PROC)
+        event.flags = flags | UInt16(EV_RECEIPT)
+        event.fflags = notes
+        var receipt = kevent64_s()
+        let result = kevent64(queue, &event, 1, &receipt, 1, 0, nil)
         guard result == 1 else { return result < 0 ? errno : EIO }
         return Int32(clamping: receipt.data)
     }
