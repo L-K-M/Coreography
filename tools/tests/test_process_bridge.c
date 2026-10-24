@@ -201,6 +201,18 @@ test_platform(void)
     errno = 0;
     assert(getpriority(PRIO_PROCESS, (id_t)child) == 15 && errno == 0);
 
+    /* An explicit negative target must raise or report a permission refusal. */
+    int32_t raised = coreo_process_renice((int32_t)child, target.start_seconds,
+                                         target.start_microseconds, -10);
+    errno = 0;
+    int after_raise = getpriority(PRIO_PROCESS, (id_t)child);
+    assert(errno == 0);
+    if (geteuid() == 0) {
+        assert(raised == 0 && after_raise == -10);
+    } else {
+        assert((raised == EACCES || raised == EPERM) && after_raise == 15);
+    }
+
     assert(coreo_process_signal((int32_t)child, target.start_seconds, target.start_microseconds,
                                 COREO_SIGNAL_TERMINATE) == 0);
     int status = 0;
