@@ -280,6 +280,8 @@ public final class DashboardModel {
     @ObservationIgnored private let spindumper: ProcessSpindumper?
     /// Mutable: its tracker records one probe per process sample.
     @ObservationIgnored private var responsivenessMonitor: ResponsivenessMonitor?
+    /// Watches observed pids for exits and their wait statuses (kqueue).
+    @ObservationIgnored private var exitWatcher: ProcessExitWatcher?
     /// Processes whose UI has stopped answering; nil until the probe first ran.
     private var notResponding: Set<ProcessIdentity>?
     @ObservationIgnored private var sensorStats = SensorStats()
@@ -382,6 +384,7 @@ public final class DashboardModel {
         sampler = ProcessSampler()
         spindumper = ProcessSpindumper()
         responsivenessMonitor = ResponsivenessMonitor()
+        exitWatcher = ProcessExitWatcher()
         interval = .seconds(1)
         processInterval = .seconds(2)
         do {
@@ -436,7 +439,7 @@ public final class DashboardModel {
         inspector: ProcessInspector? = nil, assertionReader: AssertionReader? = nil,
         openFileMonitor: OpenFileMonitor? = nil, sessionArchive: SessionArchive? = nil,
         sampler: ProcessSampler? = nil, spindumper: ProcessSpindumper? = nil,
-        responsivenessMonitor: ResponsivenessMonitor? = nil,
+        responsivenessMonitor: ResponsivenessMonitor? = nil, exitWatcher: ProcessExitWatcher? = nil,
         maintenanceProvider: MaintenanceStatusProvider? = nil,
         shortcutRunner: ShortcutLauncher? = nil, volumeReader: VolumeMonitor? = nil,
         energyMode: EnergyModeMonitor? = nil
@@ -460,6 +463,7 @@ public final class DashboardModel {
         self.sampler = sampler
         self.spindumper = spindumper
         self.responsivenessMonitor = responsivenessMonitor
+        self.exitWatcher = exitWatcher
         self.monitor = monitor
         self.interval = interval
         self.processMonitor = processMonitor
@@ -2050,7 +2054,10 @@ public final class DashboardModel {
                         )
                         if let interval, let recorder = self.historyRecorder { self.enqueueRecord { await recorder.recordLedger(interval) } }
                         if let interval { self.sessionRecording?.record(interval) }
-                        self.liveLifecycle.record(processes)
+                        // Drain before watching: exits that happened since
+                        // the last sample join the ghosts this record makes.
+                        self.liveLifecycle.record(processes, exits: self.exitWatcher?.drain() ?? [:])
+                        self.exitWatcher?.watch(Set(processes.processes.map(\.id.pid)))
                         if self.wantsResponsiveness { self.responsivenessMonitor?.record(processes.processes) }
                         else { self.responsivenessMonitor?.reset() }
                         self.recordSelectedHistory(processes, traffic: traffic)
