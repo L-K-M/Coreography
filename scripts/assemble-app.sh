@@ -81,7 +81,8 @@ verify_arches "$APP_DST/Contents/Helpers/coreo"
 verify_arches "$APP_DST/Contents/MacOS/CoreographyHelper"
 WIDGET="$APP_DST/Contents/PlugIns/CoreographyWidgets.appex"
 verify_arches "$WIDGET/Contents/MacOS/CoreographyWidgets"
-WIDGET_POINT="$(/usr/libexec/PlistBuddy -c 'Print :NSExtension:NSExtensionPointIdentifier' "$WIDGET/Contents/Info.plist")"
+WIDGET_POINT="$(/usr/libexec/PlistBuddy -c 'Print :NSExtension:NSExtensionPointIdentifier' "$WIDGET/Contents/Info.plist")" \
+  || die "the desktop widget's Info.plist or extension point is missing."
 [[ "$WIDGET_POINT" == com.apple.widgetkit-extension ]] || die "the desktop widget extension point is missing."
 HELPER_PLIST="$APP_DST/Contents/Library/LaunchDaemons/ch.lkmc.Coreography.helper.plist"
 [[ -f "$HELPER_PLIST" ]] || die "the helper's launch daemon definition is missing."
@@ -96,8 +97,19 @@ codesign --force --options runtime --sign - "$APP_DST/Contents/Helpers/coreo"
 codesign --force --options runtime --identifier ch.lkmc.Coreography.helper \
   --sign - "$APP_DST/Contents/MacOS/CoreographyHelper"
 # Re-signing must retain the sandbox entitlement or WidgetKit cannot launch it.
-codesign --force --options runtime --entitlements Widgets/CoreographyWidgets.entitlements \
+WIDGET_ENTITLEMENTS=Widgets/CoreographyWidgets.entitlements
+[[ -f "$WIDGET_ENTITLEMENTS" ]] || die "the widget entitlements file is missing."
+codesign --force --options runtime --generate-entitlement-der --entitlements "$WIDGET_ENTITLEMENTS" \
   --sign - "$WIDGET"
+# Both CI and releases use this adapter; verify the final signature before either packages it.
+SIGNED_ENTITLEMENTS="$(mktemp -t coreography-widget-entitlements)"
+trap 'rm -f "$SIGNED_ENTITLEMENTS"' EXIT
+codesign --display --entitlements - --xml "$WIDGET" > "$SIGNED_ENTITLEMENTS"
+WIDGET_SANDBOX="$(/usr/libexec/PlistBuddy -c 'Print :com.apple.security.app-sandbox' "$SIGNED_ENTITLEMENTS")" \
+  || die "the signed widget has no sandbox entitlement."
+[[ "$WIDGET_SANDBOX" == true ]] || die "the signed widget is not sandboxed."
+rm -f "$SIGNED_ENTITLEMENTS"
+trap - EXIT
 codesign --force --options runtime --sign - "$APP_DST"
 codesign --verify --deep --strict --verbose=1 "$APP_DST"
 

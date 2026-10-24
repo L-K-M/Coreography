@@ -68,6 +68,9 @@ final class WidgetSnapshotTests: XCTestCase {
 
         XCTAssertEqual(snapshot.host.cpuPercentOfMachine.availability, .gap)
         XCTAssertEqual(snapshot.primaryInterface?.receivedBytesPerSecond.availability, .gap)
+        XCTAssertNil(snapshot.host.cpuPercentOfMachine.numericValue)
+        XCTAssertNil(snapshot.primaryInterface?.receivedBytesPerSecond.numericValue)
+        XCTAssertNil(snapshot.primaryInterface?.sentBytesPerSecond.numericValue)
         XCTAssertEqual(snapshot.memoryFraction, 0.5)
     }
 
