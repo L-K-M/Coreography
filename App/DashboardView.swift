@@ -2064,6 +2064,8 @@ private struct ProcessActionMenu: View {
             Button("Info (SIGINFO)…") { ask(.info) }
         }
         Button("Lower Priority…") { ask(.lowerPriority) }
+        Button("Raise Priority…") { ask(.raisePriority) }
+            .help("Renice to a negative value, which only root may do; the privileged helper does it")
         Button("Sample for \(SampleTool.defaultSeconds) Seconds") { Task { await model.sampleProcess(process) } }
             .help("Records its call stacks with the system sample tool; the process pauses briefly while it is read")
         Button("Spindump for \(SpindumpTool.defaultSeconds) Seconds") { Task { await model.spindumpProcess(process) } }
@@ -2099,6 +2101,7 @@ private enum ActionText {
         case .user2: String(localized: "Send SIGUSR2")
         case .info: String(localized: "Send SIGINFO")
         case .lowerPriority: String(localized: "Lower Priority")
+        case .raisePriority: String(localized: "Raise Priority")
         }
     }
 }

@@ -84,7 +84,7 @@ final class ProcessActionsTests: XCTestCase {
     }
 
     func testSignalsAndPriorityGoByIdentityAndRefuseWhatCannotBeUndone() async throws {
-        let signaler = RecordingSignaler(results: [.success(()), .failure(.needsAdministrator)])
+        let signaler = RecordingSignaler(results: [.success(()), .failure(.needsAdministrator), .failure(.needsAdministrator)])
         let model = DashboardModel(
             monitor: try SystemMonitor(driver: NoHostDriver()), interval: .seconds(1),
             controller: ProcessController(driver: RecordingDriver(results: []), signaler: signaler)
@@ -104,10 +104,14 @@ final class ProcessActionsTests: XCTestCase {
         XCTAssertEqual(signaler.calls.last?.nice, ProcessController.lowPriorityNice)
         XCTAssertEqual(model.actionMessage, "Worker: Its priority was not changed; only an administrator can change it")
 
+        model.perform(model.actionRequest(for: worker, action: .raisePriority))
+        XCTAssertEqual(signaler.calls.last?.nice, ProcessController.highPriorityNice)
+        XCTAssertEqual(model.actionMessage, "Worker: Its priority was not changed; only an administrator can change it")
+
         let frozen = model.actionRequest(for: session, action: .suspend)
         XCTAssertEqual(frozen.refusal, "Suspending it would freeze the screen with no way back.")
         model.perform(frozen)
-        XCTAssertEqual(signaler.calls.count, 2, "a refused action sends nothing")
+        XCTAssertEqual(signaler.calls.count, 3, "a refused action sends nothing")
 
         XCTAssertTrue(model.copyText(for: worker).contains("PID 77"))
         XCTAssertTrue(model.copyJSON(for: worker).contains("\"name\" : \"Worker\""))

@@ -1299,6 +1299,7 @@ public final class DashboardModel {
         case .user2: controller.send(.user2, to: request.target)
         case .info: controller.send(.info, to: request.target)
         case .lowerPriority: controller.lowerPriority(of: request.target)
+        case .raisePriority: controller.raisePriority(of: request.target)
         }
         guard case .notPermitted(let reason) = outcome, controller.canAskHelper else {
             return finish(request, outcome, route: .direct)
@@ -1326,6 +1327,7 @@ public final class DashboardModel {
         case .user2: await controller.sendThroughHelper(.user2, to: request.target)
         case .info: await controller.sendThroughHelper(.info, to: request.target)
         case .lowerPriority: await controller.lowerPriorityThroughHelper(of: request.target)
+        case .raisePriority: await controller.raisePriorityThroughHelper(of: request.target)
         }
     }
 
@@ -1759,7 +1761,7 @@ public final class DashboardModel {
         let selected = selectedProcess
         let noSelection = selected == nil ? "Select a process first" : nil
         let name = selected?.name ?? "Selected Process"
-        let actions: [ProcessAction] = [.quit, .forceQuit, .suspend, .resume, .hangUp, .interrupt, .user1, .user2, .info, .lowerPriority]
+        let actions: [ProcessAction] = [.quit, .forceQuit, .suspend, .resume, .hangUp, .interrupt, .user1, .user2, .info, .lowerPriority, .raisePriority]
         entries += actions.map { entry(CommandPalette.processTitle($0, name), .processAction($0), unavailable: noSelection) }
         entries += [
             entry("Sample \(name) for \(SampleTool.defaultSeconds) Seconds", .sampleSelected, unavailable: noSelection ?? (sampler == nil ? "Sampling is not available here" : nil)),
