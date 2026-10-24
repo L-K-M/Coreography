@@ -58,7 +58,7 @@ final class HelperSpindumpTests: XCTestCase {
             return XCTFail("a report was expected")
         }
         XCTAssertTrue(kept.hasPrefix("line"), "the head is kept: the target sorts topmost")
-        XCTAssertTrue(kept.hasSuffix("[The report was cut to fit the helper's reply.]"))
+        XCTAssertTrue(kept.hasSuffix("[The output was cut to fit the helper's reply.]"))
     }
 
     func testAReportWithinTheLimitArrivesUncut() async throws {

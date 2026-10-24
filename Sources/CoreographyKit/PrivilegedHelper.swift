@@ -22,6 +22,13 @@ public enum HelperFailure: Error, Equatable, Sendable {
     case system(String)
 }
 
+/// A read the helper refused or could not complete, in its own words.
+public struct HelperReadFailure: Error, Equatable, Sendable {
+    public let reason: String
+
+    public init(reason: String) { self.reason = reason }
+}
+
 /// The optional root helper: registration through launchd and the typed
 /// requests it answers. Declining it costs only restricted readings.
 public actor PrivilegedHelper {
@@ -80,7 +87,8 @@ public actor PrivilegedHelper {
         case .reply(.hello(let version)): return .outdated(protocolVersion: version)
         case .reply(.refused(let reason)): return .notResponding(reason)
         case .reply(.processCounters), .reply(.openFiles), .reply(.sockets), .reply(.actionDone), .reply(.actionFailed),
-             .reply(.spindumpReport), .reply(.spindumpFailed):
+             .reply(.spindumpReport), .reply(.spindumpFailed),
+             .reply(.backgroundItems), .reply(.backgroundItemsFailed):
             return .notResponding("Its answer did not match the request.")
         case .failed(let reason): return .notResponding(reason)
         }
@@ -129,6 +137,17 @@ public actor PrivilegedHelper {
         }
     }
 
+    /// The BTM database as `sfltool dumpbtm` prints it; only root may dump
+    /// it. Nil while the helper is unavailable; a failure carries the
+    /// helper's reason.
+    func backgroundItems() async -> Result<String, HelperReadFailure>? {
+        switch await ask(.backgroundItems) {
+        case .backgroundItems(let text): .success(text)
+        case .backgroundItemsFailed(let reason): .failure(HelperReadFailure(reason: reason))
+        default: nil
+        }
+    }
+
     /// A confirmed action on a process the app could not act on itself;
     /// nil while the helper is unavailable.
     func act(_ request: HelperRequest) async -> Result<Void, HelperActionFailure>? {
@@ -173,7 +192,8 @@ public actor PrivilegedHelper {
         switch (request, reply) {
         case (.processCounters, .processCounters), (.openFiles, .openFiles), (.sockets, .sockets),
              (.signal, .actionDone), (.signal, .actionFailed), (.renice, .actionDone), (.renice, .actionFailed),
-             (.spindump, .spindumpReport), (.spindump, .spindumpFailed):
+             (.spindump, .spindumpReport), (.spindump, .spindumpFailed),
+             (.backgroundItems, .backgroundItems), (.backgroundItems, .backgroundItemsFailed):
             true
         default:
             false

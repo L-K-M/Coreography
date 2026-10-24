@@ -33,6 +33,9 @@ public enum HelperRequest: HelperMessage, Equatable {
     /// A spindump of exactly this process for a bounded number of seconds.
     /// The helper picks the tool, the arguments and the report path itself.
     case spindump(process: HelperProcessIdentity, seconds: Int32)
+    /// The Background Task Management database as `sfltool dumpbtm` prints
+    /// it; the app parses the text. Needs no argument: the dump is whole.
+    case backgroundItems
 }
 
 /// The signals the helper sends, named by intent: nothing else can be asked for.
@@ -94,6 +97,10 @@ public enum HelperReply: HelperMessage, Equatable {
     case spindumpReport(String)
     /// Why no report could be taken.
     case spindumpFailed(String)
+    /// The `sfltool dumpbtm` text; one too long for the limit arrives cut.
+    case backgroundItems(String)
+    /// Why the database could not be dumped.
+    case backgroundItemsFailed(String)
     /// The helper read the message but will not act on it.
     case refused(String)
 }
@@ -108,6 +115,7 @@ extension HelperRequest {
     /// the helper's own cap, so it may wait well past the usual exchange.
     public var replyTimeout: TimeInterval {
         switch self {
+        case .backgroundItems: BackgroundItemsDriver.maximumSeconds + Self.standardReplyTimeout
         case .spindump(_, let seconds):
             TimeInterval(min(max(seconds, HelperWire.spindumpSeconds.lowerBound), HelperWire.spindumpSeconds.upperBound)) + 60
         default: Self.standardReplyTimeout
@@ -122,12 +130,13 @@ public enum HelperWireError: Error, Equatable, Sendable {
 
 /// Names and limits both sides of the helper connection share.
 public enum HelperWire {
+    public static let outputTruncationNotice = "[The output was cut to fit the helper's reply.]"
     public static let machServiceName = "ch.lkmc.Coreography.helper"
     /// The launchd property list in Contents/Library/LaunchDaemons.
     public static let daemonPlistName = "ch.lkmc.Coreography.helper.plist"
     public static let appIdentifier = "ch.lkmc.Coreography"
     public static let helperIdentifier = "ch.lkmc.Coreography.helper"
-    public static let protocolVersion = 5
+    public static let protocolVersion = 6
     /// More PIDs per request are refused; a Mac rarely runs this many processes.
     public static let maximumPIDs = 4096
     /// Processes per descriptor request: each may hold hundreds of paths,
@@ -175,6 +184,7 @@ public struct HelperRequestHandler: Sendable {
     private let sendSignal: @Sendable (HelperProcessIdentity, HelperSignal) -> Result<Void, ProcessControlError>
     private let setNice: @Sendable (HelperProcessIdentity, Int32) -> Result<Void, ProcessControlError>
     private let runSpindump: @Sendable (HelperProcessIdentity, Int32) async -> Result<String, ProcessSampleError>
+    private let readBackgroundItems: @Sendable () async -> Result<String, BackgroundItemsError>
     /// The helper never signals itself.
     private let ownPID: Int32
 
@@ -183,6 +193,7 @@ public struct HelperRequestHandler: Sendable {
         let sockets = ProcessSocketDriver()
         let control = ProcessControlDriver()
         let spindump = ProcessSpindumpDriver()
+        let backgroundItems = BackgroundItemsDriver()
         self.init(
             readCounters: ProcessStatisticsDriver.identifiedCounters,
             readFiles: { try? await files.files(pid: $0.pid, startSeconds: $0.startSeconds, startMicroseconds: $0.startMicroseconds).get() },
@@ -190,6 +201,7 @@ public struct HelperRequestHandler: Sendable {
             sendSignal: { Self.send($1, to: $0, with: control) },
             setNice: { control.renice(pid: $0.pid, startSeconds: $0.startSeconds, startMicroseconds: $0.startMicroseconds, to: $1) },
             runSpindump: { await spindump.spindump(pid: $0.pid, startSeconds: $0.startSeconds, startMicroseconds: $0.startMicroseconds, seconds: Int($1)) },
+            readBackgroundItems: { await backgroundItems.dump() },
             ownPID: ProcessInfo.processInfo.processIdentifier
         )
     }
@@ -201,6 +213,7 @@ public struct HelperRequestHandler: Sendable {
         sendSignal: @escaping @Sendable (HelperProcessIdentity, HelperSignal) -> Result<Void, ProcessControlError> = { _, _ in .failure(.unsupportedPlatform) },
         setNice: @escaping @Sendable (HelperProcessIdentity, Int32) -> Result<Void, ProcessControlError> = { _, _ in .failure(.unsupportedPlatform) },
         runSpindump: @escaping @Sendable (HelperProcessIdentity, Int32) async -> Result<String, ProcessSampleError> = { _, _ in .failure(.unsupportedPlatform) },
+        readBackgroundItems: @escaping @Sendable () async -> Result<String, BackgroundItemsError> = { .failure(.unsupportedPlatform) },
         ownPID: Int32 = ProcessInfo.processInfo.processIdentifier
     ) {
         self.readCounters = readCounters
@@ -209,6 +222,7 @@ public struct HelperRequestHandler: Sendable {
         self.sendSignal = sendSignal
         self.setNice = setNice
         self.runSpindump = runSpindump
+        self.readBackgroundItems = readBackgroundItems
         self.ownPID = ownPID
     }
 
@@ -288,8 +302,16 @@ public struct HelperRequestHandler: Sendable {
                 ))
             }
             switch await runSpindump(process, seconds) {
-            case .success(let report): return Self.capped(report)
+            case .success(let report): return Self.capped(report, as: HelperReply.spindumpReport)
             case .failure(let error): return HelperWire.encode(HelperReply.spindumpFailed(Self.describe(error)))
+            }
+        case .backgroundItems:
+            switch await readBackgroundItems() {
+            case .success(let dump): return Self.capped(dump, as: HelperReply.backgroundItems)
+            case .failure(.unsupportedPlatform):
+                return HelperWire.encode(HelperReply.backgroundItemsFailed("sfltool needs macOS."))
+            case .failure(.failed(let detail)):
+                return HelperWire.encode(HelperReply.backgroundItemsFailed(detail))
             }
         }
     }
@@ -307,16 +329,17 @@ public struct HelperRequestHandler: Sendable {
 
     private static let launchdPID: Int32 = 1
 
-    /// A spindump report cut until the reply fits the limit: the tool reports
-    /// whole-system stacks that can run many megabytes. The head is kept —
-    /// the target sorts topmost — and the cut is marked.
-    private static func capped(_ report: String) -> Data {
-        let note = "\n\n[The report was cut to fit the helper's reply.]"
-        var text = report
-        var message = HelperWire.encode(HelperReply.spindumpReport(text))
-        while message.count > HelperReply.maximumBytes, text.count > note.count {
-            text = String(text.prefix(text.count / 2))
-            message = HelperWire.encode(HelperReply.spindumpReport(text + note))
+    /// A tool's whole text cut until the reply fits the limit: spindump
+    /// reports whole-system stacks and a BTM dump lists every user's items,
+    /// both of which can run past it. The head is kept — the asked-for
+    /// content sorts topmost — and the cut is marked.
+    private static func capped(_ text: String, as reply: (String) -> HelperReply) -> Data {
+        let note = "\n\n" + HelperWire.outputTruncationNotice
+        var kept = text
+        var message = HelperWire.encode(reply(kept))
+        while message.count > HelperReply.maximumBytes, kept.count > note.count {
+            kept = String(kept.prefix(kept.count / 2))
+            message = HelperWire.encode(reply(kept + note))
         }
         return message
     }

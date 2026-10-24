@@ -2638,7 +2638,7 @@ private struct StartupPane: View {
                                 }
                             }
                     }
-                    TableColumn("Kind") { Text(StartupText.kind($0.item.kind)) }
+                    TableColumn("Kind") { Text(StartupText.kind($0.item)) }
                     TableColumn("State") { Text(StartupText.state($0.item)) }
                     TableColumn("Running") { Text($0.processCount == 0 ? "–" : "\($0.processCount)") }
                     TableColumn(ProcessText.cpuColumn(model.processCPUScaleInEffect)) { (row: StartupRow) in
@@ -2655,14 +2655,19 @@ private struct StartupPane: View {
 }
 
 private enum StartupText {
-    static func kind(_ kind: CapturedStartupKind) -> String {
-        switch kind {
-        case .userAgent: return String(localized: "Your agent")
-        case .agent: return String(localized: "Agent, all users")
-        case .daemon: return String(localized: "Daemon")
-        case .systemAgent: return String(localized: "Apple agent")
-        case .systemDaemon: return String(localized: "Apple daemon")
+    static func kind(_ item: CapturedStartupItem) -> String {
+        let name = switch item.kind {
+        case .loginItem: String(localized: "Login item")
+        case .userAgent: String(localized: "Your agent")
+        case .agent: String(localized: "Agent, all users")
+        case .daemon: String(localized: "Daemon")
+        case .systemAgent: String(localized: "Apple agent")
+        case .systemDaemon: String(localized: "Apple daemon")
+        case .backgroundItem: String(localized: "Background item")
         }
+        // A BTM record's owner matters when it is not this user.
+        guard let uid = item.ownerUID, uid != UInt(getuid()) else { return name }
+        return "\(name), UID \(uid)"
     }
 
     static func state(_ item: CapturedStartupItem) -> String {
@@ -2677,7 +2682,8 @@ private enum StartupText {
 
     static func coverage(_ inventory: CapturedStartupInventory?) -> [String] {
         guard let inventory else { return [String(localized: "Reading startup items…")] }
-        var notes = [CapturedStartupInventory.loginItemsUnavailable]
+        var notes: [String] = []
+        if let problem = inventory.loginItemsProblem { notes.append(problem) }
         if let problem = inventory.stateProblem { notes.append(String(localized: "Enabled state unconfirmed: \(problem)")) }
         if inventory.unreadableDefinitions > 0 {
             notes.append(String(localized: "\(inventory.unreadableDefinitions) definitions could not be read"))
