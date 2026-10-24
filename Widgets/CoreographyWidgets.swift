@@ -5,11 +5,28 @@ import CoreographyServices
 @main
 private struct CoreographyWidgets: WidgetBundle {
     var body: some Widget {
-        StatsWidget(statistic: .overview)
-        StatsWidget(statistic: .cpu)
-        StatsWidget(statistic: .memory)
-        StatsWidget(statistic: .network)
+        OverviewWidget()
+        CPUWidget()
+        MemoryWidget()
+        NetworkWidget()
     }
+}
+
+// WidgetKit recreates each kind with init(), so each needs its own type.
+private struct OverviewWidget: Widget {
+    var body: some WidgetConfiguration { statsConfiguration(.overview) }
+}
+
+private struct CPUWidget: Widget {
+    var body: some WidgetConfiguration { statsConfiguration(.cpu) }
+}
+
+private struct MemoryWidget: Widget {
+    var body: some WidgetConfiguration { statsConfiguration(.memory) }
+}
+
+private struct NetworkWidget: Widget {
+    var body: some WidgetConfiguration { statsConfiguration(.network) }
 }
 
 private enum Statistic: String {
@@ -42,19 +59,16 @@ private enum Statistic: String {
     }
 }
 
-private struct StatsWidget: Widget {
-    let statistic: Statistic
-
-    var body: some WidgetConfiguration {
-        StaticConfiguration(kind: "ch.lkmc.Coreography.widget.\(statistic.rawValue)", provider: StatsProvider()) { entry in
-            StatsView(statistic: statistic, entry: entry)
-                .containerBackground(.background, for: .widget)
-                .widgetURL(URL(string: "coreography://show"))
-        }
-        .configurationDisplayName(statistic.title)
-        .description("A short system sample. macOS controls refreshes; open Coreography for live readings.")
-        .supportedFamilies([.systemSmall, .systemMedium])
+@MainActor
+private func statsConfiguration(_ statistic: Statistic) -> some WidgetConfiguration {
+    StaticConfiguration(kind: "ch.lkmc.Coreography.widget.\(statistic.rawValue)", provider: StatsProvider()) { entry in
+        StatsView(statistic: statistic, entry: entry)
+            .containerBackground(.background, for: .widget)
+            .widgetURL(URL(string: "coreography://show"))
     }
+    .configurationDisplayName(statistic.title)
+    .description("A short system sample. macOS controls refreshes; open Coreography for live readings.")
+    .supportedFamilies([.systemSmall, .systemMedium])
 }
 
 private struct StatsEntry: TimelineEntry, Sendable {
@@ -210,7 +224,7 @@ private struct StatsView: View {
         }
         .font(.subheadline)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(Text(title) + Text(": \(value)"))
+        .accessibilityLabel(Text("\(Text(title)): \(value)"))
     }
 
     private func networkValue(_ title: LocalizedStringKey, symbol: String, reading: DashboardReading?) -> some View {
