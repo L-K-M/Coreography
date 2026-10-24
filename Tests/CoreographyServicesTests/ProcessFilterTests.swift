@@ -16,10 +16,10 @@ final class ProcessFilterTests: XCTestCase {
     }
 
     func testUnsupportedAndUnreadableTermsAreReportedNotDropped() {
-        let filter = ProcessFilter.parse("#not-responding #bogus cpu:lots user: user:99999999999")
+        let filter = ProcessFilter.parse("#exited #bogus cpu:lots user: user:99999999999")
         XCTAssertTrue(filter.terms.isEmpty, "digits too large for a UID are not an account name")
         XCTAssertEqual(filter.issues, [
-            "Ignored #not-responding: needs the helper's responsiveness check", "Unknown token #bogus",
+            "Ignored #exited: exited processes are listed below the table", "Unknown token #bogus",
             "Unreadable cpu:lots; try cpu:>10", "Unreadable user:; try user:root, user:me, a UID or an account name",
             "Unreadable user:99999999999; a UID is at most 4294967295"
         ])
@@ -70,6 +70,19 @@ final class ProcessFilterTests: XCTestCase {
         XCTAssertFalse(ProcessFilter.parse("port:443").matches(server, isNew: false, facts: sockets))
         XCTAssertEqual(ProcessFilter.parse("port:http").issues, ["Unreadable port:http; try port:443"])
         XCTAssertEqual(ProcessFilter.parse("port:0").issues, ["Unreadable port:0; try port:443"])
+    }
+
+    func testNotRespondingMatchesOnlyOnceTheProbeHasAnswered() throws {
+        let hung = try process(name: "Beachball", cpu: 1, uid: 501, path: "/Applications/Beachball.app/Contents/MacOS/Beachball", pid: 95)
+        let healthy = try process(name: "Notes", cpu: 0, uid: 501, path: "/Applications/Notes.app/Contents/MacOS/Notes", pid: 91)
+        let filter = ProcessFilter.parse("#not-responding")
+        XCTAssertEqual(filter.terms, [.token(.notResponding)])
+        XCTAssertTrue(filter.usesResponsiveness)
+        XCTAssertTrue(filter.issues.isEmpty)
+        let facts = ProcessFacts(notResponding: [hung.id])
+        XCTAssertTrue(filter.matches(hung, isNew: false, facts: facts))
+        XCTAssertFalse(filter.matches(healthy, isNew: false, facts: facts))
+        XCTAssertFalse(filter.matches(hung, isNew: false), "no probe answers yet, no match")
     }
 
     func testPreventingSleepMatchesAssertionHoldersOnlyOnceAssertionsAreRead() throws {

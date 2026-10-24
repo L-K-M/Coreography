@@ -272,6 +272,10 @@ public final class DashboardModel {
     @ObservationIgnored private let sessionArchive: SessionArchive?
     @ObservationIgnored private let sampler: ProcessSampler?
     @ObservationIgnored private let spindumper: ProcessSpindumper?
+    /// Mutable: its tracker records one probe per process sample.
+    @ObservationIgnored private var responsivenessMonitor: ResponsivenessMonitor?
+    /// Processes whose UI has stopped answering; nil until the probe first ran.
+    private var notResponding: Set<ProcessIdentity>?
     @ObservationIgnored private var sensorStats = SensorStats()
     @ObservationIgnored private let startupProvider: StartupProvider?
     @ObservationIgnored private let inspector: ProcessInspector?
@@ -370,6 +374,7 @@ public final class DashboardModel {
         sessionArchive = SessionArchive.makeDefault()
         sampler = ProcessSampler()
         spindumper = ProcessSpindumper()
+        responsivenessMonitor = ResponsivenessMonitor()
         interval = .seconds(1)
         processInterval = .seconds(2)
         do {
@@ -423,6 +428,7 @@ public final class DashboardModel {
         inspector: ProcessInspector? = nil, assertionReader: AssertionReader? = nil,
         openFileMonitor: OpenFileMonitor? = nil, sessionArchive: SessionArchive? = nil,
         sampler: ProcessSampler? = nil, spindumper: ProcessSpindumper? = nil,
+        responsivenessMonitor: ResponsivenessMonitor? = nil,
         maintenanceProvider: MaintenanceStatusProvider? = nil,
         shortcutRunner: ShortcutLauncher? = nil, volumeReader: VolumeMonitor? = nil,
         energyMode: EnergyModeMonitor? = nil
@@ -444,6 +450,7 @@ public final class DashboardModel {
         self.sessionArchive = sessionArchive
         self.sampler = sampler
         self.spindumper = spindumper
+        self.responsivenessMonitor = responsivenessMonitor
         self.monitor = monitor
         self.interval = interval
         self.processMonitor = processMonitor
@@ -1502,7 +1509,8 @@ public final class DashboardModel {
             isNew: { lifecycle.isNew($0, at: time) },
             facts: ProcessFacts(
                 sockets: connectionSnapshot.map(SocketFacts.init), sleepPreventers: assertionSnapshot?.sleepPreventers,
-                openFiles: openFileSnapshot?.files, traffic: trafficSnapshot, cpuFactor: processCPUFactor,
+                openFiles: openFileSnapshot?.files, traffic: trafficSnapshot, notResponding: notResponding,
+                cpuFactor: processCPUFactor,
                 // Only the by-user view and `user:<name>` need account names.
                 accountNames: processGrouping == .user || ProcessFilter.parse(processFilter).usesAccountNames
                     ? knownAccountNames() : [:],
@@ -1546,6 +1554,10 @@ public final class DashboardModel {
             if let reason = assertionSnapshot?.unavailableReason { issues.append("#preventing-sleep matches nothing: \(reason)") }
             if assertionSnapshot == nil { issues.append("#preventing-sleep is waiting for power assertions") }
         }
+        if filter.usesResponsiveness {
+            if responsivenessMonitor == nil { issues.append("#not-responding is unavailable here") }
+            else if notResponding == nil { issues.append("#not-responding is waiting for process samples") }
+        }
         guard filter.usesSockets else { return issues }
         guard let connections = connectionSnapshot else { return issues + ["#listening and port: are waiting for connection data"] }
         if let reason = connections.unavailableReason { return issues + ["#listening and port: match nothing: \(reason)"] }
@@ -1560,6 +1572,11 @@ public final class DashboardModel {
     }
 
     private var wantsOpenFiles: Bool { ProcessFilter.parse(processFilter).usesFiles }
+
+    /// The probe runs only while a filter term needs it; kept streaks reset.
+    private var wantsResponsiveness: Bool {
+        responsivenessMonitor != nil && ProcessFilter.parse(processFilter).usesResponsiveness
+    }
 
     /// One read of every process's open files, off the sampling loop and never two at once.
     private func sampleOpenFiles() {
@@ -2008,6 +2025,8 @@ public final class DashboardModel {
                         if let interval, let recorder = self.historyRecorder { self.enqueueRecord { await recorder.recordLedger(interval) } }
                         if let interval { self.sessionRecording?.record(interval) }
                         self.liveLifecycle.record(processes)
+                        if self.wantsResponsiveness { self.responsivenessMonitor?.record(processes.processes) }
+                        else { self.responsivenessMonitor?.reset() }
                         self.recordSelectedHistory(processes, traffic: traffic)
                         if self.wantsConnections { self.sampleConnections() }
                         if self.wantsOpenFiles { self.sampleOpenFiles() }
@@ -2039,6 +2058,7 @@ public final class DashboardModel {
                             self.contributorHistory = self.liveContributorHistory
                             self.ledger = self.liveLedger
                             self.lifecycle = self.liveLifecycle
+                            self.notResponding = self.wantsResponsiveness ? self.responsivenessMonitor?.notResponding : nil
                         }
                         if let network { self.networkFrames = network }
                         if let disks { self.diskFrames = disks }

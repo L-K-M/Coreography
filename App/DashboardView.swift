@@ -1709,7 +1709,7 @@ private struct ProcessPane: View {
         DisclosureGroup("Processes") {
             VStack(alignment: .leading, spacing: 10) {
                 HStack {
-                    TextField("Filter: name, cpu:>10, mem:>1GB, user:me, port:443, file:~/Downloads, #apps, #new, #listening, #preventing-sleep, #rosetta", text: $model.processFilter)
+                    TextField("Filter: name, cpu:>10, mem:>1GB, user:me, port:443, file:~/Downloads, #apps, #new, #listening, #preventing-sleep, #rosetta, #not-responding", text: $model.processFilter)
                         .textFieldStyle(.roundedBorder)
                         .focused(filterFocused)
                     Picker("Group", selection: $model.processGrouping) {
