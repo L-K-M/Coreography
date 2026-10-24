@@ -367,14 +367,15 @@ coreo_process_renice(int32_t pid, uint64_t start_seconds, uint64_t start_microse
     if (identity.pbi_start_tvsec != start_seconds || identity.pbi_start_tvusec != start_microseconds) {
         return EAGAIN;
     }
-    /* Lowering only: a process already at or below the target keeps its own
-       value, rather than being raised to it (which needs root anyway). */
+    /* Nonnegative targets lower priority; negative targets explicitly raise it.
+       Never move a process in the opposite direction just to reach the target. */
     errno = 0;
     current = getpriority(PRIO_PROCESS, (id_t)pid);
     if (current == -1 && errno != 0) {
         return errno;
     }
-    if (current >= nice_value) {
+    if ((nice_value >= 0 && current >= nice_value) ||
+        (nice_value < 0 && current <= nice_value)) {
         return 0;
     }
     if (setpriority(PRIO_PROCESS, (id_t)pid, nice_value) != 0) {

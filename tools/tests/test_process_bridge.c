@@ -187,8 +187,7 @@ test_platform(void)
                                 COREO_SIGNAL_CONTINUE) == 0);
     assert(waitpid(child, &stop_status, WCONTINUED) == child && WIFCONTINUED(stop_status));
 
-    /* Renice only lowers priority: a process already at or below the target
-       keeps its own nice value, and a raise is never attempted. */
+    /* A nonnegative target only lowers priority; already-lowered work stays put. */
     assert(coreo_process_renice((int32_t)child, target.start_seconds + 1, target.start_microseconds, 10) == EAGAIN);
     assert(coreo_process_renice((int32_t)child, target.start_seconds, target.start_microseconds, 10) == 0);
     errno = 0;
