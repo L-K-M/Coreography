@@ -831,10 +831,15 @@ Implemented:
   program is Apple-signed (basic validation only). Apple's items are
   hidden by default. Each row is joined to its running processes'
   current CPU and footprint and their apps' CPU-seconds over the last
-  hour. Read on request, never polled. Login and background items need
-  the helper and are named as missing. Coreography changes nothing:
-  Open Login Items & Extensions uses `SMAppService`'s documented link to
-  System Settings, and each item's menu reveals its property list or
+  hour. Read on request, never polled. With the helper, login items and
+  background registrations arrive from its `sfltool dumpbtm`: the app
+  parses the per-UID records itself, dedupes records already listed from
+  their plists so launchd's enabled state wins over the record's
+  disposition, and labels a BTM item's owner when it is not this user.
+  Without the helper they are named as missing. Coreography changes
+  nothing: Open Login Items & Extensions uses `SMAppService`'s
+  documented link to System Settings, and each item's menu reveals its
+  property list or
   copies its label.
 - Sensors tab: every plausible SMC temperature, each fan and the system
   power rail with current, minimum, maximum and mean since a reset,
@@ -938,7 +943,7 @@ outstanding. The store, MCP and model features above await stack delivery.
 | Redacted exports | Export slice: 187 Swift tests pass on Linux (figures kept, names absent from the JSON, naming recorded) |
 | Port reverse lookup | Port slice: 186 Swift tests pass on Linux (local and remote ports, unreadable and zero ports named, no match without connection data) |
 | Inspector | Inspector slice: 186 Swift tests and the Linux C contract pass (argument blocks without the environment, malformed blocks, missing-argument reasons, signer mapping, parent chains ending at launchd or an unobserved parent, launchd labels, selection opening the inspector); the native contract reads this process's own argument block and refuses a wrong start time; UI compile pending |
-| Startup tab | Startup slice: 182 Swift tests pass on Linux (plist parsing with unreadable and unlabelled files, override spellings, overrides winning over plists, unconfirmed state, Apple hiding, process and ledger join); native signature checks, `launchctl` output and the UI compile are pending |
+| Startup tab | Startup slice: 495 Swift tests pass on Linux (plist parsing with unreadable and unlabelled files, override spellings, overrides winning over plists, unconfirmed state, Apple hiding, process and ledger join, BTM dump parsing with per-UID sections and `(null)` placeholders, plist dedupe, helper failure notes); native signature checks, `launchctl`/`sfltool` output and the UI compile are pending |
 | Sensors tab | Sensors slice: 178 Swift tests pass on Linux (full temperature list with faults excluded, statistics since reset, absent sensors, unreadable values); native readings and the UI compile are pending |
 | Connections and `#listening` | Connections slice: 177 Swift tests and the Linux C contract pass (identity-checked reads, restricted, exited, failed and truncated processes counted, UDP and TCP listening, `inet_ntop` text, on-demand reads, the filter token); the native contract opens TCP and UDP sockets and checks ports, state, a wrong start time and truncation, and native CI finds a real listener through `coreo connections`; UI compile pending |
 | Reports and scope over stored history | Stored-range slice: 172 Swift tests pass on Linux (stored and live ledger totals without double counting, true means from raw readings, keyless stored peaks, scoped overlay and report through the model, export clamped to live data); native compile pending |
@@ -982,7 +987,7 @@ implemented and listed above; native behavior still awaits the
 | M2 | Chip profiles as bundled data rather than code, voltage sensors, GPU frequency detail |
 | M3 | Audio graphs beyond the chart descriptors; an opt-in 60 Hz redraw |
 | M4 | `log show` sleep and wake import; `pmset` history covers sleep and wake today |
-| M5 | What else needs the privileged helper, installable from Settings in Developer ID builds (other users' process counters, open files, sockets, signals, lowered and raised priority and spindump are done; not-responding detection runs app-side through SkyLight and exit statuses app-side through kqueue where signalling rights hold): login and background items |
+| M5 | Done pending runtime checks: the privileged helper, installable from Settings in Developer ID builds, covers other users' process counters, open files, sockets, signals, lowered and raised priority, spindump, and login and background items from `sfltool dumpbtm`; not-responding detection runs app-side through SkyLight and exit statuses app-side through kqueue where signalling rights hold |
 | M6 / S9 | Frame rate: `metalperftrace` capture, the HUD's frame-rate slot, FPS in sessions and the performance view |
 | M7 | Translations (English only for now), integration, soak and performance checks, Developer ID signing and notarized releases |
 | Deferred by the plan | Control Center control, per-file tracing, ES launch timeline, Prometheus export, Wi-Fi details |

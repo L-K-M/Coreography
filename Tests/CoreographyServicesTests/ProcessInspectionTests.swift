@@ -13,9 +13,9 @@ final class ProcessInspectionTests: XCTestCase {
         let startup = StartupInventory(
             takenAt: Date(), items: [StartupItem(
                 label: "com.example.child", kind: .agent, plistPath: "/Library/LaunchAgents/c.plist", program: "/opt/child",
-                runsAtLoad: true, keepsAlive: true, state: .enabled, isApple: false
+                runsAtLoad: true, keepsAlive: true, state: .enabled, isApple: false, ownerUID: nil
             )],
-            unreadableDefinitions: 0, stateProblem: nil
+            unreadableDefinitions: 0, stateProblem: nil, loginItemsProblem: nil
         )
         let inspection = ProcessInspections.make(child, in: snapshot, startup: startup, detail: nil, sockets: nil)
         XCTAssertEqual(inspection.parentChain.map(\.pid), [50, 1])
