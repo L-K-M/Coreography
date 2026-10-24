@@ -99,13 +99,17 @@ public enum HelperReply: HelperMessage, Equatable {
 }
 
 extension HelperRequest {
+    /// The usual ceiling for one request–reply exchange; transports without
+    /// their own clock fall back on this same constant, so they cannot drift.
+    public static let standardReplyTimeout: TimeInterval = 10
+
     /// How long the app waits for this request's answer: a spindump keeps the
     /// helper busy for its whole sampling window plus symbolication, all under
     /// the helper's own cap, so it may wait well past the usual exchange.
     public var replyTimeout: TimeInterval {
         switch self {
         case .spindump(_, let seconds): TimeInterval(seconds) + 60
-        default: 10
+        default: Self.standardReplyTimeout
         }
     }
 }

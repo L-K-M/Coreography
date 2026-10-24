@@ -3,6 +3,8 @@ import CoreographyKit
 
 public typealias QuitMode = ProcessQuitMode
 public typealias CapturedSampleReport = ProcessSampleReport
+public typealias SampleTool = ProcessSampler
+public typealias SpindumpTool = ProcessSpindumper
 
 /// Where a requested call-stack report stands.
 public enum SampleState: Sendable {

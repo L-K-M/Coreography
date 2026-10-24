@@ -20,7 +20,8 @@ public struct ProcessSpindumpDriver: Sendable {
         pid: Int32, startSeconds: UInt64, startMicroseconds: UInt64, seconds: Int
     ) async -> Result<String, ProcessSampleError> {
         #if os(macOS)
-        guard pid > 0, HelperWire.spindumpSeconds.contains(Int32(seconds)) else { return .failure(.failed("Invalid spindump request")) }
+        // Clamping, never trapping: a range failure is a reply, not a crash of the root helper.
+        guard pid > 0, HelperWire.spindumpSeconds.contains(Int32(clamping: seconds)) else { return .failure(.failed("Invalid spindump request")) }
         // spindump resolves the pid when it starts, so only the instant between
         // this check and that launch could meet a reused pid.
         guard ProcessIdentityCheck.matches(pid, startSeconds, startMicroseconds) else { return .failure(.exited) }

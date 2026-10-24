@@ -119,7 +119,7 @@ public actor PrivilegedHelper {
     /// A spindump report for a process, run by the helper because the tool
     /// only runs as root; nil while the helper is unavailable.
     func spindump(_ process: HelperProcessIdentity, seconds: Int) async -> Result<String, ProcessSampleFailure>? {
-        switch await ask(.spindump(process: process, seconds: Int32(seconds))) {
+        switch await ask(.spindump(process: process, seconds: Int32(clamping: seconds))) {
         case .spindumpReport(let text): .success(text)
         case .spindumpFailed(let reason): .failure(ProcessSampleFailure(reason: reason))
         default: nil

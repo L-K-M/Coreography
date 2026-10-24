@@ -40,7 +40,8 @@ extension HelperTransport {
 /// requests. The helper's signature is checked through its audit token
 /// on every message.
 public struct HelperXPCDriver: HelperTransport {
-    private static let timeout: TimeInterval = 10
+    /// The request type owns the patience budget; this matches its fallback.
+    private static let timeout: TimeInterval = HelperRequest.standardReplyTimeout
     private let requirement: String?
 
     public init(teamID: String?) {

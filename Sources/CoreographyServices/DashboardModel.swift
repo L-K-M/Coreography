@@ -1762,8 +1762,8 @@ public final class DashboardModel {
         let actions: [ProcessAction] = [.quit, .forceQuit, .suspend, .resume, .hangUp, .interrupt, .user1, .user2, .info, .lowerPriority]
         entries += actions.map { entry(CommandPalette.processTitle($0, name), .processAction($0), unavailable: noSelection) }
         entries += [
-            entry("Sample \(name) for 3 Seconds", .sampleSelected, unavailable: noSelection ?? (sampler == nil ? "Sampling is not available here" : nil)),
-            entry("Spindump \(name) for 3 Seconds", .spindumpSelected, unavailable: noSelection ?? (spindumper == nil ? "Spindump is not available here" : nil)),
+            entry("Sample \(name) for \(SampleTool.defaultSeconds) Seconds", .sampleSelected, unavailable: noSelection ?? (sampler == nil ? "Sampling is not available here" : nil)),
+            entry("Spindump \(name) for \(SpindumpTool.defaultSeconds) Seconds", .spindumpSelected, unavailable: noSelection ?? (spindumper == nil ? "Spindump is not available here" : nil)),
             entry("Copy \(name) as Text", .copySelected, unavailable: noSelection)
         ]
         return entries

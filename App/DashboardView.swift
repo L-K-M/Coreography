@@ -2064,10 +2064,10 @@ private struct ProcessActionMenu: View {
             Button("Info (SIGINFO)…") { ask(.info) }
         }
         Button("Lower Priority…") { ask(.lowerPriority) }
-        Button("Sample for 3 Seconds") { Task { await model.sampleProcess(process) } }
+        Button("Sample for \(SampleTool.defaultSeconds) Seconds") { Task { await model.sampleProcess(process) } }
             .help("Records its call stacks with the system sample tool; the process pauses briefly while it is read")
-        Button("Spindump for 3 Seconds") { Task { await model.spindumpProcess(process) } }
-            .help("Records a spindump with the privileged helper, the only way the tool may run")
+        Button("Spindump for \(SpindumpTool.defaultSeconds) Seconds") { Task { await model.spindumpProcess(process) } }
+            .help("Records a spindump with the privileged helper, the only way the tool may run; spindump samples every process, so the report includes system-wide call stacks")
         Divider()
         if let path = process.executablePath {
             Button("Reveal in Finder") { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)]) }
