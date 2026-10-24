@@ -19,15 +19,15 @@ public protocol ProcessExitWatching: Sendable {
     func drain() -> [ExitEvent]
 }
 
-/// All observed pids on one kqueue. `NOTE_EXIT` on any pid needs no
-/// privilege; the kernel adds `NOTE_EXITSTATUS` with the wait-status word
-/// only where the same rights as signalling hold (the same user, the
-/// parent, or root), so other users' exits still arrive without a status.
-public struct ProcessExitDriver: ProcessExitWatching {
+/// Owns one kqueue; the lock serializes registration and draining. If
+/// status access is denied, register for the exit alone instead.
+public final class ProcessExitDriver: ProcessExitWatching, @unchecked Sendable {
     #if os(macOS)
     private let queue: Int32
-    #endif
+    private let lock = NSLock()
+    private static let batchSize = 64
     private var watched: Set<Int32> = []
+    #endif
 
     /// Nil where kqueue is unavailable or the platform lacks it.
     public init?() {
@@ -40,35 +40,46 @@ public struct ProcessExitDriver: ProcessExitWatching {
         #endif
     }
 
-    public mutating func watch(_ pids: Set<Int32>) {
+    deinit {
         #if os(macOS)
-        var changes = watched.subtracting(pids).map {
-            kevent(ident: UInt($0), filter: Int16(EVFILT_PROC), flags: UInt16(EV_DELETE), fflags: 0, data: 0, udata: nil)
+        Darwin.close(queue)
+        #endif
+    }
+
+    public func watch(_ pids: Set<Int32>) {
+        #if os(macOS)
+        lock.lock()
+        defer { lock.unlock() }
+        let pids = pids.filter { $0 > 0 }
+        for pid in watched.subtracting(pids) {
+            _ = change(pid, flags: UInt16(EV_DELETE), notes: 0)
+            watched.remove(pid)
         }
-        changes += pids.subtracting(watched).map {
-            kevent(ident: UInt($0), filter: Int16(EVFILT_PROC), flags: UInt16(EV_ADD),
-                   fflags: UInt32(NOTE_EXIT | NOTE_EXITSTATUS), data: 0, udata: nil)
+        for pid in pids.subtracting(watched) {
+            let flags = UInt16(EV_ADD | EV_ONESHOT)
+            let result = change(pid, flags: flags, notes: UInt32(NOTE_EXIT) | UInt32(NOTE_EXITSTATUS))
+            if result == 0 || (result == EPERM && change(pid, flags: flags, notes: UInt32(NOTE_EXIT)) == 0) {
+                watched.insert(pid)
+            }
         }
-        watched = pids
-        guard !changes.isEmpty else { return }
-        changes.withUnsafeBufferPointer { kevent(queue, $0.baseAddress, Int32($0.count), nil, 0, nil) }
-        // An add can fail for a pid that already exited; the next sample
-        // leaves it out, and the failed note is never retried.
-        #else
-        watched = pids
         #endif
     }
 
     public func drain() -> [ExitEvent] {
         #if os(macOS)
-        var events = [kevent](repeating: kevent(), count: 64)
+        lock.lock()
+        defer { lock.unlock() }
+        var events: [Darwin.kevent] = .init(repeating: .init(), count: Self.batchSize)
         var timeout = timespec(tv_sec: 0, tv_nsec: 0)
         var found: [ExitEvent] = []
         while true {
-            let count = kevent(queue, nil, 0, &events, Int32(events.count), &timeout)
+            let count = Darwin.kevent(queue, nil, 0, &events, Int32(events.count), &timeout)
             guard count > 0 else { return found }
-            found += events[..<Int(count)].map {
-                ExitEvent(pid: Int32($0.ident), status: $0.fflags & UInt32(NOTE_EXITSTATUS) != 0 ? Int32($0.data) : nil)
+            for event in events.prefix(Int(count)) where event.fflags & UInt32(NOTE_EXIT) != 0 {
+                guard let pid = Int32(exactly: event.ident) else { continue }
+                watched.remove(pid)
+                let status = event.fflags & UInt32(NOTE_EXITSTATUS) != 0 ? Int32(exactly: event.data) : nil
+                found.append(ExitEvent(pid: pid, status: status))
             }
             if count < Int32(events.count) { return found }
         }
@@ -76,4 +87,18 @@ public struct ProcessExitDriver: ProcessExitWatching {
         return []
         #endif
     }
+
+    #if os(macOS)
+    /// Receipts keep registration errors out of the exit event stream.
+    private func change(_ pid: Int32, flags: UInt16, notes: UInt32) -> Int32 {
+        var event = Darwin.kevent(
+            ident: UInt(pid), filter: Int16(EVFILT_PROC), flags: flags | UInt16(EV_RECEIPT),
+            fflags: notes, data: 0, udata: nil
+        )
+        var receipt = Darwin.kevent()
+        let result = Darwin.kevent(queue, &event, 1, &receipt, 1, nil)
+        guard result == 1 else { return result < 0 ? errno : EIO }
+        return Int32(clamping: receipt.data)
+    }
+    #endif
 }

@@ -141,6 +141,24 @@ final class ProcessLifecycleTests: XCTestCase {
         XCTAssertNil(lifecycle.exited.first?.exit, "unwatched or other-users' exits keep no status")
     }
 
+    func testExitStatusSurvivesUntilTheProcessDisappears() throws {
+        var lifecycle = ProcessLifecycle()
+        lifecycle.record(try snapshot(at: 0, pids: [1, 2]))
+        // The process can exit after collection but before the queue is drained.
+        lifecycle.record(try snapshot(at: 2, pids: [1, 2]), exits: [2: 42 << 8])
+        lifecycle.record(try snapshot(at: 4, pids: [1]))
+        XCTAssertEqual(lifecycle.exited.first?.exit, .exited(code: 42))
+    }
+
+    func testExitStatusSurvivesATruncatedEnumeration() throws {
+        var lifecycle = ProcessLifecycle()
+        lifecycle.record(try snapshot(at: 0, pids: [1, 2]))
+        lifecycle.record(try snapshot(at: 2, pids: [1], truncated: true), exits: [2: 9])
+        XCTAssertTrue(lifecycle.exited.isEmpty)
+        lifecycle.record(try snapshot(at: 4, pids: [1]))
+        XCTAssertEqual(lifecycle.exited.first?.exit, .signalled(signal: 9, name: "SIGKILL"))
+    }
+
     private func identity(_ pid: Int32) throws -> ProcessIdentity {
         try ProcessIdentity(pid: pid, startSeconds: 1, startMicroseconds: 0)
     }

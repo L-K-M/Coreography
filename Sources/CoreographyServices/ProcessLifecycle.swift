@@ -79,6 +79,7 @@ struct ProcessLifecycle: Sendable {
 
     private var firstSeen: [ProcessIdentity: Date] = [:]
     private var lastObserved: [ProcessIdentity: (name: String, app: String, time: Date)] = [:]
+    private var pendingExits: [ProcessIdentity: ProcessExit] = [:]
     private(set) var exited: [ExitedProcess] = []
     /// Processes present in the very first sample are not "new".
     private var baseline: Date?
@@ -102,11 +103,21 @@ struct ProcessLifecycle: Sendable {
         // An interrupted sample (sleep) cannot tell exits from missed samples,
         // and a truncated list leaves out processes that still run.
         let truncated = snapshot.enumerationTruncated
+        // Queue delivery can precede the first sample that omits the process.
+        if snapshot.continuity == .continuous {
+            for identity in lastObserved.keys {
+                if let status = exits[identity.pid], pendingExits[identity] == nil {
+                    pendingExits[identity] = ProcessExit(status: status)
+                }
+            }
+        } else {
+            pendingExits.removeAll()
+        }
         if snapshot.continuity == .continuous, !truncated {
             for (identity, last) in lastObserved where !present.contains(identity) {
                 exited.append(ExitedProcess(
                     identity: identity, name: last.name, appName: last.app,
-                    lastSeen: last.time, exit: exits[identity.pid].map(ProcessExit.init)
+                    lastSeen: last.time, exit: pendingExits[identity]
                 ))
             }
         }
@@ -116,6 +127,7 @@ struct ProcessLifecycle: Sendable {
         // Left-out processes keep their last sighting until a full list settles them.
         if truncated { observed.merge(lastObserved) { current, _ in current } }
         lastObserved = observed
+        pendingExits = pendingExits.filter { observed[$0.key] != nil }
         for identity in present where firstSeen[identity] == nil { firstSeen[identity] = time }
         if !truncated { firstSeen = firstSeen.filter { present.contains($0.key) } }
         exited.removeAll { present.contains($0.identity) || time.timeIntervalSince($0.lastSeen) > Self.ghostWindow }
