@@ -153,7 +153,8 @@ jobs:
         run: |
           for bin in dist/Coreography.app/Contents/MacOS/Coreography \
                      dist/Coreography.app/Contents/Helpers/coreo \
-                     dist/Coreography.app/Contents/MacOS/CoreographyHelper; do
+                     dist/Coreography.app/Contents/MacOS/CoreographyHelper \
+                     dist/Coreography.app/Contents/PlugIns/CoreographyWidgets.appex/Contents/MacOS/CoreographyWidgets; do
             arches="$(lipo -archs "$bin")"
             echo "$bin: $arches"
             for want in arm64 x86_64; do
@@ -163,6 +164,17 @@ jobs:
               esac
             done
           done
+
+      - name: Verify desktop widget packaging
+        run: |
+          set -euo pipefail
+          WIDGET=dist/Coreography.app/Contents/PlugIns/CoreographyWidgets.appex
+          point=$(/usr/libexec/PlistBuddy -c 'Print :NSExtension:NSExtensionPointIdentifier' "$WIDGET/Contents/Info.plist")
+          test "$point" = com.apple.widgetkit-extension
+          codesign --display --entitlements - --xml "$WIDGET" > "$RUNNER_TEMP/widget-entitlements.plist"
+          sandbox=$(/usr/libexec/PlistBuddy -c 'Print :com.apple.security.app-sandbox' "$RUNNER_TEMP/widget-entitlements.plist")
+          test "$sandbox" = true
+          codesign --verify --strict "$WIDGET"
 
       - name: Verify the URL scheme and App Intents metadata
         run: |
