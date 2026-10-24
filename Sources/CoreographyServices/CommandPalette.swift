@@ -21,6 +21,7 @@ public enum PaletteAction: Hashable, Sendable {
     case resetSensorStats
     case refreshStartup
     case sampleSelected
+    case spindumpSelected
     /// The app confirms every one except Resume first.
     case processAction(ProcessAction)
     case copySelected
@@ -83,7 +84,8 @@ public enum CommandPalette {
     /// Filter tokens the palette offers as presets.
     static let filterPresets: [(title: String, filter: String)] = [
         ("Filter: Apps", "#apps"), ("Filter: My Processes", "#mine"), ("Filter: Third-Party", "#third-party"),
-        ("Filter: New", "#new"), ("Filter: Listening", "#listening"), ("Filter: Preventing Sleep", "#preventing-sleep")
+        ("Filter: New", "#new"), ("Filter: Listening", "#listening"), ("Filter: Preventing Sleep", "#preventing-sleep"),
+        ("Filter: Not Responding", "#not-responding")
     ]
 
     static func rangeTitle(_ range: TimeRange) -> String {
@@ -137,6 +139,7 @@ public enum CommandPalette {
         case .user2: "Send SIGUSR2 to \(name)…"
         case .info: "Send SIGINFO to \(name)…"
         case .lowerPriority: "Lower Priority of \(name)…"
+        case .raisePriority: "Raise Priority of \(name)…"
         }
     }
 }

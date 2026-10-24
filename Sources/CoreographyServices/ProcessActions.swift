@@ -3,19 +3,21 @@ import CoreographyKit
 
 public typealias QuitMode = ProcessQuitMode
 public typealias CapturedSampleReport = ProcessSampleReport
+public typealias SampleTool = ProcessSampler
+public typealias SpindumpTool = ProcessSpindumper
 
-/// Where a requested call-stack sample stands.
+/// Where a requested call-stack report stands.
 public enum SampleState: Sendable {
     case idle
-    case running(name: String, seconds: Int)
+    case running(name: String, tool: ProcessReportTool, seconds: Int)
     case finished(CapturedSampleReport)
-    case failed(name: String, reason: String)
+    case failed(name: String, tool: ProcessReportTool, reason: String)
 }
 
 /// Everything the process menus can do (plan: Quit, Force Quit, Suspend
 /// and Resume, Send Signal, Renice).
 public enum ProcessAction: Hashable, Sendable {
-    case quit, forceQuit, suspend, resume, hangUp, interrupt, user1, user2, info, lowerPriority
+    case quit, forceQuit, suspend, resume, hangUp, interrupt, user1, user2, info, lowerPriority, raisePriority
 
     /// "Force quit", "Suspend", …: the verb for dialogs and markers.
     public var verb: String {
@@ -30,6 +32,7 @@ public enum ProcessAction: Hashable, Sendable {
         case .user2: "Send SIGUSR2 to"
         case .info: "Send SIGINFO to"
         case .lowerPriority: "Lower the priority of"
+        case .raisePriority: "Raise the priority of"
         }
     }
 }
@@ -124,6 +127,8 @@ enum ProcessActions {
             consequences.append("Its effect is defined by the program; tools often print status, and most programs ignore it.")
         case .lowerPriority:
             consequences.append("It gets less CPU when others want it; only an administrator can raise it back.")
+        case .raisePriority:
+            consequences.append("It is scheduled ahead of others when the Mac is busy; only an administrator may raise a priority, so the privileged helper does it.")
         }
         return ProcessActionRequest(
             target: process.id, name: process.name, action: action, consequences: consequences,

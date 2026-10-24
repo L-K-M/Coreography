@@ -258,6 +258,12 @@ public final class DashboardModel {
     @ObservationIgnored private let maintenanceProvider: MaintenanceStatusProvider?
     @ObservationIgnored private var maintenanceRead: Task<Void, Never>?
     @ObservationIgnored private let connectionMonitor: ConnectionMonitor?
+    /// Names follow displayed peers, so live changes cannot alter held rows.
+    @ObservationIgnored private let serverNameResolver: ServerNameResolver?
+    @ObservationIgnored private var serverNameTask: Task<Void, Never>?
+    /// Resolved PTR names by peer address, for the Connections tab's
+    /// domain grouping.
+    public private(set) var serverNames: [String: String] = [:]
     @ObservationIgnored private var connectionSample: Task<Void, Never>?
     @ObservationIgnored private var liveConnections: CapturedConnections?
     @ObservationIgnored private let assertionReader: AssertionReader?
@@ -271,6 +277,13 @@ public final class DashboardModel {
     private var sessionRecording: SessionRecording?
     @ObservationIgnored private let sessionArchive: SessionArchive?
     @ObservationIgnored private let sampler: ProcessSampler?
+    @ObservationIgnored private let spindumper: ProcessSpindumper?
+    /// Mutable: its tracker records one probe per process sample.
+    @ObservationIgnored private var responsivenessMonitor: ResponsivenessMonitor?
+    /// Watches observed pids for exits and their wait statuses (kqueue).
+    @ObservationIgnored private var exitWatcher: ProcessExitWatcher?
+    /// Processes whose UI has stopped answering; nil until the probe first ran.
+    private var notResponding: Set<ProcessIdentity>?
     @ObservationIgnored private var sensorStats = SensorStats()
     @ObservationIgnored private let startupProvider: StartupProvider?
     @ObservationIgnored private let inspector: ProcessInspector?
@@ -359,6 +372,7 @@ public final class DashboardModel {
         sleepProvider = SleepHistoryProvider()
         maintenanceProvider = MaintenanceStatusProvider()
         connectionMonitor = ConnectionMonitor()
+        serverNameResolver = ServerNameResolver()
         startupProvider = StartupProvider()
         inspector = ProcessInspector()
         assertionReader = AssertionReader()
@@ -368,6 +382,9 @@ public final class DashboardModel {
         energyMode = EnergyModeMonitor()
         sessionArchive = SessionArchive.makeDefault()
         sampler = ProcessSampler()
+        spindumper = ProcessSpindumper()
+        responsivenessMonitor = ResponsivenessMonitor()
+        exitWatcher = ProcessExitWatcher()
         interval = .seconds(1)
         processInterval = .seconds(2)
         do {
@@ -417,10 +434,13 @@ public final class DashboardModel {
         trafficMonitor: ProcessTrafficMonitor? = nil, controller: ProcessController = ProcessController(),
         askService: AskService = AskService(), notifier: AlertDelivery? = nil,
         historyRecorder: HistoryRecorder? = nil, sleepProvider: SleepHistoryProvider? = nil,
-        connectionMonitor: ConnectionMonitor? = nil, startupProvider: StartupProvider? = nil,
+        connectionMonitor: ConnectionMonitor? = nil, serverNameResolver: ServerNameResolver? = nil,
+        startupProvider: StartupProvider? = nil,
         inspector: ProcessInspector? = nil, assertionReader: AssertionReader? = nil,
         openFileMonitor: OpenFileMonitor? = nil, sessionArchive: SessionArchive? = nil,
-        sampler: ProcessSampler? = nil, maintenanceProvider: MaintenanceStatusProvider? = nil,
+        sampler: ProcessSampler? = nil, spindumper: ProcessSpindumper? = nil,
+        responsivenessMonitor: ResponsivenessMonitor? = nil, exitWatcher: ProcessExitWatcher? = nil,
+        maintenanceProvider: MaintenanceStatusProvider? = nil,
         shortcutRunner: ShortcutLauncher? = nil, volumeReader: VolumeMonitor? = nil,
         energyMode: EnergyModeMonitor? = nil
     ) {
@@ -434,12 +454,16 @@ public final class DashboardModel {
         self.sleepProvider = sleepProvider
         self.maintenanceProvider = maintenanceProvider
         self.connectionMonitor = connectionMonitor
+        self.serverNameResolver = serverNameResolver
         self.startupProvider = startupProvider
         self.inspector = inspector
         self.assertionReader = assertionReader
         self.openFileMonitor = openFileMonitor
         self.sessionArchive = sessionArchive
         self.sampler = sampler
+        self.spindumper = spindumper
+        self.responsivenessMonitor = responsivenessMonitor
+        self.exitWatcher = exitWatcher
         self.monitor = monitor
         self.interval = interval
         self.processMonitor = processMonitor
@@ -1295,6 +1319,7 @@ public final class DashboardModel {
         case .user2: controller.send(.user2, to: request.target)
         case .info: controller.send(.info, to: request.target)
         case .lowerPriority: controller.lowerPriority(of: request.target)
+        case .raisePriority: controller.raisePriority(of: request.target)
         }
         guard case .notPermitted(let reason) = outcome, controller.canAskHelper else {
             return finish(request, outcome, route: .direct)
@@ -1322,6 +1347,7 @@ public final class DashboardModel {
         case .user2: await controller.sendThroughHelper(.user2, to: request.target)
         case .info: await controller.sendThroughHelper(.info, to: request.target)
         case .lowerPriority: await controller.lowerPriorityThroughHelper(of: request.target)
+        case .raisePriority: await controller.raisePriorityThroughHelper(of: request.target)
         }
     }
 
@@ -1340,17 +1366,42 @@ public final class DashboardModel {
     /// Sample one process's call stacks with the system tool; the report opens in the app.
     public func sampleProcess(_ process: ObservedProcess) async {
         guard let sampler else { return }
-        if case .running = sampleState { return }
-        let run = UUID()
-        sampleRun = run
-        sampleState = .running(name: process.name, seconds: ProcessSampler.defaultSeconds)
-        let result = await sampler.sample(process)
-        // Closed while it ran: the tool stops at its own time limit, and its report is dropped.
-        guard sampleRun == run else { return }
-        switch result {
-        case .success(let report): sampleState = .finished(report)
-        case .failure(let failure): sampleState = .failed(name: process.name, reason: failure.reason)
+        await capture(process, tool: .sample, seconds: ProcessSampler.defaultSeconds) {
+            switch await sampler.sample(process) {
+            case .success(let report): .finished(report)
+            case .failure(let failure): .failed(name: process.name, tool: .sample, reason: failure.reason)
+            }
         }
+    }
+
+    /// A spindump of one process through the privileged helper; the report opens in the app.
+    public func spindumpProcess(_ process: ObservedProcess) async {
+        guard let spindumper else { return }
+        await capture(process, tool: .spindump, seconds: ProcessSpindumper.defaultSeconds) {
+            switch await spindumper.spindump(process) {
+            case .success(let report): .finished(report)
+            case .failure(let failure): .failed(name: process.name, tool: .spindump, reason: failure.reason)
+            case nil:
+                .failed(
+                    name: process.name,
+                    tool: .spindump,
+                    reason: "The privileged helper is not answering; install or approve it in Settings."
+                )
+            }
+        }
+    }
+
+    /// Runs one report tool while the sheet shows progress; a second request
+    /// while one runs is ignored, and a report for a dismissed run is dropped.
+    private func capture(_ process: ObservedProcess, tool: ProcessReportTool, seconds: Int, _ run: () async -> SampleState) async {
+        if case .running = sampleState { return }
+        let token = UUID()
+        sampleRun = token
+        sampleState = .running(name: process.name, tool: tool, seconds: seconds)
+        let outcome = await run()
+        // Closed while it ran: the tool stops at its own time limit, and its report is dropped.
+        guard sampleRun == token else { return }
+        sampleState = outcome
     }
 
     /// Also closes a running sample, so the sheet's Close and Escape always work.
@@ -1471,7 +1522,8 @@ public final class DashboardModel {
             isNew: { lifecycle.isNew($0, at: time) },
             facts: ProcessFacts(
                 sockets: connectionSnapshot.map(SocketFacts.init), sleepPreventers: assertionSnapshot?.sleepPreventers,
-                openFiles: openFileSnapshot?.files, traffic: trafficSnapshot, cpuFactor: processCPUFactor,
+                openFiles: openFileSnapshot?.files, traffic: trafficSnapshot, notResponding: notResponding,
+                cpuFactor: processCPUFactor,
                 // Only the by-user view and `user:<name>` need account names.
                 accountNames: processGrouping == .user || ProcessFilter.parse(processFilter).usesAccountNames
                     ? knownAccountNames() : [:],
@@ -1515,6 +1567,10 @@ public final class DashboardModel {
             if let reason = assertionSnapshot?.unavailableReason { issues.append("#preventing-sleep matches nothing: \(reason)") }
             if assertionSnapshot == nil { issues.append("#preventing-sleep is waiting for power assertions") }
         }
+        if filter.usesResponsiveness {
+            if responsivenessMonitor == nil { issues.append("#not-responding is unavailable here") }
+            else if notResponding == nil { issues.append("#not-responding is waiting for process samples") }
+        }
         guard filter.usesSockets else { return issues }
         guard let connections = connectionSnapshot else { return issues + ["#listening and port: are waiting for connection data"] }
         if let reason = connections.unavailableReason { return issues + ["#listening and port: match nothing: \(reason)"] }
@@ -1525,10 +1581,17 @@ public final class DashboardModel {
     /// The Connections tab's rows, by app, from displayed (possibly held) data.
     public var appConnections: [AppConnections] {
         guard let connectionSnapshot else { return [] }
-        return ConnectionGroups.apps(in: connectionSnapshot, processes: processSnapshot, matching: connectionFilter)
+        return ConnectionGroups.apps(
+            in: connectionSnapshot, processes: processSnapshot, matching: connectionFilter, serverNames: serverNames
+        )
     }
 
     private var wantsOpenFiles: Bool { ProcessFilter.parse(processFilter).usesFiles }
+
+    /// The probe runs only while a filter term needs it; kept streaks reset.
+    private var wantsResponsiveness: Bool {
+        responsivenessMonitor != nil && ProcessFilter.parse(processFilter).usesResponsiveness
+    }
 
     /// One read of every process's open files, off the sampling loop and never two at once.
     private func sampleOpenFiles() {
@@ -1730,10 +1793,11 @@ public final class DashboardModel {
         let selected = selectedProcess
         let noSelection = selected == nil ? "Select a process first" : nil
         let name = selected?.name ?? "Selected Process"
-        let actions: [ProcessAction] = [.quit, .forceQuit, .suspend, .resume, .hangUp, .interrupt, .user1, .user2, .info, .lowerPriority]
+        let actions: [ProcessAction] = [.quit, .forceQuit, .suspend, .resume, .hangUp, .interrupt, .user1, .user2, .info, .lowerPriority, .raisePriority]
         entries += actions.map { entry(CommandPalette.processTitle($0, name), .processAction($0), unavailable: noSelection) }
         entries += [
-            entry("Sample \(name) for 3 Seconds", .sampleSelected, unavailable: noSelection ?? (sampler == nil ? "Sampling is not available here" : nil)),
+            entry("Sample \(name) for \(SampleTool.defaultSeconds) Seconds", .sampleSelected, unavailable: noSelection ?? (sampler == nil ? "Sampling is not available here" : nil)),
+            entry("Spindump \(name) for \(SpindumpTool.defaultSeconds) Seconds", .spindumpSelected, unavailable: noSelection ?? (spindumper == nil ? "Spindump is not available here" : nil)),
             entry("Copy \(name) as Text", .copySelected, unavailable: noSelection)
         ]
         return entries
@@ -1764,6 +1828,8 @@ public final class DashboardModel {
         case .refreshStartup: refreshStartupItems()
         case .sampleSelected:
             if let process = selectedProcess { await sampleProcess(process) }
+        case .spindumpSelected:
+            if let process = selectedProcess { await spindumpProcess(process) }
         case .processAction(.resume):
             if let process = selectedProcess { perform(actionRequest(for: process, action: .resume)) }
         case .processAction, .copySelected, .toggleHUD, .openSettings, .addMarker:
@@ -1809,6 +1875,20 @@ public final class DashboardModel {
             self.connectionSample = nil
             self.liveConnections = snapshot
             if self.displayMode == .live { self.connectionSnapshot = snapshot }
+            if let displayed = self.connectionSnapshot { self.resolveServerNames(of: displayed) }
+        }
+    }
+
+    /// Peers' names fill in behind the table; one batch at a time, only
+    /// while the Connections pane shows.
+    private func resolveServerNames(of snapshot: CapturedConnections) {
+        guard detailPane == .connections, let serverNameResolver, serverNameTask == nil else { return }
+        let addresses = snapshot.connections.compactMap { $0.remote?.address }
+        serverNameTask = Task { [weak self] in
+            let names = await serverNameResolver.resolve(addresses)
+            guard let self, !Task.isCancelled else { return }
+            self.serverNameTask = nil
+            self.serverNames = names
         }
     }
 
@@ -1973,7 +2053,12 @@ public final class DashboardModel {
                         )
                         if let interval, let recorder = self.historyRecorder { self.enqueueRecord { await recorder.recordLedger(interval) } }
                         if let interval { self.sessionRecording?.record(interval) }
-                        self.liveLifecycle.record(processes)
+                        // Drain before watching: exits that happened since
+                        // the last sample join the ghosts this record makes.
+                        self.liveLifecycle.record(processes, exits: self.exitWatcher?.drain() ?? [:])
+                        self.exitWatcher?.watch(Set(processes.processes.map(\.id)))
+                        if self.wantsResponsiveness { self.responsivenessMonitor?.record(processes.processes) }
+                        else { self.responsivenessMonitor?.reset() }
                         self.recordSelectedHistory(processes, traffic: traffic)
                         if self.wantsConnections { self.sampleConnections() }
                         if self.wantsOpenFiles { self.sampleOpenFiles() }
@@ -2005,6 +2090,7 @@ public final class DashboardModel {
                             self.contributorHistory = self.liveContributorHistory
                             self.ledger = self.liveLedger
                             self.lifecycle = self.liveLifecycle
+                            self.notResponding = self.wantsResponsiveness ? self.responsivenessMonitor?.notResponding : nil
                         }
                         if let network { self.networkFrames = network }
                         if let disks { self.diskFrames = disks }

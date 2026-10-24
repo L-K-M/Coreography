@@ -98,11 +98,11 @@ enum {
 int32_t coreo_process_signal(int32_t pid, uint64_t start_seconds, uint64_t start_microseconds,
                              int32_t signal_kind);
 
-/* Lower pid's priority to at least nice_value, only if it still has the
-   given start time. A process already at or above that nice value keeps its
-   own, and a raise is never attempted. Returns 0, EINVAL for pid <= 0 or a
+/* Adjust pid only if it still has the given start time. Nonnegative targets
+   only lower priority; negative targets only raise it. A process already
+   beyond the target stays put. Returns 0, EINVAL for pid <= 0 or a
    value outside COREO_NICE_MIN..COREO_NICE_MAX, ESRCH, EAGAIN as for signals,
-   EPERM for another user's process, ENOTSUP off macOS. */
+   EPERM/EACCES when permission is needed, ENOTSUP off macOS. */
 int32_t coreo_process_renice(int32_t pid, uint64_t start_seconds, uint64_t start_microseconds,
                              int32_t nice_value);
 

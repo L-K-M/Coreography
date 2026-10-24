@@ -379,6 +379,27 @@ final class DashboardModelTests: XCTestCase {
         XCTAssertEqual(model.appConnections.first?.connected.count, 1)
     }
 
+    func testHeldConnectionsKeepTheirPeerNamesWhileLivePeersChange() async throws {
+        let sockets = ScriptedSockets()
+        let model = DashboardModel(
+            monitor: try SystemMonitor(driver: IncreasingHostDriver()), interval: .milliseconds(10),
+            processMonitor: try ProcessMonitor(driver: IncreasingProcessDriver()), processInterval: .milliseconds(10),
+            connectionMonitor: ConnectionMonitor(driver: sockets),
+            serverNameResolver: ServerNameResolver(driver: NamedPeers())
+        )
+        model.detailPane = .connections
+        model.start()
+        defer { model.stop() }
+        try await eventually { model.serverNames["17.253.144.10"] == "old.example" }
+        model.toggleDisplayHold()
+
+        await sockets.changePeer(to: "1.1.1.1")
+        try await eventually { await sockets.reads >= 3 }
+        XCTAssertEqual(model.connectionSnapshot?.connections.last?.remote?.address, "17.253.144.10")
+        XCTAssertEqual(model.serverNames["17.253.144.10"], "old.example")
+        XCTAssertNil(model.serverNames["1.1.1.1"], "held rows must not resolve unseen live peers")
+    }
+
     /// The ports column reads connections while it shows, like the pane.
     func testThePortsColumnReadsConnectionsWhileItShows() async throws {
         let model = DashboardModel(
@@ -806,14 +827,23 @@ private actor IncreasingProcessDriver: ProcessSampleReading {
 
 private actor ScriptedSockets: ProcessSocketReading {
     private(set) var reads = 0
+    private var peer = "17.253.144.10"
+
+    func changePeer(to address: String) { peer = address; reads = 0 }
 
     func sockets(pid: Int32, startSeconds: UInt64, startMicroseconds: UInt64) async -> Result<RawProcessSockets, SocketReadError> {
         reads += 1
         guard pid == 42 else { return .failure(.notPermitted) }
         return .success(RawProcessSockets(sockets: [
             RawSocket(descriptor: 3, transport: .tcp, tcpState: 1, localAddress: "127.0.0.1", localPort: 8080, remoteAddress: "", remotePort: 0),
-            RawSocket(descriptor: 4, transport: .tcp, tcpState: 4, localAddress: "10.0.0.2", localPort: 50000, remoteAddress: "17.253.144.10", remotePort: 443)
+            RawSocket(descriptor: 4, transport: .tcp, tcpState: 4, localAddress: "10.0.0.2", localPort: 50000, remoteAddress: peer, remotePort: 443)
         ], truncated: false))
+    }
+}
+
+private struct NamedPeers: ServerNameResolving {
+    func lookup(_ address: String) async -> String? {
+        address == "17.253.144.10" ? "old.example" : "new.example"
     }
 }
 

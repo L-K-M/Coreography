@@ -1709,7 +1709,7 @@ private struct ProcessPane: View {
         DisclosureGroup("Processes") {
             VStack(alignment: .leading, spacing: 10) {
                 HStack {
-                    TextField("Filter: name, cpu:>10, mem:>1GB, user:me, port:443, file:~/Downloads, #apps, #new, #listening, #preventing-sleep, #rosetta", text: $model.processFilter)
+                    TextField("Filter: name, cpu:>10, mem:>1GB, user:me, port:443, file:~/Downloads, #apps, #new, #listening, #preventing-sleep, #rosetta, #not-responding", text: $model.processFilter)
                         .textFieldStyle(.roundedBorder)
                         .focused(filterFocused)
                     Picker("Group", selection: $model.processGrouping) {
@@ -1918,11 +1918,13 @@ private struct ProcessPane: View {
                 // Ghost rows: the culprit has often already quit (plan: exited rows stay 30 s).
                 let exited = model.exitedProcesses
                 if !exited.isEmpty {
-                    let names = exited.map { "\($0.name) (PID \($0.identity.pid), \($0.appName))" }.joined(separator: " · ")
+                    let names = exited.map {
+                        "\($0.name) (PID \($0.identity.pid), \($0.appName)\($0.exit.map { ", \($0.label)" } ?? ""))"
+                    }.joined(separator: " · ")
                     Text("Exited in the last 30 s: \(names)")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                        .help("Exit status is not available without the helper")
+                        .help("The kernel reports the exit status where the same rights as signalling hold; other users' exits show without one")
                 }
 
                 Text("\(ProcessText.cpuScaleNote(model.processCPUScaleInEffect)) App totals sum their members; footprint sums can count shared memory twice. Process sampling: \(model.processSamplingSeconds.formatted()) s; short-lived processes can be missed. Right-click a column header for wakeups, CPU time, start time, threads, instructions, QoS, architecture, signer and ports.")
@@ -1997,10 +1999,12 @@ private struct SampleReportView: View {
             switch model.sampleState {
             case .idle:
                 EmptyView()
-            case .running(let name, let seconds):
-                ProgressView("Sampling \(name) for \(seconds) seconds…")
-            case .failed(let name, let reason):
-                Text("\(name) could not be sampled").font(.headline)
+            case .running(let name, let tool, let seconds):
+                ProgressView(tool == .spindump
+                    ? "Running a spindump of \(name) for \(seconds) seconds…"
+                    : "Sampling \(name) for \(seconds) seconds…")
+            case .failed(let name, let tool, let reason):
+                Text("\(name) could not be \(tool == .spindump ? "spindumped" : "sampled")").font(.headline)
                 Text(reason).foregroundStyle(.secondary)
             case .finished(let report):
                 Text("\(report.name), \(report.seconds) s at \(report.takenAt.formatted(date: .omitted, time: .standard))")
@@ -2011,7 +2015,7 @@ private struct SampleReportView: View {
                 }
                 Button("Save…") {
                     exportError = nil
-                    exportName = "Sample of \(report.name)"
+                    exportName = "\(report.tool == .spindump ? "Spindump" : "Sample") of \(report.name)"
                     exportFile = ExportFile(data: Data(report.text.utf8))
                 }
                 if let exportError { Text("Not saved: \(exportError)").font(.caption).foregroundStyle(.red) }
@@ -2039,7 +2043,8 @@ private enum QuitEntries {
 }
 
 /// Every action for one process (plan: Quit, Force Quit, Suspend and Resume,
-/// Send Signal, Renice, Reveal in Finder, Copy). Each confirms first, except Resume, which only undoes a suspend.
+/// Send Signal, Renice, Sample, Spindump, Reveal in Finder, Copy). Mutating
+/// actions confirm first, except Resume, which only undoes a suspend.
 private struct ProcessActionMenu: View {
     let model: DashboardModel
     let process: ObservedProcess
@@ -2062,8 +2067,12 @@ private struct ProcessActionMenu: View {
             Button("Info (SIGINFO)…") { ask(.info) }
         }
         Button("Lower Priority…") { ask(.lowerPriority) }
-        Button("Sample for 3 Seconds") { Task { await model.sampleProcess(process) } }
+        Button("Raise Priority…") { ask(.raisePriority) }
+            .help("Renice to a negative value, which only root may do; the privileged helper does it")
+        Button("Sample for \(SampleTool.defaultSeconds) Seconds") { Task { await model.sampleProcess(process) } }
             .help("Records its call stacks with the system sample tool; the process pauses briefly while it is read")
+        Button("Spindump for \(SpindumpTool.defaultSeconds) Seconds") { Task { await model.spindumpProcess(process) } }
+            .help("Records a spindump with the privileged helper, the only way the tool may run; spindump samples every process, so the report includes system-wide call stacks")
         Divider()
         if let path = process.executablePath {
             Button("Reveal in Finder") { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)]) }
@@ -2095,6 +2104,7 @@ private enum ActionText {
         case .user2: String(localized: "Send SIGUSR2")
         case .info: String(localized: "Send SIGINFO")
         case .lowerPriority: String(localized: "Lower Priority")
+        case .raisePriority: String(localized: "Raise Priority")
         }
     }
 }
@@ -2580,6 +2590,7 @@ private struct ConnectionsPane: View {
                     TableColumn("State") { Text(ConnectionText.state($0.connection)) }
                     TableColumn("Local") { Text(ConnectionText.endpoint($0.connection.local)) }
                     TableColumn("Remote") { Text($0.connection.remote.map(ConnectionText.endpoint) ?? "–") }
+                    TableColumn("Server") { Text($0.connection.remote.flatMap { model.serverNames[$0.address] } ?? "–") }
                 }
                 .frame(height: 260)
             }
@@ -2628,7 +2639,7 @@ private struct StartupPane: View {
                                 }
                             }
                     }
-                    TableColumn("Kind") { Text(StartupText.kind($0.item.kind)) }
+                    TableColumn("Kind") { Text(StartupText.kind($0.item)) }
                     TableColumn("State") { Text(StartupText.state($0.item)) }
                     TableColumn("Running") { Text($0.processCount == 0 ? "–" : "\($0.processCount)") }
                     TableColumn(ProcessText.cpuColumn(model.processCPUScaleInEffect)) { (row: StartupRow) in
@@ -2645,14 +2656,19 @@ private struct StartupPane: View {
 }
 
 private enum StartupText {
-    static func kind(_ kind: CapturedStartupKind) -> String {
-        switch kind {
-        case .userAgent: return String(localized: "Your agent")
-        case .agent: return String(localized: "Agent, all users")
-        case .daemon: return String(localized: "Daemon")
-        case .systemAgent: return String(localized: "Apple agent")
-        case .systemDaemon: return String(localized: "Apple daemon")
+    static func kind(_ item: CapturedStartupItem) -> String {
+        let name = switch item.kind {
+        case .loginItem: String(localized: "Login item")
+        case .userAgent: String(localized: "Your agent")
+        case .agent: String(localized: "Agent, all users")
+        case .daemon: String(localized: "Daemon")
+        case .systemAgent: String(localized: "Apple agent")
+        case .systemDaemon: String(localized: "Apple daemon")
+        case .backgroundItem: String(localized: "Background item")
         }
+        // A BTM record's owner matters when it is not this user.
+        guard let uid = item.ownerUID, uid != UInt(getuid()) else { return name }
+        return "\(name), UID \(uid)"
     }
 
     static func state(_ item: CapturedStartupItem) -> String {
@@ -2667,7 +2683,8 @@ private enum StartupText {
 
     static func coverage(_ inventory: CapturedStartupInventory?) -> [String] {
         guard let inventory else { return [String(localized: "Reading startup items…")] }
-        var notes = [CapturedStartupInventory.loginItemsUnavailable]
+        var notes: [String] = []
+        if let problem = inventory.loginItemsProblem { notes.append(problem) }
         if let problem = inventory.stateProblem { notes.append(String(localized: "Enabled state unconfirmed: \(problem)")) }
         if inventory.unreadableDefinitions > 0 {
             notes.append(String(localized: "\(inventory.unreadableDefinitions) definitions could not be read"))

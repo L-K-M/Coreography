@@ -4,7 +4,12 @@ import CoreographyDrivers
 /// Who runs a startup item and when; declared in listing order, the
 /// user's own first.
 public enum StartupItemKind: String, Codable, CaseIterable, Sendable {
+    /// From the Background Task Management database: runs at login.
+    case loginItem
     case userAgent, agent, daemon, systemAgent, systemDaemon
+    /// A BTM registration that is neither a login item nor a launchd job:
+    /// apps and developer records, still listed so nothing hides.
+    case backgroundItem
 }
 
 public enum StartupEnabledState: String, Codable, Sendable {
@@ -13,11 +18,13 @@ public enum StartupEnabledState: String, Codable, Sendable {
     case unconfirmed
 }
 
-/// One launchd job that can start without being opened.
+/// One launchd job or background registration that can start without being opened.
 public struct StartupItem: Identifiable, Codable, Sendable {
-    public var id: String { plistPath }
+    public var id: String { registrationID ?? plistPath }
     public let label: String
     public let kind: StartupItemKind
+    /// The plist for a launchd job; the registering URL (or `btm:<uuid>`
+    /// when a record has none) for a BTM item.
     public let plistPath: String
     public let program: String?
     public let runsAtLoad: Bool
@@ -25,6 +32,11 @@ public struct StartupItem: Identifiable, Codable, Sendable {
     public let state: StartupEnabledState
     /// Apple's own: in the sealed system folders, or signed by Apple.
     public let isApple: Bool
+    /// The user a BTM item runs for; nil for launchd items, whose owner the
+    /// plist's folder already says.
+    public let ownerUID: Int?
+    /// BTM registrations can share a URL across users and record kinds.
+    public let registrationID: String?
 }
 
 public struct StartupInventory: Sendable {
@@ -33,31 +45,81 @@ public struct StartupInventory: Sendable {
     public let unreadableDefinitions: Int
     /// Why enabled states are unconfirmed, when they are.
     public let stateProblem: String?
+    /// Why login and background items are missing; nil once the helper's
+    /// `sfltool dumpbtm` arrives, whatever it held.
+    public let loginItemsProblem: String?
     /// Login and background items need the helper (`sfltool dumpbtm` runs as root).
     public static let loginItemsUnavailable = "Login and background items need the helper"
 }
 
 /// Reads startup items on request; definitions change rarely, so nothing polls.
 public struct StartupProvider: Sendable {
+    private static let rootUID = 0
+    private static let allUsersUID = -2
     private let driver: any LaunchJobReading
+    /// The helper's `sfltool dumpbtm` text; nil or a failure leaves a note.
+    private let backgroundDump: @Sendable () async -> Result<String, HelperReadFailure>?
 
-    public init() { self.init(driver: LaunchJobDriver()) }
+    public init() {
+        self.init(driver: LaunchJobDriver(), backgroundDump: { await PrivilegedHelper.shared.backgroundItems() })
+    }
 
-    init(driver: any LaunchJobReading) { self.driver = driver }
+    init(
+        driver: any LaunchJobReading,
+        backgroundDump: @escaping @Sendable () async -> Result<String, HelperReadFailure>? = { nil }
+    ) {
+        self.driver = driver
+        self.backgroundDump = backgroundDump
+    }
 
     public func load(at time: Date = Date()) async -> StartupInventory {
         let raw = await driver.read()
-        let items = raw.jobs.map { job in
+        var items = raw.jobs.map { job in
             StartupItem(
                 label: job.label, kind: Self.kind(job.domain), plistPath: job.plistPath, program: job.program,
                 runsAtLoad: job.runAtLoad, keepsAlive: job.keepAlive,
                 state: Self.state(job, overrides: raw.overrides, readable: raw.overridesProblem == nil),
-                isApple: job.domain == .systemAgents || job.domain == .systemDaemons || job.signature == .apple
+                isApple: job.domain == .systemAgents || job.domain == .systemDaemons || job.signature == .apple,
+                ownerUID: nil, registrationID: nil
             )
         }
-        .sorted { (Self.order($0.kind), $0.label) < (Self.order($1.kind), $1.label) }
+
+        // Login and background items come from the helper's BTM dump; a
+        // record already listed from its plist is skipped, which keeps
+        // launchd's enabled state over the record's disposition.
+        var loginItemsProblem: String? = StartupInventory.loginItemsUnavailable
+        switch await backgroundDump() {
+        case .success(let dump):
+            let background = BackgroundItems.items(in: dump)
+            if dump.hasSuffix(HelperWire.outputTruncationNotice) {
+                loginItemsProblem = "Login and background items were only partly read"
+            } else if background.isEmpty, !dump.contains("Records for UID") {
+                loginItemsProblem = "sfltool printed an unrecognized inventory"
+            } else {
+                loginItemsProblem = nil
+            }
+            let listed = Dictionary(items.map { ($0.plistPath, $0.kind) }, uniquingKeysWith: { first, _ in first })
+            items += background.filter { registration in
+                guard let kind = listed[registration.plistPath] else { return true }
+                switch kind {
+                case .daemon, .systemDaemon:
+                    return registration.ownerUID != Self.rootUID && registration.ownerUID != Self.allUsersUID
+                case .userAgent, .agent, .systemAgent:
+                    return registration.ownerUID != Int(getuid())
+                case .loginItem, .backgroundItem:
+                    return true
+                }
+            }
+        case .failure(let error):
+            loginItemsProblem = "Login and background items could not be read: \(error.reason)"
+        case nil:
+            break
+        }
+
+        items.sort { (Self.order($0.kind), $0.label) < (Self.order($1.kind), $1.label) }
         return StartupInventory(
-            takenAt: time, items: items, unreadableDefinitions: raw.unreadable, stateProblem: raw.overridesProblem
+            takenAt: time, items: items, unreadableDefinitions: raw.unreadable,
+            stateProblem: raw.overridesProblem, loginItemsProblem: loginItemsProblem
         )
     }
 

@@ -4,7 +4,7 @@ import CoreographyKit
 /// A parsed process filter (plan P22). Whitespace separates terms; every
 /// term must match. Examples: `safari`, `cpu:>10`, `mem:>1GB`, `disk:>5MB`,
 /// `pid:42`, `user:root`, `user:me`, `user:alice`, `#apps`, `#mine`, `#third-party`, `#new`,
-/// `#listening`, `#preventing-sleep`, `#rosetta`, `port:443`, `file:~/Downloads`.
+/// `#listening`, `#preventing-sleep`, `#rosetta`, `#not-responding`, `port:443`, `file:~/Downloads`.
 /// Terms that cannot be evaluated are reported, never silently dropped.
 public typealias CapturedAssertions = AssertionSnapshot
 public typealias CapturedAssertion = SleepAssertion
@@ -28,6 +28,8 @@ struct ProcessFacts: Sendable {
     var openFiles: [ProcessIdentity: [String]]?
     /// Per-process network rates of the same moment.
     var traffic: CapturedTraffic?
+    /// Processes whose event connection has stopped answering.
+    var notResponding: Set<ProcessIdentity>?
     /// `cpu:` bounds are typed in the table's scale; this turns a whole-machine share into it.
     var cpuFactor = 1.0
     /// Account names by UID, for the by-user view.
@@ -79,6 +81,8 @@ public struct ProcessFilter: Equatable, Sendable {
         case apps, mine, root, thirdParty = "third-party", new, listening, preventingSleep = "preventing-sleep"
         /// Intel code translated on Apple silicon.
         case rosetta
+        /// Its UI has ignored the WindowServer across consecutive samples.
+        case notResponding = "not-responding"
     }
 
     enum Term: Equatable, Sendable {
@@ -99,7 +103,6 @@ public struct ProcessFilter: Equatable, Sendable {
 
     /// Tokens the plan names whose data sources do not exist yet.
     private static let pendingTokens: [String: String] = [
-        "not-responding": "needs the helper's responsiveness check",
         "exited": "exited processes are listed below the table"
     ]
     private static let byteUnits: [(String, Double)] = [("TB", 1e12), ("GB", 1e9), ("MB", 1e6), ("KB", 1e3), ("B", 1)]
@@ -190,6 +193,9 @@ public struct ProcessFilter: Equatable, Sendable {
     /// Matching needs account names, looked up off the main thread.
     var usesAccountNames: Bool { terms.contains { if case .userName = $0 { true } else { false } } }
 
+    /// Matching needs the responsiveness probe, read with each process sample.
+    var usesResponsiveness: Bool { terms.contains(.token(.notResponding)) }
+
     /// Matching needs open-file data, read only on demand.
     var usesFiles: Bool { terms.contains { if case .file = $0 { true } else { false } } }
 
@@ -255,6 +261,8 @@ public struct ProcessFilter: Equatable, Sendable {
                 return facts.sleepPreventers?.contains(process.id.pid) ?? false
             case .token(.rosetta):
                 return process.architecture == .intelTranslated
+            case .token(.notResponding):
+                return facts.notResponding?.contains(process.id) ?? false
             case .port(let port):
                 return facts.sockets?.ports[process.id]?.contains(port) ?? false
             case .file(let path):

@@ -187,8 +187,7 @@ test_platform(void)
                                 COREO_SIGNAL_CONTINUE) == 0);
     assert(waitpid(child, &stop_status, WCONTINUED) == child && WIFCONTINUED(stop_status));
 
-    /* Renice only lowers priority: a process already at or below the target
-       keeps its own nice value, and a raise is never attempted. */
+    /* A nonnegative target only lowers priority; already-lowered work stays put. */
     assert(coreo_process_renice((int32_t)child, target.start_seconds + 1, target.start_microseconds, 10) == EAGAIN);
     assert(coreo_process_renice((int32_t)child, target.start_seconds, target.start_microseconds, 10) == 0);
     errno = 0;
@@ -200,6 +199,18 @@ test_platform(void)
     assert(coreo_process_renice((int32_t)child, target.start_seconds, target.start_microseconds, 10) == 0);
     errno = 0;
     assert(getpriority(PRIO_PROCESS, (id_t)child) == 15 && errno == 0);
+
+    /* An explicit negative target must raise or report a permission refusal. */
+    int32_t raised = coreo_process_renice((int32_t)child, target.start_seconds,
+                                         target.start_microseconds, -10);
+    errno = 0;
+    int after_raise = getpriority(PRIO_PROCESS, (id_t)child);
+    assert(errno == 0);
+    if (geteuid() == 0) {
+        assert(raised == 0 && after_raise == -10);
+    } else {
+        assert((raised == EACCES || raised == EPERM) && after_raise == 15);
+    }
 
     assert(coreo_process_signal((int32_t)child, target.start_seconds, target.start_microseconds,
                                 COREO_SIGNAL_TERMINATE) == 0);
