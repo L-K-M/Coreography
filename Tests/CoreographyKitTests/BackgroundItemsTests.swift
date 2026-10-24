@@ -110,6 +110,62 @@ final class BackgroundItemsTests: XCTestCase {
         XCTAssertEqual(item?.ownerUID, nil, "outside a UID section the owner is unknown")
     }
 
+    func testColonHeadingsAndSystemOwnerArePreserved() {
+        let text = """
+            Records for UID -2 : system
+            #1:
+             UUID: first
+             Name: Pineapple
+             Developer Name: Pineapple Software
+             URL: file:///Applications/Shared.app/
+            Records for UID 501 : user
+            #1:
+             UUID: second
+             Name: Shared
+             URL: file:///Applications/Shared.app/
+            """
+        let items = BackgroundItems.items(in: text)
+        XCTAssertEqual(items.count, 2)
+        XCTAssertEqual(items.map { $0.ownerUID.map { "\($0)" } }, ["-2", "501"])
+        XCTAssertEqual(Set(items.map(\.id)).count, 2, "one app URL may have multiple registrations")
+        XCTAssertFalse(items.first?.isApple ?? true, "a developer name containing Apple is not an Apple signature")
+    }
+
+    func testUnrecognizedAndTruncatedDumpsRetainACoverageProblem() async {
+        let unknown = await StartupProvider(driver: Listed(), backgroundDump: { .success("unrecognized output") }).load()
+        XCTAssertNotNil(unknown.loginItemsProblem)
+
+        let text = dump + "\n\n[The output was cut to fit the helper's reply.]"
+        let partial = await StartupProvider(driver: Listed(), backgroundDump: { .success(text) }).load()
+        XCTAssertFalse(partial.items.isEmpty)
+        XCTAssertNotNil(partial.loginItemsProblem)
+    }
+
+    func testBackgroundDumpReplyWaitCoversTheToolDeadline() {
+        XCTAssertGreaterThan(HelperRequest.backgroundItems.replyTimeout, 20)
+    }
+
+    func testSharedAgentKeepsAnotherUsersRegistration() async {
+        let path = "/Library/LaunchAgents/shared.plist"
+        let text = """
+            Records for UID \(getuid())
+            #1
+             UUID: mine
+             URL: file://\(path)
+            Records for UID \(getuid() + 1)
+            #1
+             UUID: theirs
+             URL: file://\(path)
+            """
+        let raw = RawLaunchJob(
+            domain: .agents, plistPath: path, label: "shared", program: "/opt/shared",
+            runAtLoad: true, keepAlive: false, disabledInPlist: false, signature: .unknown
+        )
+        let inventory = await StartupProvider(driver: Listed(jobs: [raw]), backgroundDump: { .success(text) }).load()
+        XCTAssertEqual(inventory.items.count, 2, "a plist describes this user's job, not every user's registration")
+        XCTAssertEqual(Set(inventory.items.map(\.id)).count, 2)
+    }
+
     private struct Listed: LaunchJobReading {
         var jobs: [RawLaunchJob] = []
         var overrides: [LaunchOverrideDomain: [String: Bool]] = [:]

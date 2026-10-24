@@ -115,6 +115,7 @@ extension HelperRequest {
     /// the helper's own cap, so it may wait well past the usual exchange.
     public var replyTimeout: TimeInterval {
         switch self {
+        case .backgroundItems: BackgroundItemsDriver.maximumSeconds + Self.standardReplyTimeout
         case .spindump(_, let seconds): TimeInterval(seconds) + 60
         default: Self.standardReplyTimeout
         }
@@ -128,6 +129,7 @@ public enum HelperWireError: Error, Equatable, Sendable {
 
 /// Names and limits both sides of the helper connection share.
 public enum HelperWire {
+    public static let outputTruncationNotice = "[The output was cut to fit the helper's reply.]"
     public static let machServiceName = "ch.lkmc.Coreography.helper"
     /// The launchd property list in Contents/Library/LaunchDaemons.
     public static let daemonPlistName = "ch.lkmc.Coreography.helper.plist"
@@ -331,7 +333,7 @@ public struct HelperRequestHandler: Sendable {
     /// both of which can run past it. The head is kept — the asked-for
     /// content sorts topmost — and the cut is marked.
     private static func capped(_ text: String, as reply: (String) -> HelperReply) -> Data {
-        let note = "\n\n[The output was cut to fit the helper's reply.]"
+        let note = "\n\n" + HelperWire.outputTruncationNotice
         var kept = text
         var message = HelperWire.encode(reply(kept))
         while message.count > HelperReply.maximumBytes, kept.count > note.count {

@@ -10,27 +10,27 @@ public enum BackgroundItems {
     /// when it names nothing readable.
     public static func items(in dump: String) -> [StartupItem] {
         var items: [StartupItem] = []
-        var uid: UInt?
+        var uid: Int?
         var fields: [String: String] = [:]
         var hasRecord = false
 
         func flush() {
             guard hasRecord else { return }
-            items.append(item(fields, owner: uid))
+            items.append(item(fields, owner: uid, ordinal: items.count))
             fields = [:]
             hasRecord = false
         }
 
         for line in dump.split(separator: "\n", omittingEmptySubsequences: false) {
             let text = line.trimmingCharacters(in: .whitespaces)
-            if let found = text.firstMatch(of: /Records for UID\s+(\d+)/)?.output.1, let owner = UInt(found) {
+            if let found = text.firstMatch(of: /Records for UID\s+(-?\d+)/)?.output.1, let owner = Int(found) {
                 flush()
                 uid = owner
                 continue
             }
-            // A record begins at a bare "#N" line; "#N: child" lines inside a
+            // A record begins at "#N" or "#N:"; "#N: child" lines inside a
             // record name its embedded items and are skipped with it.
-            if text.wholeMatch(of: /#\d+/) != nil {
+            if text.wholeMatch(of: /#\d+:?/) != nil {
                 flush()
                 hasRecord = true
                 continue
@@ -47,7 +47,7 @@ public enum BackgroundItems {
     /// The bit fields dumpbtm prints: `Type: login item (0x4)` and
     /// `Disposition: [enabled allowed visible notified] (11)` — the type
     /// mask decides the kind, the disposition's first bit the state.
-    private static func item(_ fields: [String: String], owner: UInt?) -> StartupItem {
+    private static func item(_ fields: [String: String], owner: Int?, ordinal: Int) -> StartupItem {
         let typeMask = hexMask(fields["Type"])
         let kind: StartupItemKind =
             typeMask & 0x4 != 0 ? .loginItem :
@@ -60,12 +60,13 @@ public enum BackgroundItems {
             .lazy.compactMap { $0 }.first ?? "Background item"
         let path = fields["URL"].flatMap(Self.urlPath)
         let program = fields["Executable Path"]
-        let apple = isApple(developer: fields["Developer Name"], urlPath: path, program: program)
+        let apple = isApple(urlPath: path, program: program)
         let runsAtLoad = kind == .loginItem || kind == .backgroundItem
         return StartupItem(
             label: label, kind: kind, plistPath: path ?? "btm:\(uuid ?? label)", program: program,
             runsAtLoad: runsAtLoad, keepsAlive: false,
-            state: enabledState(fields["Disposition"]), isApple: apple, ownerUID: owner
+            state: enabledState(fields["Disposition"]), isApple: apple, ownerUID: owner,
+            registrationID: "btm:\(owner.map { String($0) } ?? "unknown"):\(uuid ?? String(ordinal))"
         )
     }
 
@@ -101,8 +102,8 @@ public enum BackgroundItems {
         return nil
     }
 
-    private static func isApple(developer: String?, urlPath: String?, program: String?) -> Bool {
-        if developer?.localizedCaseInsensitiveContains("apple") == true { return true }
+    private static func isApple(urlPath: String?, program: String?) -> Bool {
+        // Developer names are metadata, not code-signature verification.
         return [urlPath, program].compactMap { $0 }.contains { $0.hasPrefix("/System/") || $0.hasPrefix("/Apple Internal/") }
     }
 }

@@ -13,7 +13,7 @@ final class ProcessInspectionTests: XCTestCase {
         let startup = StartupInventory(
             takenAt: Date(), items: [StartupItem(
                 label: "com.example.child", kind: .agent, plistPath: "/Library/LaunchAgents/c.plist", program: "/opt/child",
-                runsAtLoad: true, keepsAlive: true, state: .enabled, isApple: false, ownerUID: nil
+                runsAtLoad: true, keepsAlive: true, state: .enabled, isApple: false, ownerUID: nil, registrationID: nil
             )],
             unreadableDefinitions: 0, stateProblem: nil, loginItemsProblem: nil
         )

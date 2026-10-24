@@ -12,7 +12,7 @@ public enum BackgroundItemsError: Error, Equatable, Sendable {
 /// reply cap decides what actually crosses back.
 public struct BackgroundItemsDriver: Sendable {
     private static let tool = URL(fileURLWithPath: "/usr/bin/sfltool")
-    private static let timeout: Duration = .seconds(20)
+    static let maximumSeconds: TimeInterval = 20
     private static let keepBytes = 4 * 1024 * 1024
     private let runner = BoundedCommandRunner()
 
@@ -24,12 +24,14 @@ public struct BackgroundItemsDriver: Sendable {
         let output: CommandOutput
         do {
             output = try await runner.run(
-                Self.tool, arguments: ["dumpbtm"], timeout: Self.timeout, keepBytes: Self.keepBytes
+                Self.tool, arguments: ["dumpbtm"], timeout: .seconds(Self.maximumSeconds), keepBytes: Self.keepBytes
             )
         } catch {
             return .failure(.failed("sfltool could not start: \(error)"))
         }
         guard !output.timedOut else { return .failure(.failed("sfltool did not finish in time")) }
+        // The runner keeps the tail, whose records may have lost their owner heading.
+        guard !output.truncated else { return .failure(.failed("sfltool output exceeded the inventory limit")) }
         guard output.exitStatus == 0 else {
             let detail = String(decoding: output.data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
             return .failure(.failed(detail.isEmpty ? "sfltool exited with status \(output.exitStatus)" : detail))

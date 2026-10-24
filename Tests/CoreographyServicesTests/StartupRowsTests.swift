@@ -37,7 +37,7 @@ final class StartupRowsTests: XCTestCase {
     private func item(_ label: String, program: String, apple: Bool = false) -> StartupItem {
         StartupItem(
             label: label, kind: apple ? .systemDaemon : .userAgent, plistPath: "/x/\(label).plist", program: program,
-            runsAtLoad: true, keepsAlive: false, state: .enabled, isApple: apple, ownerUID: nil
+            runsAtLoad: true, keepsAlive: false, state: .enabled, isApple: apple, ownerUID: nil, registrationID: nil
         )
     }
 

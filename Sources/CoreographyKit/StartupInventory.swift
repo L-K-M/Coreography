@@ -20,7 +20,7 @@ public enum StartupEnabledState: String, Codable, Sendable {
 
 /// One launchd job or background registration that can start without being opened.
 public struct StartupItem: Identifiable, Codable, Sendable {
-    public var id: String { plistPath }
+    public var id: String { registrationID ?? plistPath }
     public let label: String
     public let kind: StartupItemKind
     /// The plist for a launchd job; the registering URL (or `btm:<uuid>`
@@ -34,7 +34,9 @@ public struct StartupItem: Identifiable, Codable, Sendable {
     public let isApple: Bool
     /// The user a BTM item runs for; nil for launchd items, whose owner the
     /// plist's folder already says.
-    public let ownerUID: UInt?
+    public let ownerUID: Int?
+    /// BTM registrations can share a URL across users and record kinds.
+    public let registrationID: String?
 }
 
 public struct StartupInventory: Sendable {
@@ -76,7 +78,7 @@ public struct StartupProvider: Sendable {
                 runsAtLoad: job.runAtLoad, keepsAlive: job.keepAlive,
                 state: Self.state(job, overrides: raw.overrides, readable: raw.overridesProblem == nil),
                 isApple: job.domain == .systemAgents || job.domain == .systemDaemons || job.signature == .apple,
-                ownerUID: nil
+                ownerUID: nil, registrationID: nil
             )
         }
 
@@ -86,9 +88,26 @@ public struct StartupProvider: Sendable {
         var loginItemsProblem: String? = StartupInventory.loginItemsUnavailable
         switch await backgroundDump() {
         case .success(let dump):
-            loginItemsProblem = nil
-            let listed = Set(items.map(\.plistPath))
-            items += BackgroundItems.items(in: dump).filter { !listed.contains($0.plistPath) }
+            let background = BackgroundItems.items(in: dump)
+            if dump.hasSuffix(HelperWire.outputTruncationNotice) {
+                loginItemsProblem = "Login and background items were only partly read"
+            } else if background.isEmpty, !dump.contains("Records for UID") {
+                loginItemsProblem = "sfltool printed an unrecognized inventory"
+            } else {
+                loginItemsProblem = nil
+            }
+            let listed = Dictionary(items.map { ($0.plistPath, $0.kind) }, uniquingKeysWith: { first, _ in first })
+            items += background.filter { registration in
+                guard let kind = listed[registration.plistPath] else { return true }
+                switch kind {
+                case .daemon, .systemDaemon:
+                    return registration.ownerUID != 0 && registration.ownerUID != -2
+                case .userAgent, .agent, .systemAgent:
+                    return registration.ownerUID != Int(getuid())
+                case .loginItem, .backgroundItem:
+                    return true
+                }
+            }
         case .failure(let error):
             loginItemsProblem = "Login and background items could not be read: \(error.reason)"
         case nil:
