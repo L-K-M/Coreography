@@ -573,10 +573,13 @@ Implemented:
 - Process filter grammar: whitespace-separated terms that all must match:
   free text, `cpu:>10`, `mem:>1GB`, `disk:>5MB`, `pid:42`, `user:root|me|UID|name`
   and the tokens `#apps`, `#mine`, `#root`, `#third-party` and `#new`. An
-  unreadable reading never satisfies a numeric predicate. Tokens awaiting
-  data (`#listening`, `#not-responding`, `#preventing-sleep`) and
-  unreadable terms are named under the field rather than dropped; saved
-  filter chips and reverse lookup remain.
+  unreadable reading never satisfies a numeric predicate. The token still
+  awaiting data (`#exited`) and unreadable terms are named under the
+  field rather than dropped; saved filter chips and reverse lookup
+  remain. `#not-responding` marks a process only after its event
+  connection fails the private SkyLight check `CGSEventIsAppUnresponsive`
+  across two consecutive samples, so one busy moment never paints it;
+  where the symbols are absent the token matches nothing and says so.
 - On-disk history, first part: the app records 21 system series (CPU,
   memory composition and pressure, swap, thermal, GPU, battery, system
   power, hottest sensor, primary network, automatic disk, and per-cluster
@@ -882,6 +885,7 @@ outstanding. The store, MCP and model features above await stack delivery.
 | Process actions through the helper | 459 Swift tests pass on Linux (signals and priority sent for the named identity, the kernel, launchd and the helper itself answered as invalid targets without silencing the helper, out-of-range nice values refused, failures mapped, the controller and the window retrying a permission refusal only through an answering helper, an answer of the wrong kind starting the quiet minute); acting as root needs an installed helper and is unverified |
 | Other users' open files and sockets through the helper | 454 Swift tests pass on Linux (each process read once, unreadable ones left out, the kernel and oversized batches refused, a reply over the limit cut to the processes that fit, large lists sent in batches of 16 without the kernel, both monitors and the inspector filled from the helper and still counting restricted processes without it, a full counters request within its limit); reading as root needs an installed helper and is unverified |
 | Spindump through the helper | 473 Swift tests pass on Linux (the named identity and its window reach the tool, the kernel and out-of-range windows refused before it runs, tool failures returned as the reason, a report over the reply limit cut and marked, the request allowed a longer wait, an unavailable or wrongly-answering helper answered nil and went quiet); running `/usr/sbin/spindump` as root needs an installed helper and is unverified |
+| Not-responding detection | 477 Swift tests pass on Linux (two consecutive unresponsive probes mark a process, one clears it, unjudgeable and recycled processes never marked, a reset restarts the streak, `#not-responding` parses and matches the probed set only after answers exist); `CGSEventIsAppUnresponsive` needs a real WindowServer session and is unverified |
 | Other users' processes through the helper | 449 Swift tests pass on Linux (each positive PID read once, PID 0, negative and oversized lists refused, the kernel's row never sent, a restricted row filled only for the same start time and with the helper's read time, an unavailable helper quiet for a minute and asked again after it, an outdated helper's refusal also quiet for a minute, the CLI and unsigned builds never asking, a full reply within the limit); reading as root needs an installed helper and is unverified |
 | Notify-only update check | 442 Swift tests pass on Linux (tag parsing and ordering, failures mapped, foreign links refused, one notification per version, none from a manual check, the saved switch); the Settings section compiles only in native CI and a real GitHub answer is an owner check |
 | Privileged helper foundation | 431 Swift tests pass on Linux (the requirement pins team and identifier and refuses malformed team IDs, unknown and oversized requests are refused, state follows registration then the hello, an unsigned build never registers, install opens Login Items); native CI builds the helper into the bundle and checks that the ad-hoc helper refuses to listen. Installing needs a Developer ID build and is unverified |
@@ -969,7 +973,7 @@ implemented and listed above; native behavior still awaits the
 | M2 | Chip profiles as bundled data rather than code, voltage sensors, GPU frequency detail |
 | M3 | Audio graphs beyond the chart descriptors; an opt-in 60 Hz redraw |
 | M4 | `log show` sleep and wake import; `pmset` history covers sleep and wake today |
-| M5 | What else needs the privileged helper, installable from Settings in Developer ID builds (other users' process counters, open files, sockets, signals, lowered priority and spindump are done): not-responding detection, login and background items, raising priority, exit status. Separately, connections grouped by domain |
+| M5 | What else needs the privileged helper, installable from Settings in Developer ID builds (other users' process counters, open files, sockets, signals, lowered priority and spindump are done; not-responding detection runs app-side through SkyLight): login and background items, raising priority, exit status. Separately, connections grouped by domain |
 | M6 / S9 | Frame rate: `metalperftrace` capture, the HUD's frame-rate slot, FPS in sessions and the performance view |
 | M7 | Translations (English only for now), integration, soak and performance checks, Developer ID signing and notarized releases |
 | Deferred by the plan | Control Center control, per-file tracing, ES launch timeline, Prometheus export, Wi-Fi details |
