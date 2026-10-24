@@ -118,6 +118,8 @@ jobs:
             tools/tests/test_process_bridge.c Sources/CoreographySystem/process.c \
             -o "$RUNNER_TEMP/test_process_bridge"
           "$RUNNER_TEMP/test_process_bridge"
+          # Exercise both refusal in the app and an actual raise in the helper's role.
+          sudo "$RUNNER_TEMP/test_process_bridge"
 
       - name: Verify native thermal-pressure levels
         run: |
