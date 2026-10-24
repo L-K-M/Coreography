@@ -14,8 +14,8 @@
 #
 # The Xcode project's "Embed CLI" copy phase already places the coreo tool target
 # at Contents/Helpers/coreo inside the bundle, so one `xcodebuild -scheme
-# Coreography` produces app + embedded CLI. This script then stages the bundle to
-# dist/, verifies the expected slices in BOTH the app and the helper (before the
+# Coreography` produces the app, helpers and widget. This script stages the bundle to
+# dist/, verifies the expected slices in every executable (before the
 # engine can zip/install a wrong-arch build), and re-signs ad-hoc inside-out.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -79,18 +79,37 @@ echo "==> Verifying architectures…"
 verify_arches "$APP_DST/Contents/MacOS/Coreography"
 verify_arches "$APP_DST/Contents/Helpers/coreo"
 verify_arches "$APP_DST/Contents/MacOS/CoreographyHelper"
+WIDGET="$APP_DST/Contents/PlugIns/CoreographyWidgets.appex"
+verify_arches "$WIDGET/Contents/MacOS/CoreographyWidgets"
+WIDGET_POINT="$(/usr/libexec/PlistBuddy -c 'Print :NSExtension:NSExtensionPointIdentifier' "$WIDGET/Contents/Info.plist")" \
+  || die "the desktop widget's Info.plist or extension point is missing."
+[[ "$WIDGET_POINT" == com.apple.widgetkit-extension ]] || die "the desktop widget extension point is missing."
 HELPER_PLIST="$APP_DST/Contents/Library/LaunchDaemons/ch.lkmc.Coreography.helper.plist"
 [[ -f "$HELPER_PLIST" ]] || die "the helper's launch daemon definition is missing."
 plutil -lint "$HELPER_PLIST" >/dev/null || die "the helper's launch daemon definition is malformed."
 
-# Sign inside-out: the helpers first, then the bundle seals them. Ad-hoc ("-") only;
+# Sign inside-out: helpers and the widget first, then the bundle seals them. Ad-hoc ("-") only;
 # there are no Developer ID / notary credentials for this project. --options
 # runtime keeps the hardened runtime the project enables at build time.
-echo "==> Ad-hoc signing (helpers, then bundle)…"
+echo "==> Ad-hoc signing (helpers, widget, then bundle)…"
 codesign --force --options runtime --sign - "$APP_DST/Contents/Helpers/coreo"
 # The app pins this identifier, so it is stated rather than derived.
 codesign --force --options runtime --identifier ch.lkmc.Coreography.helper \
   --sign - "$APP_DST/Contents/MacOS/CoreographyHelper"
+# Re-signing must retain the sandbox entitlement or WidgetKit cannot launch it.
+WIDGET_ENTITLEMENTS=Widgets/CoreographyWidgets.entitlements
+[[ -f "$WIDGET_ENTITLEMENTS" ]] || die "the widget entitlements file is missing."
+codesign --force --options runtime --generate-entitlement-der --entitlements "$WIDGET_ENTITLEMENTS" \
+  --sign - "$WIDGET"
+# Both CI and releases use this adapter; verify the final signature before either packages it.
+SIGNED_ENTITLEMENTS="$(mktemp -t coreography-widget-entitlements)"
+trap 'rm -f "$SIGNED_ENTITLEMENTS"' EXIT
+codesign --display --entitlements - --xml "$WIDGET" > "$SIGNED_ENTITLEMENTS"
+WIDGET_SANDBOX="$(/usr/libexec/PlistBuddy -c 'Print :com.apple.security.app-sandbox' "$SIGNED_ENTITLEMENTS")" \
+  || die "the signed widget has no sandbox entitlement."
+[[ "$WIDGET_SANDBOX" == true ]] || die "the signed widget is not sandboxed."
+rm -f "$SIGNED_ENTITLEMENTS"
+trap - EXIT
 codesign --force --options runtime --sign - "$APP_DST"
 codesign --verify --deep --strict --verbose=1 "$APP_DST"
 

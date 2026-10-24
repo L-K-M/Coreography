@@ -35,6 +35,13 @@ samples stays in memory, and charts keep every spike when zoomed out.
 A menu bar extra shows CPU in the menu bar and opens mini lanes; it shares
 the window's sampler and keeps sampling while the window is closed.
 
+Desktop widgets show CPU, estimated used memory with pressure, primary-interface
+download/upload rates, or an overview, in small and medium sizes. Open the app
+once after installation, then right-click the desktop, choose **Edit Widgets**
+and search for **Coreography**. Widgets take their own short samples even when
+the app is closed. Each shows its sample time; refreshes are requested every
+15 minutes and scheduled by macOS. Click a widget for live readings in the app.
+
 MCP clients can query the same read-only diagnostic tools through the
 running app. Turn on Settings > MCP access; the app asks once for each
 client app and lists approved clients with Revoke. For example, in an MCP
@@ -112,8 +119,9 @@ scripts/build.sh --run
 ```
 
 Open `Coreography.xcodeproj` to build in Xcode. The shared scheme builds
-the app and embeds `coreo` in `Coreography.app/Contents/Helpers/`.
-CI uses the same assemble script directly, verifies both executable
+the app, embeds `coreo` in `Coreography.app/Contents/Helpers/`, and includes
+the sandboxed WidgetKit extension in `Contents/PlugIns/`.
+CI uses the same assemble script directly, verifies every executable's
 slices and uploads `Coreography-v0.1.0-macos-universal.zip` after tests.
 Development artifacts are ad-hoc signed, not notarized.
 

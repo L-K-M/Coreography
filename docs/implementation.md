@@ -63,6 +63,20 @@ the reviews of the merged slices found, in
 
 Implemented:
 
+- Desktop widgets: CPU, memory, network and system overview, each in small
+  and medium sizes. A sandboxed WidgetKit extension takes two host and
+  interface samples a second apart through the existing services and
+  monitors, so it works with the app closed and records no history.
+  CPU uses the whole machine; memory keeps its estimate and pressure;
+  network uses only the published primary interface, never a guessed one.
+  Missing readings keep their reasons. Every widget shows its sample
+  time, asks macOS for another sample after 15 minutes, and labels the
+  retained reading as older after 30 minutes. These are snapshots, not
+  live graphs; clicking opens the dashboard. The build embeds and signs
+  the extension, preserving its sandbox entitlement and checking both
+  architectures. Gallery registration, layout and sandboxed collection
+  remain owner Mac checks.
+
 - Recordings (plan: a frozen copy of a range as a portable
   `.coreotrace` package): Save Recording… in the range panel writes the
   selection's frames, its per-app ledger intervals and its markers as
@@ -955,7 +969,7 @@ implemented and listed above; native behavior still awaits the
 | M5 | What else needs the privileged helper, installable from Settings in Developer ID builds (other users' process counters, open files, sockets, signals and lowered priority are done): spindump, not-responding detection, login and background items, raising priority, exit status. Separately, connections grouped by domain |
 | M6 / S9 | Frame rate: `metalperftrace` capture, the HUD's frame-rate slot, FPS in sessions and the performance view |
 | M7 | Translations (English only for now), integration, soak and performance checks, Developer ID signing and notarized releases |
-| Deferred by the plan | Desktop widget, Control Center control, per-file tracing, ES launch timeline, Prometheus export, Wi-Fi details |
+| Deferred by the plan | Control Center control, per-file tracing, ES launch timeline, Prometheus export, Wi-Fi details |
 
 ## Owner Mac checks
 
@@ -973,6 +987,11 @@ This is not a notarized production release. Check:
    the memory line.
 4. Check light/dark appearance, keyboard access and VoiceOver chart/table
    readings. Return the OS/build, architecture and concrete discrepancies.
+5. Add each Coreography desktop widget in both sizes. Check the sample
+   time, memory estimate/pressure and network direction against the app;
+   quit the app and wait for a macOS-scheduled refresh. Clicking a widget
+   must reopen the dashboard. Check an offline Mac for an explicit missing
+   primary-interface reason, and an overdue sample for the older label.
 
 More specific S1/S6 probes follow when those providers and HUD exist.
 Do not mark a physical-Mac gate passed from a cross-compile or fixture.
