@@ -568,8 +568,12 @@ Implemented:
 - Process pane change highlighting: CPU, footprint and disk cells are
   shaded in their subsystem hue by share of the column's top row; a
   process first seen within 10 s (not present at launch) tints its name;
-  processes gone within 30 s are listed with their app as ghosts. Exit
-  status is not claimed, and samples across sleep are not read as exits.
+  processes gone within 30 s are listed with their app as ghosts. A
+  kqueue watches every observed pid for `NOTE_EXIT`; the kernel shares
+  the wait status (`NOTE_EXITSTATUS`) only where the same rights as
+  signalling hold, so the app's own processes report `exit N` or the
+  signal name and other users' processes show the exit alone. Samples
+  across sleep are not read as exits.
 - Process filter grammar: whitespace-separated terms that all must match:
   free text, `cpu:>10`, `mem:>1GB`, `disk:>5MB`, `pid:42`, `user:root|me|UID|name`
   and the tokens `#apps`, `#mine`, `#root`, `#third-party` and `#new`. An
@@ -942,7 +946,7 @@ outstanding. The store, MCP and model features above await stack delivery.
 | 6 h replay | Replay slice: 162 Swift tests pass on Linux (reduction keeps peaks, gaps and silences; stack alignment; bands do not bridge silences; the model puts stored points behind live without joining them and drops them for short ranges or on deletion; source changes recorded as gaps; a missing store is named); native compile and the owner's look at a long range are pending |
 | Sleep and wake import | Sleep slice: 156 Swift tests pass on Linux (record parsing with tab or space columns, cut lines, periods across dark wakes, caps as partial coverage, the tool's window and record cap, a runner that stops a child at its limit); native CI compares parsed records with an independent count of the real `pmset -g log` |
 | Process filter grammar | Filter slice: 143 Swift tests pass on Linux (predicates, units, tokens, reported issues, unknown-is-not-zero, group visibility) |
-| Process heat, new and exited rows | Lifecycle slice: 139 Swift tests pass on Linux (new-row window, ghost expiry, sleep not read as exits); UI compile pending |
+| Process heat, new and exited rows | Lifecycle slice: 488 Swift tests pass on Linux (new-row window, ghost expiry, sleep not read as exits, wait-status decode, watcher drain); kqueue `NOTE_EXITSTATUS` and UI compile pending native CI |
 | Alerts | Alerts slice: 137 Swift tests pass on Linux (debounce, hysteresis, unknown readings, cooldown, permission-once delivery, end-to-end tint, marker and notification); native notification permission and banners are owner checks |
 | Ask Coreography | Ask slice: 131 Swift tests pass on Linux with a scripted transport (tool loop echo, batched results, request shape, every failure path, key handling); live provider calls and the UI are owner checks |
 | MCP stdio server | MCP slice: 128 Swift tests pass on Linux (handshake, version negotiation, notifications, catalog, cursor reuse of one snapshot, protocol and tool errors, call budget); native CI smoke drives a real stdio session |
@@ -978,7 +982,7 @@ implemented and listed above; native behavior still awaits the
 | M2 | Chip profiles as bundled data rather than code, voltage sensors, GPU frequency detail |
 | M3 | Audio graphs beyond the chart descriptors; an opt-in 60 Hz redraw |
 | M4 | `log show` sleep and wake import; `pmset` history covers sleep and wake today |
-| M5 | What else needs the privileged helper, installable from Settings in Developer ID builds (other users' process counters, open files, sockets, signals, lowered priority and spindump are done; not-responding detection runs app-side through SkyLight): login and background items, raising priority, exit status. Separately, connections grouped by domain |
+| M5 | What else needs the privileged helper, installable from Settings in Developer ID builds (other users' process counters, open files, sockets, signals, lowered and raised priority and spindump are done; not-responding detection runs app-side through SkyLight and exit statuses app-side through kqueue where signalling rights hold): login and background items |
 | M6 / S9 | Frame rate: `metalperftrace` capture, the HUD's frame-rate slot, FPS in sessions and the performance view |
 | M7 | Translations (English only for now), integration, soak and performance checks, Developer ID signing and notarized releases |
 | Deferred by the plan | Control Center control, per-file tracing, ES launch timeline, Prometheus export, Wi-Fi details |

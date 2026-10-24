@@ -113,6 +113,34 @@ final class ProcessLifecycleTests: XCTestCase {
         XCTAssertEqual(lifecycle.appEvents.map(\.app), ["Mail", "Notes"], "a complete list after the gap is a baseline again")
     }
 
+    /// The ghost of a watched pid carries the wait status the drain
+    /// reported: the kernel shares it where signalling rights hold.
+    func testExitStatusJoinsTheGhost() throws {
+        var lifecycle = ProcessLifecycle()
+        lifecycle.record(try snapshot(at: 0, pids: [1, 2]))
+        // pid 2 exited with code 1: wait status puts the code above bit 7.
+        lifecycle.record(try snapshot(at: 2, pids: [1]), exits: [2: 1 << 8])
+        XCTAssertEqual(lifecycle.exited.first?.exit, .exited(code: 1))
+        XCTAssertEqual(lifecycle.exited.first?.exit?.label, "exit 1")
+    }
+
+    func testSignalledDeathsDecodeSignalNames() throws {
+        // Killed by SIGKILL: the signal sits in the low 7 bits.
+        XCTAssertEqual(ProcessExit(status: 9), .signalled(signal: 9, name: "SIGKILL"))
+        // A core dump sets bit 7 over the signal and still decodes.
+        XCTAssertEqual(ProcessExit(status: 0x80 | 11), .signalled(signal: 11, name: "SIGSEGV"))
+        XCTAssertEqual(ProcessExit(status: 42 << 8), .exited(code: 42))
+        XCTAssertEqual(ProcessExit(status: 0), .exited(code: 0))
+        XCTAssertEqual(ProcessExit(status: 127).label, "SIG127", "an unknown signal names its number")
+    }
+
+    func testGhostWithoutObservedStatusKeepsNil() throws {
+        var lifecycle = ProcessLifecycle()
+        lifecycle.record(try snapshot(at: 0, pids: [1, 2]))
+        lifecycle.record(try snapshot(at: 2, pids: [1]))
+        XCTAssertNil(lifecycle.exited.first?.exit, "unwatched or other-users' exits keep no status")
+    }
+
     private func identity(_ pid: Int32) throws -> ProcessIdentity {
         try ProcessIdentity(pid: pid, startSeconds: 1, startMicroseconds: 0)
     }

@@ -1918,11 +1918,13 @@ private struct ProcessPane: View {
                 // Ghost rows: the culprit has often already quit (plan: exited rows stay 30 s).
                 let exited = model.exitedProcesses
                 if !exited.isEmpty {
-                    let names = exited.map { "\($0.name) (PID \($0.identity.pid), \($0.appName))" }.joined(separator: " · ")
+                    let names = exited.map {
+                        "\($0.name) (PID \($0.identity.pid), \($0.appName)\($0.exit.map { ", \($0.label)" } ?? ""))"
+                    }.joined(separator: " · ")
                     Text("Exited in the last 30 s: \(names)")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                        .help("Exit status is not available without the helper")
+                        .help("The kernel reports the exit status where the same rights as signalling hold; other users' exits show without one")
                 }
 
                 Text("\(ProcessText.cpuScaleNote(model.processCPUScaleInEffect)) App totals sum their members; footprint sums can count shared memory twice. Process sampling: \(model.processSamplingSeconds.formatted()) s; short-lived processes can be missed. Right-click a column header for wakeups, CPU time, start time, threads, instructions, QoS, architecture, signer and ports.")
