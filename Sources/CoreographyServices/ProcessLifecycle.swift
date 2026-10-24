@@ -87,9 +87,9 @@ struct ProcessLifecycle: Sendable {
     /// Each running app's last observed sample; nil before the first.
     private var appsSeen: [String: Date]?
 
-    /// `exits` carries pid → wait status for exits observed since the last
-    /// sample; a ghost whose pid is absent keeps a nil `exit`.
-    mutating func record(_ snapshot: CapturedProcesses, exits: [Int32: Int32] = [:]) {
+    /// `exits` carries identity → wait status; a ghost without a matching
+    /// observation keeps a nil `exit`.
+    mutating func record(_ snapshot: CapturedProcesses, exits: [ProcessIdentity: Int32] = [:]) {
         let time = snapshot.stamp.wallTime
         let rows = ProcessGroups.rows(in: snapshot, matching: "", sortedBy: .name, grouping: .app)
         var apps: [ProcessIdentity: String] = [:]
@@ -106,7 +106,7 @@ struct ProcessLifecycle: Sendable {
         // Queue delivery can precede the first sample that omits the process.
         if snapshot.continuity == .continuous {
             for identity in lastObserved.keys {
-                if let status = exits[identity.pid], pendingExits[identity] == nil {
+                if let status = exits[identity], pendingExits[identity] == nil {
                     pendingExits[identity] = ProcessExit(status: status)
                 }
             }

@@ -3,18 +3,18 @@ import Foundation
 /// One exit of a watched process. `status` is the wait-status word the
 /// kernel shared, nil when only the exit itself was observable.
 public struct ExitEvent: Equatable, Sendable {
-    public let pid: Int32
+    public let process: HelperProcessIdentity
     public let status: Int32?
 
-    public init(pid: Int32, status: Int32?) {
-        self.pid = pid
+    public init(process: HelperProcessIdentity, status: Int32?) {
+        self.process = process
         self.status = status
     }
 }
 
 public protocol ProcessExitWatching: Sendable {
-    /// Replaces the watched set; a pid reports nothing until it is watched.
-    mutating func watch(_ pids: Set<Int32>)
+    /// Replaces the watched identities; reused PIDs require a new registration.
+    mutating func watch(_ processes: Set<HelperProcessIdentity>)
     /// Every exit since the last drain.
     func drain() -> [ExitEvent]
 }
@@ -26,7 +26,7 @@ public final class ProcessExitDriver: ProcessExitWatching, @unchecked Sendable {
     private let queue: Int32
     private let lock = NSLock()
     private static let batchSize = 64
-    private var watched: Set<Int32> = []
+    private var watched: [Int32: HelperProcessIdentity] = [:]
     #endif
 
     /// Nil where kqueue is unavailable or the platform lacks it.
@@ -46,21 +46,26 @@ public final class ProcessExitDriver: ProcessExitWatching, @unchecked Sendable {
         #endif
     }
 
-    public func watch(_ pids: Set<Int32>) {
+    public func watch(_ processes: Set<HelperProcessIdentity>) {
         #if os(macOS)
         lock.lock()
         defer { lock.unlock() }
-        let pids = pids.filter { $0 > 0 }
-        for pid in watched.subtracting(pids) {
-            _ = change(pid, flags: UInt16(EV_DELETE), notes: 0)
-            watched.remove(pid)
+        let processes = processes.filter { $0.pid > 0 }
+        for process in watched.values.filter({ !processes.contains($0) }) {
+            _ = change(process.pid, flags: UInt16(EV_DELETE), notes: 0)
+            watched.removeValue(forKey: process.pid)
         }
-        for pid in pids.subtracting(watched) {
+        for process in processes where watched[process.pid] == nil {
+            guard ProcessIdentityCheck.matches(process.pid, process.startSeconds, process.startMicroseconds) else { continue }
             let flags = UInt16(EV_ADD | EV_ONESHOT)
-            let result = change(pid, flags: flags, notes: UInt32(NOTE_EXIT) | UInt32(NOTE_EXITSTATUS))
-            if result == 0 || (result == EPERM && change(pid, flags: flags, notes: UInt32(NOTE_EXIT)) == 0) {
-                watched.insert(pid)
+            let result = change(process.pid, flags: flags, notes: UInt32(NOTE_EXIT) | UInt32(NOTE_EXITSTATUS))
+            guard result == 0 || (result == EPERM && change(process.pid, flags: flags, notes: UInt32(NOTE_EXIT)) == 0) else { continue }
+            // Bracket registration so a reused PID cannot acquire the old identity.
+            guard ProcessIdentityCheck.matches(process.pid, process.startSeconds, process.startMicroseconds) else {
+                _ = change(process.pid, flags: UInt16(EV_DELETE), notes: 0)
+                continue
             }
+            watched[process.pid] = process
         }
         #endif
     }
@@ -77,9 +82,9 @@ public final class ProcessExitDriver: ProcessExitWatching, @unchecked Sendable {
             guard count > 0 else { return found }
             for event in events.prefix(Int(count)) where event.fflags & UInt32(NOTE_EXIT) != 0 {
                 guard let pid = Int32(exactly: event.ident) else { continue }
-                watched.remove(pid)
+                guard let process = watched.removeValue(forKey: pid) else { continue }
                 let status = event.fflags & UInt32(NOTE_EXITSTATUS) != 0 ? Int32(exactly: event.data) : nil
-                found.append(ExitEvent(pid: pid, status: status))
+                found.append(ExitEvent(process: process, status: status))
             }
             if count < Int32(events.count) { return found }
         }

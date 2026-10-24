@@ -303,7 +303,7 @@ public struct HelperRequestHandler: Sendable {
             }
             switch await runSpindump(process, seconds) {
             case .success(let report): return Self.capped(report, as: HelperReply.spindumpReport)
-            case .failure(let error): return HelperWire.encode(HelperReply.spindumpFailed(Self.describe(error)))
+            case .failure(let error): return HelperWire.encode(HelperReply.spindumpFailed(Self.failureDetail(Self.describe(error))))
             }
         case .backgroundItems:
             switch await readBackgroundItems() {
@@ -311,7 +311,7 @@ public struct HelperRequestHandler: Sendable {
             case .failure(.unsupportedPlatform):
                 return HelperWire.encode(HelperReply.backgroundItemsFailed("sfltool needs macOS."))
             case .failure(.failed(let detail)):
-                return HelperWire.encode(HelperReply.backgroundItemsFailed(detail))
+                return HelperWire.encode(HelperReply.backgroundItemsFailed(Self.failureDetail(detail)))
             }
         }
     }
@@ -328,6 +328,14 @@ public struct HelperRequestHandler: Sendable {
     }
 
     private static let launchdPID: Int32 = 1
+    private static let maximumFailureBytes = 2048
+
+    /// Failures need readable diagnostics, not a report-sized reply or a transport error.
+    private static func failureDetail(_ text: String) -> String {
+        guard text.utf8.count > maximumFailureBytes else { return text }
+        let prefix = String(decoding: text.utf8.prefix(maximumFailureBytes), as: UTF8.self)
+        return prefix + "\n[Error detail truncated]"
+    }
 
     /// A tool's whole text cut until the reply fits the limit: spindump
     /// reports whole-system stacks and a BTM dump lists every user's items,

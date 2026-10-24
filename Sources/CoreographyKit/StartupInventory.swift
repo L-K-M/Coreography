@@ -54,6 +54,8 @@ public struct StartupInventory: Sendable {
 
 /// Reads startup items on request; definitions change rarely, so nothing polls.
 public struct StartupProvider: Sendable {
+    private static let rootUID = 0
+    private static let allUsersUID = -2
     private let driver: any LaunchJobReading
     /// The helper's `sfltool dumpbtm` text; nil or a failure leaves a note.
     private let backgroundDump: @Sendable () async -> Result<String, HelperReadFailure>?
@@ -101,7 +103,7 @@ public struct StartupProvider: Sendable {
                 guard let kind = listed[registration.plistPath] else { return true }
                 switch kind {
                 case .daemon, .systemDaemon:
-                    return registration.ownerUID != 0 && registration.ownerUID != -2
+                    return registration.ownerUID != Self.rootUID && registration.ownerUID != Self.allUsersUID
                 case .userAgent, .agent, .systemAgent:
                     return registration.ownerUID != Int(getuid())
                 case .loginItem, .backgroundItem:

@@ -119,7 +119,7 @@ final class ProcessLifecycleTests: XCTestCase {
         var lifecycle = ProcessLifecycle()
         lifecycle.record(try snapshot(at: 0, pids: [1, 2]))
         // pid 2 exited with code 1: wait status puts the code above bit 7.
-        lifecycle.record(try snapshot(at: 2, pids: [1]), exits: [2: 1 << 8])
+        lifecycle.record(try snapshot(at: 2, pids: [1]), exits: [try identity(2): 1 << 8])
         XCTAssertEqual(lifecycle.exited.first?.exit, .exited(code: 1))
         XCTAssertEqual(lifecycle.exited.first?.exit?.label, "exit 1")
     }
@@ -145,7 +145,7 @@ final class ProcessLifecycleTests: XCTestCase {
         var lifecycle = ProcessLifecycle()
         lifecycle.record(try snapshot(at: 0, pids: [1, 2]))
         // The process can exit after collection but before the queue is drained.
-        lifecycle.record(try snapshot(at: 2, pids: [1, 2]), exits: [2: 42 << 8])
+        lifecycle.record(try snapshot(at: 2, pids: [1, 2]), exits: [try identity(2): 42 << 8])
         lifecycle.record(try snapshot(at: 4, pids: [1]))
         XCTAssertEqual(lifecycle.exited.first?.exit, .exited(code: 42))
     }
@@ -153,7 +153,7 @@ final class ProcessLifecycleTests: XCTestCase {
     func testExitStatusSurvivesATruncatedEnumeration() throws {
         var lifecycle = ProcessLifecycle()
         lifecycle.record(try snapshot(at: 0, pids: [1, 2]))
-        lifecycle.record(try snapshot(at: 2, pids: [1], truncated: true), exits: [2: 9])
+        lifecycle.record(try snapshot(at: 2, pids: [1], truncated: true), exits: [try identity(2): 9])
         XCTAssertTrue(lifecycle.exited.isEmpty)
         lifecycle.record(try snapshot(at: 4, pids: [1]))
         XCTAssertEqual(lifecycle.exited.first?.exit, .signalled(signal: 9, name: "SIGKILL"))
@@ -161,6 +161,14 @@ final class ProcessLifecycleTests: XCTestCase {
 
     private func identity(_ pid: Int32) throws -> ProcessIdentity {
         try ProcessIdentity(pid: pid, startSeconds: 1, startMicroseconds: 0)
+    }
+
+    func testAnExitForAnOlderIdentityCannotLabelTheCurrentProcess() throws {
+        var lifecycle = ProcessLifecycle()
+        lifecycle.record(try snapshot(at: 0, pids: [1, 2]))
+        let old = try ProcessIdentity(pid: 2, startSeconds: 0, startMicroseconds: 0)
+        lifecycle.record(try snapshot(at: 2, pids: [1]), exits: [old: 42 << 8])
+        XCTAssertNil(lifecycle.exited.first?.exit, "a reused PID is not the same process")
     }
 
     private func snapshot(

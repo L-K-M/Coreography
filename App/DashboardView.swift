@@ -2043,7 +2043,8 @@ private enum QuitEntries {
 }
 
 /// Every action for one process (plan: Quit, Force Quit, Suspend and Resume,
-/// Send Signal, Renice, Sample, Spindump, Reveal in Finder, Copy). Each confirms first, except Resume, which only undoes a suspend.
+/// Send Signal, Renice, Sample, Spindump, Reveal in Finder, Copy). Mutating
+/// actions confirm first, except Resume, which only undoes a suspend.
 private struct ProcessActionMenu: View {
     let model: DashboardModel
     let process: ObservedProcess

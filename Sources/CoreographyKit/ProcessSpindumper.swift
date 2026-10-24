@@ -5,7 +5,7 @@ import CoreographyDrivers
 /// root, so the privileged helper does the work: without it the answer is
 /// nil, not a report.
 public struct ProcessSpindumper: Sendable {
-    /// Long enough to catch a busy loop; the helper caps it at 30 seconds.
+    /// Long enough to catch a busy loop; requests outside 1–30 seconds are refused.
     public static let defaultSeconds = 3
     private let helper: PrivilegedHelper?
 

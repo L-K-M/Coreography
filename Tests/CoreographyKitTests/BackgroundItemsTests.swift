@@ -218,4 +218,32 @@ final class BackgroundItemsTests: XCTestCase {
         }
         XCTAssertTrue(kept.hasSuffix("[The output was cut to fit the helper's reply.]"))
     }
+
+    func testFailureDetailsFitEvenWhenJSONEscapingExpandsThem() async throws {
+        let prefix = "error:"
+        let detail = prefix + String(repeating: "\"", count: HelperReply.maximumBytes / 2 - prefix.utf8.count)
+        let handler = HelperRequestHandler(
+            runSpindump: { _, _ in .failure(.failed(detail)) },
+            readBackgroundItems: { .failure(.failed(detail)) }
+        )
+        for request in [HelperRequest.backgroundItems, .spindump(
+            process: HelperProcessIdentity(pid: 300, startSeconds: 1, startMicroseconds: 0), seconds: 3
+        )] {
+            let message = await handler.reply(to: HelperWire.encode(request))
+            XCTAssertLessThanOrEqual(message.count, HelperReply.maximumBytes)
+            let reply = try HelperWire.decode(HelperReply.self, from: message)
+            let reason: String
+            switch reply {
+            case .backgroundItemsFailed(let text), .spindumpFailed(let text): reason = text
+            default: return XCTFail("expected a tool failure")
+            }
+            XCTAssertTrue(reason.hasPrefix(prefix))
+            XCTAssertLessThan(reason.utf8.count, HelperRequest.maximumBytes, "errors must stay readable")
+        }
+    }
+
+    func testEmptyLabelsFallBackToTheRecordIdentity() {
+        let items = BackgroundItems.items(in: "#1\n UUID: known-id\n Name:\n Bundle Identifier:\n Identifier:")
+        XCTAssertEqual(items.first?.label, "known-id")
+    }
 }

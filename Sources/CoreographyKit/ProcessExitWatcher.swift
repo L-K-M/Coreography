@@ -1,12 +1,9 @@
 import Foundation
 import CoreographyDrivers
 
-/// Watches every observed pid for exits on one kqueue: a pid's exit status
-/// reaches `drain` only when the process was already watched, so the caller
-/// drains first, then watches the new sample's set. A wait status arrives
-/// only where the watcher may signal the process; the same pid reused and
-/// exited again keeps the earlier exit's status, which belongs to the ghost
-/// the status joins.
+/// Exit statuses retain the identity registered with the kernel, so a
+/// later process reusing its PID cannot inherit them. Drain before watching
+/// the next sample; statuses are available only with signalling rights.
 public struct ProcessExitWatcher: Sendable {
     private var driver: any ProcessExitWatching
 
@@ -18,11 +15,20 @@ public struct ProcessExitWatcher: Sendable {
 
     init(driver: any ProcessExitWatching) { self.driver = driver }
 
-    public mutating func watch(_ pids: Set<Int32>) { driver.watch(pids) }
+    public mutating func watch(_ processes: Set<ProcessIdentity>) {
+        driver.watch(Set(processes.map(\.helperIdentity)))
+    }
 
-    /// Exits since the last call as pid → wait status; an exited pid without
+    /// Exits since the last call as identity → wait status; an exited process without
     /// an entry means the kernel shared only the exit itself.
-    public func drain() -> [Int32: Int32] {
-        Dictionary(driver.drain().compactMap { event in event.status.map { (event.pid, $0) } }) { first, _ in first }
+    public func drain() -> [ProcessIdentity: Int32] {
+        Dictionary(driver.drain().compactMap { event -> (ProcessIdentity, Int32)? in
+            guard let status = event.status,
+                  let identity = try? ProcessIdentity(
+                    pid: event.process.pid, startSeconds: event.process.startSeconds,
+                    startMicroseconds: event.process.startMicroseconds
+                  ) else { return nil }
+            return (identity, status)
+        }) { first, _ in first }
     }
 }

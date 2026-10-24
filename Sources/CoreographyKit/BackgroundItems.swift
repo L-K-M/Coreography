@@ -109,8 +109,8 @@ public enum BackgroundItems {
 }
 
 private extension String {
-    /// sfltool prints "(null)" for absent values.
+    /// Empty fields and sfltool's "(null)" carry no value.
     var nilIfPlaceholder: String? {
-        self == "(null)" ? nil : self
+        isEmpty || self == "(null)" ? nil : self
     }
 }

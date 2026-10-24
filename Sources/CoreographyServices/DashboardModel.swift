@@ -258,7 +258,7 @@ public final class DashboardModel {
     @ObservationIgnored private let maintenanceProvider: MaintenanceStatusProvider?
     @ObservationIgnored private var maintenanceRead: Task<Void, Never>?
     @ObservationIgnored private let connectionMonitor: ConnectionMonitor?
-    /// Peers' hostnames, resolved once each and merged into `serverNames`.
+    /// Names follow displayed peers, so live changes cannot alter held rows.
     @ObservationIgnored private let serverNameResolver: ServerNameResolver?
     @ObservationIgnored private var serverNameTask: Task<Void, Never>?
     /// Resolved PTR names by peer address, for the Connections tab's
@@ -1875,7 +1875,7 @@ public final class DashboardModel {
             self.connectionSample = nil
             self.liveConnections = snapshot
             if self.displayMode == .live { self.connectionSnapshot = snapshot }
-            self.resolveServerNames(of: snapshot)
+            if let displayed = self.connectionSnapshot { self.resolveServerNames(of: displayed) }
         }
     }
 
@@ -1884,7 +1884,6 @@ public final class DashboardModel {
     private func resolveServerNames(of snapshot: CapturedConnections) {
         guard detailPane == .connections, let serverNameResolver, serverNameTask == nil else { return }
         let addresses = snapshot.connections.compactMap { $0.remote?.address }
-        guard !addresses.isEmpty else { return }
         serverNameTask = Task { [weak self] in
             let names = await serverNameResolver.resolve(addresses)
             guard let self, !Task.isCancelled else { return }
@@ -2057,7 +2056,7 @@ public final class DashboardModel {
                         // Drain before watching: exits that happened since
                         // the last sample join the ghosts this record makes.
                         self.liveLifecycle.record(processes, exits: self.exitWatcher?.drain() ?? [:])
-                        self.exitWatcher?.watch(Set(processes.processes.map(\.id.pid)))
+                        self.exitWatcher?.watch(Set(processes.processes.map(\.id)))
                         if self.wantsResponsiveness { self.responsivenessMonitor?.record(processes.processes) }
                         else { self.responsivenessMonitor?.reset() }
                         self.recordSelectedHistory(processes, traffic: traffic)
