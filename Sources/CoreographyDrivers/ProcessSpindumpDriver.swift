@@ -12,6 +12,8 @@ public struct ProcessSpindumpDriver: Sendable {
     private static let overhead: Duration = .seconds(45)
     /// spindump prints progress, not the report; the cap is a runaway guard.
     private static let keepBytes = 1024 * 1024
+    /// Bound memory before JSON escaping; the wire caps its encoded reply separately.
+    private static let maximumReportBytes = HelperReply.maximumBytes / 2
     private let runner = BoundedCommandRunner()
 
     public init() {}
@@ -45,12 +47,21 @@ public struct ProcessSpindumpDriver: Sendable {
         }
         // A clean exit without a readable report is its own failure, not "status 0".
         do {
-            return .success(try String(contentsOf: report, encoding: .utf8))
+            return .success(try Self.readReport(at: report))
         } catch {
             return .failure(.failed("spindump finished but its report could not be read: \(error)"))
         }
         #else
         return .failure(.unsupportedPlatform)
         #endif
+    }
+
+    static func readReport(at report: URL) throws -> String {
+        let file = try FileHandle(forReadingFrom: report)
+        defer { try? file.close() }
+        let data = try file.read(upToCount: maximumReportBytes + 1) ?? Data()
+        let text = String(decoding: data.prefix(maximumReportBytes), as: UTF8.self)
+        guard data.count > maximumReportBytes else { return text }
+        return text + "\n\n[The report was cut to fit the helper's reply.]"
     }
 }

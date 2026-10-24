@@ -73,6 +73,28 @@ final class HelperSpindumpTests: XCTestCase {
         XCTAssertEqual(HelperRequest.processCounters(pids: [1]).replyTimeout, 10)
     }
 
+    func testInvalidDurationsNeverReachTheTransport() async {
+        let transport = SpindumpTransport()
+        let helper = PrivilegedHelper(registration: Enabled(), transport: transport, teamID: Self.team)
+        for seconds in [Int.min, 0, Int(HelperWire.spindumpSeconds.upperBound) + 1, Int.max] {
+            let result = await helper.spindump(Self.target, seconds: seconds)
+            guard case .failure = result else { return XCTFail("invalid duration must fail before exchange") }
+        }
+        let count = await transport.count
+        XCTAssertEqual(count, 0)
+        XCTAssertLessThanOrEqual(HelperRequest.spindump(process: Self.target, seconds: .max).replyTimeout, 90)
+    }
+
+    func testReportReadIsBoundedBeforeEncoding() throws {
+        let path = FileManager.default.temporaryDirectory.appendingPathComponent("spindump-test-\(UUID()).txt")
+        defer { try? FileManager.default.removeItem(at: path) }
+        try Data(repeating: 0x61, count: HelperReply.maximumBytes + 1).write(to: path)
+        let text = try ProcessSpindumpDriver.readReport(at: path)
+        XCTAssertTrue(text.hasPrefix("aaa"))
+        XCTAssertTrue(text.hasSuffix("[The report was cut to fit the helper's reply.]"))
+        XCTAssertLessThan(text.utf8.count, HelperReply.maximumBytes)
+    }
+
     func testTheHelperMapsTheReplyAndStaysQuietForAWrongKind() async throws {
         let transport = SpindumpTransport()
         let helper = PrivilegedHelper(registration: Enabled(), transport: transport, teamID: Self.team)

@@ -108,7 +108,8 @@ extension HelperRequest {
     /// the helper's own cap, so it may wait well past the usual exchange.
     public var replyTimeout: TimeInterval {
         switch self {
-        case .spindump(_, let seconds): TimeInterval(seconds) + 60
+        case .spindump(_, let seconds):
+            TimeInterval(min(max(seconds, HelperWire.spindumpSeconds.lowerBound), HelperWire.spindumpSeconds.upperBound)) + 60
         default: Self.standardReplyTimeout
         }
     }
