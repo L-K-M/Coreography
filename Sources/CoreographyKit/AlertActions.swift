@@ -76,9 +76,10 @@ public enum StartupCapacity: Equatable, Sendable {
     case measured(totalBytes: Int64, availableBytes: Int64)
     case unavailable(reason: String)
 
+    /// Nil for a volume without a size, which is unknown rather than full.
     public var usedBytes: Int64? {
-        guard case .measured(let total, let available) = self else { return nil }
-        return total - available
+        guard case .measured(let total, let available) = self, total > 0 else { return nil }
+        return total - min(max(available, 0), total)
     }
 
     /// Used share, 0...1.

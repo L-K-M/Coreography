@@ -56,6 +56,11 @@ final class VolumeMonitorTests: XCTestCase {
             .startupCapacity()
         XCTAssertNil(empty.usedFraction, "a volume without a size is unknown, not full")
 
+        // A capacity built directly keeps the same bounds as one the monitor read.
+        XCTAssertNil(StartupCapacity.measured(totalBytes: 0, availableBytes: 0).usedFraction)
+        XCTAssertEqual(StartupCapacity.measured(totalBytes: 100, availableBytes: 300).usedFraction, 0)
+        XCTAssertEqual(StartupCapacity.measured(totalBytes: 100, availableBytes: -5).usedFraction, 1)
+
         let failed = await VolumeMonitor(driver: Startup(.failure(.unavailable("No capacity")))).startupCapacity()
         XCTAssertEqual(failed, .unavailable(reason: "No capacity"))
         XCTAssertNil(failed.usedBytes)
