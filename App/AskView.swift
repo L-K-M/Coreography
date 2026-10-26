@@ -103,7 +103,7 @@ struct SettingsView: View {
     @State private var key = ""
     @State private var message: String?
     @State private var confirmingDelete = false
-    @AppStorage(InteractionFeedback.settingKey) private var braidSounds = true
+    @AppStorage(InteractionFeedback.settingKey) private var braidSounds = InteractionFeedback.enabledByDefault
 
     var body: some View {
         Form {

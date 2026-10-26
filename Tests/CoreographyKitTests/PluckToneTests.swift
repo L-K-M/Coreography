@@ -9,7 +9,7 @@ final class PluckToneTests: XCTestCase {
         XCTAssertEqual(PluckTone.frequency(for: "Xcode"), xcode)
         XCTAssertTrue(PluckTone.scale.contains(xcode))
         let notes = Set(["Safari", "Xcode", "Mail", "WindowServer", "mds_stores", "Music"].map(PluckTone.frequency(for:)))
-        XCTAssertGreaterThan(notes.count, 1, "different apps spread over the scale")
+        XCTAssertGreaterThanOrEqual(notes.count, 3, "different apps spread over the scale")
     }
 
     /// Cues are quiet and short: the scope pluck peaks at -22 dBFS over
@@ -44,7 +44,9 @@ final class FeedbackTonesTests: XCTestCase {
     }
 
     func testCuesPlayUnlessEitherSwitchIsOff() async throws {
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: "feedback-\(UUID().uuidString)"))
+        let suite = "feedback-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
         let output = Recorder()
         let tones = FeedbackTones(output: output, defaults: defaults)
 
@@ -56,7 +58,7 @@ final class FeedbackTonesTests: XCTestCase {
         defaults.set(false, forKey: FeedbackTones.settingKey)
         XCTAssertNil(tones.play(.fold))
         defaults.set(true, forKey: FeedbackTones.settingKey)
-        defaults.set(0, forKey: "com.apple.sound.uiaudio.enabled")
+        defaults.set(0, forKey: UserInterfaceSoundSetting.key)
         XCTAssertNil(tones.play(.open), "the app's switch and macOS's both silence it")
         let count = await output.played.count
         XCTAssertEqual(count, 1)

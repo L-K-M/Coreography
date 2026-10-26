@@ -47,13 +47,16 @@ public struct BraidColumn: Identifiable, Sendable {
     /// The top of the stack: every known share added up.
     public var total: Double { shares.reduce(0) { $0 + ($1 ?? 0) } }
 
+    /// Every app's share together: all strands but the remainder, which
+    /// `CPUBraid` always puts last.
+    public var appsShare: Double { shares.dropLast().reduce(0) { $0 + ($1 ?? 0) } }
+
     /// The apps' shares together exceed the host mean by more than sampling
     /// skew explains, so the remainder's zero hides a disagreement the UI
     /// must state rather than smooth over.
     public var reconciles: Bool {
         guard let hostMean, let remainder = shares.last, remainder == 0 else { return true }
-        let apps = shares.dropLast().reduce(0) { $0 + ($1 ?? 0) }
-        return apps <= hostMean + CPUBraid.reconcileTolerance
+        return appsShare <= hostMean + CPUBraid.reconcileTolerance
     }
 }
 
@@ -92,7 +95,11 @@ public struct CPUBraid: Identifiable, Sendable {
     /// Arrow keys: the interval `offset` steps from the one holding `time`,
     /// or the newest when nothing is inspected yet; nil past either end.
     public func column(from time: Date?, offset: Int) -> BraidColumn? {
-        guard let time, let current = index(at: time) else { return columns.last }
+        guard let time else { return columns.last }
+        guard let current = index(at: time) else {
+            // Between intervals: the neighbour on the side of the step.
+            return offset > 0 ? columns.first { $0.start >= time } : columns.last { $0.end < time }
+        }
         let target = current + offset
         return columns.indices.contains(target) ? columns[target] : nil
     }
@@ -101,8 +108,15 @@ public struct CPUBraid: Identifiable, Sendable {
     /// total tops both neighbours in its segment; a plateau counts once, and
     /// an interval at a gap's edge has no neighbour there, so it is no peak.
     public func peak(from time: Date?, forward: Bool) -> BraidColumn? {
-        let start = time.flatMap(index(at:)) ?? (forward ? -1 : columns.count)
-        let order = forward ? Array(stride(from: start + 1, to: columns.count, by: 1)) : Array(stride(from: start - 1, through: 0, by: -1))
+        // Search outward from `time`, even from inside a gap or past an end.
+        let order: [Int]
+        if forward {
+            let first = time.map { time in columns.firstIndex { $0.start >= time } ?? columns.count } ?? 0
+            order = Array(first..<columns.count)
+        } else {
+            let last = time.map { time in columns.lastIndex { $0.end < time } ?? -1 } ?? columns.count - 1
+            order = last >= 0 ? Array(stride(from: last, through: 0, by: -1)) : []
+        }
         return order.first { index in
             let column = columns[index]
             guard index > 0, index + 1 < columns.count, columns[index - 1].segment == column.segment,
@@ -188,7 +202,9 @@ enum Braids {
             // Sampling skew can put the readable processes above the host mean; never below zero.
             let appsShare = share(byApp.values.reduce(0, +))
             let remainder = hostMean.map { max($0 - appsShare, 0) }
-            unattributedSeconds += (remainder ?? 0) / percentScale * length * interval.cores
+            // Over the part inside the window, as the apps' seconds are counted.
+            let inside = min(interval.end, window.upperBound).timeIntervalSince(max(interval.start, window.lowerBound))
+            unattributedSeconds += (remainder ?? 0) / percentScale * inside * interval.cores
             shares.append(remainder)
             columns.append(BraidColumn(
                 start: interval.start, end: interval.end, segment: segment, shares: shares, hostMean: hostMean

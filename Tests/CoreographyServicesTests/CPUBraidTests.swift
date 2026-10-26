@@ -42,8 +42,10 @@ final class CPUBraidTests: XCTestCase {
         let pinned = try XCTUnwrap(Braids.cpu(
             intervals: ledger.intervals, names: ledger.names, host: [], window: window(0, 10), pinned: "App1"
         ))
-        XCTAssertEqual(pinned.strands.map(\.kind)[5], .app("App1"))
-        XCTAssertEqual(pinned.strands.map(\.kind)[6], .otherApps(count: 2))
+        XCTAssertEqual(pinned.strands.map(\.kind), [
+            .app("App8"), .app("App7"), .app("App6"), .app("App5"), .app("App4"), .app("App1"),
+            .otherApps(count: 2), .unattributed
+        ])
     }
 
     /// Without host readings over an interval, the remainder is unknown,
@@ -125,6 +127,13 @@ final class CPUBraidTests: XCTestCase {
         ledger.record(try snapshot(at: 32, rows: [("App", 5)]), logicalCPUCount: 1)
         let braid = try XCTUnwrap(Braids.cpu(intervals: ledger.intervals, names: ledger.names, host: [], window: window(0, 40)))
         XCTAssertNil(braid.peak(from: nil, forward: true), "60 % right before a gap is a rise, not a peak")
+        XCTAssertNil(braid.peak(from: epoch.addingTimeInterval(3), forward: true))
+        XCTAssertEqual(braid.peak(from: epoch.addingTimeInterval(1), forward: true)?.end, nil)
+
+        // From inside the gap, arrows and peaks look outward, not from the window's far end.
+        let inGap = epoch.addingTimeInterval(15)
+        XCTAssertEqual(braid.column(from: inGap, offset: -1)?.end, epoch.addingTimeInterval(4))
+        XCTAssertEqual(braid.column(from: inGap, offset: 1)?.end, epoch.addingTimeInterval(32))
     }
 
     /// A host reading covers the span since the reading before it, so an
@@ -135,10 +144,23 @@ final class CPUBraidTests: XCTestCase {
         ledger.record(try snapshot(at: 3, rows: [("App", 10)]), logicalCPUCount: 1)
         let host = try hostReadings([(0, 99), (1, 40), (3, 60), (4, 20)])
         let means = Braids.hostMeans(over: ledger.intervals, host: host)
-        XCTAssertEqual(means.first ?? nil, 160.0 / 3, "1 s at 40 % and 2 s at 60 %")
+        XCTAssertEqual(try XCTUnwrap(means.first ?? nil), 160.0 / 3, accuracy: 1e-9, "1 s at 40 % and 2 s at 60 %")
 
         let short = Braids.hostMeans(over: ledger.intervals, host: try hostReadings([(0, 10), (2, 40)]))
         XCTAssertNil(short.first ?? nil, "readings end before the interval does: nothing is extrapolated")
+    }
+
+    /// The remainder counts only the part of an interval inside the window,
+    /// as the apps do, so the strands describe the same span.
+    func testTheRemainderIsCountedInsideTheWindowLikeTheApps() throws {
+        var ledger = AppLedger(capacity: 10)
+        ledger.record(try snapshot(at: 0, rows: [("App", 10)]), logicalCPUCount: 1)
+        ledger.record(try snapshot(at: 10, rows: [("App", 10)]), logicalCPUCount: 1)
+        let host = try hostReadings([(0, 0), (10, 30)])
+        let braid = try XCTUnwrap(Braids.cpu(intervals: ledger.intervals, names: ledger.names, host: host, window: window(5, 20)))
+        XCTAssertEqual(braid.strands[0].cpuSeconds, 0.5, accuracy: 1e-9, "10 % for the 5 s inside")
+        XCTAssertEqual(braid.strands[1].cpuSeconds, 1, accuracy: 1e-9, "20 % remainder for the same 5 s")
+        XCTAssertEqual(braid.columns.first?.appsShare ?? 0, 10, accuracy: 1e-9)
     }
 
     /// The window ranks apps by what they did inside it, so a long interval

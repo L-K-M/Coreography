@@ -57,8 +57,7 @@ final class BraidInspection {
     private static let hapticSpacing = Duration.milliseconds(100)
 
     var isOpen: Bool { phase != .closed }
-    /// Read when motion starts, from AppKit: an environment value in the
-    /// dashboard would make every redraw re-vend its toolbar.
+    /// Read from AppKit when motion starts, so it is current at that moment.
     private var reduceMotion: Bool { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }
     /// Something is moving, so the braid redraws every frame until it stops.
     var isAnimating: Bool { motion != nil || glint != nil }
@@ -161,9 +160,7 @@ final class BraidInspection {
     /// Catching an app scopes the window to it; Command-Z puts the previous scope back.
     func scope(to app: String, model: DashboardModel) {
         guard model.scopedApp != app else { return }
-        Self.setScope(app, of: model, undoManager: NSApp.keyWindow?.undoManager)
-        // The scoped app keeps its own strand, which can reorder the rest: the old index means nothing now.
-        focused = nil
+        Self.setScope(app, of: model, inspection: self, undoManager: NSApp.keyWindow?.undoManager)
         feedback.play(.scope(app: app))
         NSHapticFeedbackManager.defaultPerformer.perform(.levelChange, performanceTime: .now)
         guard !reduceMotion else { return }
@@ -178,11 +175,17 @@ final class BraidInspection {
 
     /// Sets the scope so that Command-Z puts the previous one back and
     /// Command-Shift-Z sets it again.
-    private static func setScope(_ app: String?, of model: DashboardModel, undoManager: UndoManager?) {
+    /// The scoped app keeps its own strand, which can reorder the rest, so
+    /// focus and hover indexes mean nothing afterwards, on undo as well.
+    private static func setScope(
+        _ app: String?, of model: DashboardModel, inspection: BraidInspection?, undoManager: UndoManager?
+    ) {
         let previous = model.scopedApp
         model.scopedApp = app
-        undoManager?.registerUndo(withTarget: model) { target in
-            MainActor.assumeIsolated { setScope(previous, of: target, undoManager: undoManager) }
+        inspection?.focused = nil
+        inspection?.setHovered(nil)
+        undoManager?.registerUndo(withTarget: model) { [weak inspection] target in
+            MainActor.assumeIsolated { setScope(previous, of: target, inspection: inspection, undoManager: undoManager) }
         }
         if let app { undoManager?.setActionName(String(localized: "Scope to \(app)")) }
     }
@@ -430,10 +433,6 @@ struct BraidPalette {
     private static let otherOpacity = 0.2
     private static let identitySaturation = 0.5
 
-    /// The app's appearance now; the palette is rebuilt when it changes.
-    @MainActor
-    static var isDark: Bool { NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua }
-
     @MainActor
     init(braid: CPUBraid, bundles: [String: String?], dark: Bool) {
         let strands = braid.strands
@@ -659,7 +658,9 @@ struct BraidLayer: View, Equatable {
             return
         }
         var outside = context
-        var mask = Path(geometry.plot.rect.insetBy(dx: -4, dy: -BraidGeometry.headroom))
+        // The outer rectangle must hold the whole lens, or the even-odd hole
+        // leaks where the lens reaches past the plot's edge.
+        var mask = Path(geometry.plot.rect.insetBy(dx: -geometry.plot.rect.width, dy: -BraidGeometry.headroom))
         mask.addRect(lensRect)
         outside.clip(to: mask, style: FillStyle(eoFill: true))
         outside.stroke(line, with: .color(.blue), style: style)
@@ -791,7 +792,7 @@ struct BraidCard: View {
         }
         .background(index == focused ? Color.primary.opacity(0.07) : .clear)
         .contentShape(Rectangle())
-        .onHover { inside in if inside { focus(index) } }
+        .onHover { inside in focus(inside ? index : nil) }
 
         switch strand.kind {
         case .app(let name):
@@ -921,7 +922,7 @@ enum BraidText {
     }
 
     static func disagreement(_ column: BraidColumn) -> String {
-        let apps = column.shares.dropLast().reduce(0) { $0 + ($1 ?? 0) }
+        let apps = column.appsShare
         return String(localized: "Apps add up to \(MetricText.percent(apps)), more than the host's \(MetricText.percent(column.hostMean)): their samples disagree.")
     }
 
@@ -1037,7 +1038,7 @@ struct BraidOverlay: View {
 final class BraidCache {
     private var geometryKey: (braid: UUID, rect: CGRect, window: ClosedRange<Date>)?
     private var geometry: BraidGeometry?
-    private var paletteKey: (braid: UUID, dark: Bool)?
+    private var paletteKey: (braid: UUID, bundles: [String: String?], dark: Bool)?
     private var palette: BraidPalette?
 
     func geometry(_ braid: CPUBraid, rect: CGRect, window: ClosedRange<Date>) -> BraidGeometry {
@@ -1051,10 +1052,13 @@ final class BraidCache {
     }
 
     func palette(_ braid: CPUBraid, bundles: [String: String?], dark: Bool) -> BraidPalette {
-        if let palette, let key = paletteKey, key.braid == braid.id, key.dark == dark { return palette }
+        // Bundles too: an app's icon can resolve after its strand exists.
+        if let palette, let key = paletteKey, key.braid == braid.id, key.bundles == bundles, key.dark == dark {
+            return palette
+        }
         let built = BraidPalette(braid: braid, bundles: bundles, dark: dark)
         palette = built
-        paletteKey = (braid.id, dark)
+        paletteKey = (braid.id, bundles, dark)
         return built
     }
 }
@@ -1107,6 +1111,7 @@ final class BraidKeys {
         guard monitor == nil else { return }
         monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let press = BraidKeyPress(event) else { return event }
+            // A local monitor runs on the main thread; a global one would not.
             let consumed = MainActor.assumeIsolated { () -> Bool in
                 guard let self, let handler = self.handler, let window = NSApp.window(withWindowNumber: press.windowNumber),
                       Self.isDashboard(window), !(window.firstResponder is NSText) else { return false }

@@ -19,6 +19,9 @@ struct DashboardView: View {
     @State private var inspection = BraidInspection()
     @State private var braidCache = BraidCache()
     @State private var braidKeys = BraidKeys()
+    /// The braid's identity colours differ by appearance; reading it here
+    /// redraws them when it changes.
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         ScrollView {
@@ -318,6 +321,8 @@ struct DashboardView: View {
                 inspection.updatePull(travel: Double(travel), time: column?.middle, model: model)
             },
             ended: {
+                // A press in a sampling gap never began a pull: nothing to end or announce.
+                guard inspection.phase == .pulling else { return }
                 inspection.endPull(model: model)
                 announceBraid(shape.braid)
             },
@@ -465,7 +470,7 @@ struct DashboardView: View {
         let points = visiblePoints(model.points(for: metric), start, end)
         // Per-app strands over the live hour; without them the lane keeps user under system.
         let braid = metric == .cpu ? model.cpuBraid(in: start...end) : nil
-        let palette = braid.map { braidCache.palette($0, bundles: model.sampledApps, dark: BraidPalette.isDark) }
+        let palette = braid.map { braidCache.palette($0, bundles: model.sampledApps, dark: colorScheme == .dark) }
         let scopedStrand = braid?.strands.firstIndex { $0.appName != nil && $0.appName == model.scopedApp }
         // In the braid the scoped app is its own lit strand; an app idle all window has none, so its series still answers.
         let scoped = metric == .cpu && scopedStrand == nil ? model.scopedSeries().map { visiblePoints($0.cpu, start, end) } : nil
@@ -609,7 +614,7 @@ struct DashboardView: View {
                             }
                         }
                     }
-                    .onAppear { braidKeys.install(braidKey) }
+                    .onAppear { if metric == .cpu { braidKeys.install(braidKey) } }
                     .accessibilityActions {
                         if let braid {
                             Button(inspection.isOpen ? "Close the CPU braid" : "Open the CPU braid") {
@@ -623,6 +628,7 @@ struct DashboardView: View {
                     }
                     // Hiding the lane or losing its braid mid-inspection closes it and its hold.
                     .onDisappear {
+                        guard metric == .cpu else { return }
                         inspection.reset(model: model)
                         braidKeys.remove()
                     }

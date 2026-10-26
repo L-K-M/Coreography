@@ -17,28 +17,43 @@ func log(_ message: String) {
 
 func pause(_ seconds: Double) { usleep(UInt32(seconds * 1_000_000)) }
 
+/// The newest instance: one still quitting may share the bundle identifier.
+func coreography() -> NSRunningApplication? {
+    NSRunningApplication.runningApplications(withBundleIdentifier: "ch.lkmc.Coreography")
+        .max { ($0.launchDate ?? .distantPast) < ($1.launchDate ?? .distantPast) }
+}
+
 func shot(_ name: String) {
     let process = Process()
     process.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
     let rect = "\(Int(region.minX)),\(Int(region.minY)),\(Int(region.width)),\(Int(region.height))"
     process.arguments = ["-x", "-C", "-R\(rect)", "\(output)/shots/\(name).png"]
-    try? process.run()
-    process.waitUntilExit()
-    log("still \(name)")
+    do {
+        try process.run()
+        process.waitUntilExit()
+        log(process.terminationStatus == 0 ? "still \(name)" : "still \(name) failed with status \(process.terminationStatus)")
+    } catch {
+        log("still \(name) could not start: \(error)")
+    }
 }
 
 /// A 3 s profile of the app's threads in the background, for the slow steps.
 func profile(_ name: String) {
     let process = Process()
     process.executableURL = URL(fileURLWithPath: "/usr/bin/sudo")
-    // The newest instance by process ID: one still quitting may share the name.
-    let pid = NSRunningApplication.runningApplications(withBundleIdentifier: "ch.lkmc.Coreography")
-        .max { ($0.launchDate ?? .distantPast) < ($1.launchDate ?? .distantPast) }?.processIdentifier ?? 0
+    let pid = coreography()?.processIdentifier ?? 0
     process.arguments = ["-n", "/usr/bin/sample", "\(pid)", "3", "-mayDie", "-file", "\(output)/sample-\(name).txt"]
     process.standardOutput = FileHandle.nullDevice
     process.standardError = FileHandle.nullDevice
-    try? process.run()
-    log("profile \(name)")
+    process.terminationHandler = { task in
+        if task.terminationStatus != 0 { log("profile \(name) failed with status \(task.terminationStatus)") }
+    }
+    do {
+        try process.run()
+        log("profile \(name)")
+    } catch {
+        log("profile \(name) could not start: \(error)")
+    }
 }
 
 // MARK: Finding the CPU chart
@@ -64,7 +79,7 @@ func text(_ element: AXUIElement) -> String {
 }
 
 func cpuChart() -> CGRect? {
-    guard let app = NSRunningApplication.runningApplications(withBundleIdentifier: "ch.lkmc.Coreography").first else { return nil }
+    guard let app = coreography() else { return nil }
     var queue: [(AXUIElement, Int)] = [(AXUIElementCreateApplication(app.processIdentifier), 0)]
     var candidates: [(CGRect, String)] = []
     var visited = 0
@@ -85,7 +100,7 @@ func cpuChart() -> CGRect? {
 
 /// The app's windows as Accessibility sees them, identifier included.
 func logWindows() {
-    guard let app = NSRunningApplication.runningApplications(withBundleIdentifier: "ch.lkmc.Coreography").first,
+    guard let app = coreography(),
           let windows = attribute(AXUIElementCreateApplication(app.processIdentifier), kAXWindowsAttribute) as? [AXUIElement]
     else { return }
     for window in windows {

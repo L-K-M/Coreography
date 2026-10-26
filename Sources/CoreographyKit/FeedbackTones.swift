@@ -8,6 +8,8 @@ import CoreographyDrivers
 public final class FeedbackTones {
     /// The app's own switch, beside macOS's.
     public static let settingKey = "braidSounds"
+    /// Unset means on, here and in Settings.
+    public static let enabledByDefault = true
     private let output: any TonePlaying
     private let defaults: UserDefaults
     /// Synthesized once per cue: each is the same every time.
@@ -23,7 +25,7 @@ public final class FeedbackTones {
     /// Both switches default to on; macOS's is reread on every cue so a
     /// change in System Settings applies at once.
     public var isEnabled: Bool {
-        let own = defaults.object(forKey: Self.settingKey) as? Bool ?? true
+        let own = defaults.object(forKey: Self.settingKey) as? Bool ?? Self.enabledByDefault
         return own && UserInterfaceSoundSetting.enabled(in: defaults)
     }
 

@@ -251,6 +251,7 @@ struct AppLedger: Sendable {
             return nil
         }
         let seconds = interval.end.timeIntervalSince(interval.start)
+        guard seconds > 0 else { return nil }
         return interval.entries.compactMap { entry -> Contributor? in
             guard entry.cpuSeconds > 0 else { return nil }
             let share = entry.cpuSeconds / (seconds * interval.cores) * Self.percentScale

@@ -14,7 +14,7 @@ public protocol TonePlaying: Sendable {
 /// from the global defaults domain where System Settings keeps it. The key
 /// is undocumented: nil when it is unset or unreadable, never a guess.
 public enum UserInterfaceSoundSetting {
-    private static let key = "com.apple.sound.uiaudio.enabled"
+    public static let key = "com.apple.sound.uiaudio.enabled"
 
     public static func enabled(in defaults: UserDefaults = .standard) -> Bool {
         (defaults.object(forKey: key) as? NSNumber)?.boolValue ?? true

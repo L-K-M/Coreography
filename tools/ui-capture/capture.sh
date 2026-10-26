@@ -67,14 +67,15 @@ place_window
 
 # How long this Mac takes to answer for its audio output: the braid's
 # sounds must never wait for it on the main thread.
-swift "$HERE/audio-probe.swift" | tee "$OUT/audio-probe.log" || true
+swift "$HERE/audio-probe.swift" 2>&1 | tee "$OUT/audio-probe.log" || true
 
 sleep "$WARMUP"
 # Safari's strand stays as a recorded contribution of an app that has exited.
 stop_load
 sleep 3
 # The app's own CPU every half second, to line up with the steps.
-PID="$(pgrep -x Coreography | head -1)"
+PID="$(pgrep -nx Coreography || true)"
+[[ -n "$PID" ]] || die "Coreography quit during the warmup"
 (while kill -0 "$PID" 2>/dev/null; do
   echo "$(date +%s.%N | cut -c1-14) $(ps -o %cpu= -p "$PID")"
   sleep 0.5
@@ -84,7 +85,7 @@ screencapture -x -C -k -V "$RECORD" -R"0,25,1024,560" "$OUT/braid.mov" &
 RECORDER=$!
 sleep 1
 echo "drive starts at $(date +%s.%N | cut -c1-14)" >"$OUT/clock.log"
-swift "$HERE/drive.swift" "$OUT" | tee "$OUT/steps.log"
+swift "$HERE/drive.swift" "$OUT" 2>&1 | tee "$OUT/steps.log"
 wait "$RECORDER" || echo "warning: the recording ended with an error"
 kill "$SAMPLER" 2>/dev/null || true
 
