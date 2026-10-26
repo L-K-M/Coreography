@@ -782,3 +782,16 @@ jobs:
           name: ${{ steps.pkg.outputs.name }}
           path: dist/Coreography-v*-macos-universal.zip
           if-no-files-found: error
+
+      # The runner has a GUI session: drive the CPU braid with real pointer and
+      # key events under real load, and keep the film for review. Fails if the
+      # app quits during it. Runs after packaging so the artifact is untouched.
+      - name: Drive and film the CPU braid
+        run: tools/ui-capture/capture.sh dist/Coreography.app "$RUNNER_TEMP/ui-capture"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: ui-capture
+          path: ${{ runner.temp }}/ui-capture
+          if-no-files-found: warn
