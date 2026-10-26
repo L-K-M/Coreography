@@ -5,6 +5,8 @@ import CoreographyKit
 public struct WidgetSnapshot: Sendable {
     public let host: CapturedSnapshot
     public let network: CapturedNetwork
+    /// Read with the second sample, so it is no older than the sample time.
+    public let disk: StartupCapacity
 
     public var sampledAt: Date { max(host.stamp.wallTime, network.stamp.wallTime) }
 
@@ -24,20 +26,22 @@ public struct WidgetSnapshot: Sendable {
 public struct WidgetSampler: Sendable {
     private let host: SystemMonitor
     private let network: NetworkMonitor
+    private let volumes: VolumeMonitor
     private let waitForInterval: @Sendable () async throws -> Void
 
     public init() throws {
-        try self.init(host: SystemMonitor(), network: NetworkMonitor()) {
+        try self.init(host: SystemMonitor(), network: NetworkMonitor(), volumes: VolumeMonitor()) {
             try await Task.sleep(for: .seconds(1))
         }
     }
 
     init(
-        host: SystemMonitor, network: NetworkMonitor,
+        host: SystemMonitor, network: NetworkMonitor, volumes: VolumeMonitor,
         waitForInterval: @escaping @Sendable () async throws -> Void
     ) {
         self.host = host
         self.network = network
+        self.volumes = volumes
         self.waitForInterval = waitForInterval
     }
 
@@ -52,6 +56,7 @@ public struct WidgetSampler: Sendable {
 
         async let hostSample = host.sample()
         async let networkSample = network.sample()
-        return try await WidgetSnapshot(host: hostSample, network: networkSample)
+        async let disk = volumes.startupCapacity()
+        return try await WidgetSnapshot(host: hostSample, network: networkSample, disk: disk)
     }
 }

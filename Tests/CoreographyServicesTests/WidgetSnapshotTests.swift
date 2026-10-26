@@ -20,6 +20,7 @@ final class WidgetSnapshotTests: XCTestCase {
         XCTAssertEqual(snapshot.primaryInterface?.receivedBytesPerSecond.numericValue, 2048)
         XCTAssertEqual(snapshot.primaryInterface?.sentBytesPerSecond.numericValue, 1024)
         XCTAssertEqual(snapshot.sampledAt, Self.epoch.addingTimeInterval(2))
+        XCTAssertEqual(snapshot.disk, .measured(totalBytes: 1_000, availableBytes: 400))
         let reads = await (host.readCount, network.readCount)
         XCTAssertEqual(reads.0, 2)
         XCTAssertEqual(reads.1, 2)
@@ -61,6 +62,18 @@ final class WidgetSnapshotTests: XCTestCase {
         XCTAssertNotNil(snapshot.network.primaryIssue?.reason)
     }
 
+    func testUnreadableStartupVolumeKeepsItsReason() async throws {
+        let host = WidgetHostDriver(samples: [hostSample(seconds: 0), hostSample(seconds: 1)])
+        let network = WidgetNetworkDriver(samples: [networkSample(seconds: 0), networkSample(seconds: 1)])
+        let snapshot = try await sampler(
+            host: host, network: network, volume: .failure(.unavailable("The startup volume reports no capacity"))
+        ).sample()
+
+        XCTAssertEqual(snapshot.disk, .unavailable(reason: "The startup volume reports no capacity"))
+        XCTAssertNil(snapshot.disk.usedFraction)
+        XCTAssertEqual(snapshot.host.cpuPercentOfMachine.numericValue, 25)
+    }
+
     func testInterruptedSampleKeepsGaugesButNotRates() async throws {
         let host = WidgetHostDriver(samples: [hostSample(seconds: 0), hostSample(seconds: 10)])
         let network = WidgetNetworkDriver(samples: [networkSample(seconds: 0), networkSample(seconds: 10)])
@@ -79,6 +92,7 @@ final class WidgetSnapshotTests: XCTestCase {
         let network = WidgetNetworkDriver(samples: [networkSample(seconds: 0)])
         let sampler = try WidgetSampler(
             host: SystemMonitor(driver: host), network: NetworkMonitor(driver: network),
+            volumes: VolumeMonitor(driver: WidgetVolumeDriver(result: .failure(.unsupportedPlatform))),
             waitForInterval: { throw CancellationError() }
         )
         do {
@@ -97,10 +111,12 @@ final class WidgetSnapshotTests: XCTestCase {
         XCTAssertEqual(snapshot.host.cpuPercentOfMachine.availability, .measured)
         XCTAssertNotNil(snapshot.memoryFraction)
         XCTAssertEqual(snapshot.network.enumeration.availability, .measured)
+        XCTAssertNotNil(snapshot.disk.usedFraction)
         #else
         XCTAssertEqual(snapshot.host.cpuPercentOfMachine.availability, .unsupported)
         XCTAssertNil(snapshot.memoryFraction)
         XCTAssertEqual(snapshot.network.enumeration.availability, .unsupported)
+        XCTAssertEqual(snapshot.disk, .unavailable(reason: "Volumes need macOS"))
         #endif
     }
 
@@ -108,8 +124,14 @@ final class WidgetSnapshotTests: XCTestCase {
     private static let clock = UUID()
     private static let nanosecondsPerSecond: UInt64 = 1_000_000_000
 
-    private func sampler(host: WidgetHostDriver, network: WidgetNetworkDriver) throws -> WidgetSampler {
-        try WidgetSampler(host: SystemMonitor(driver: host), network: NetworkMonitor(driver: network), waitForInterval: {})
+    private func sampler(
+        host: WidgetHostDriver, network: WidgetNetworkDriver,
+        volume: Result<RawVolumeCapacity, VolumeCapacityError> = .success(RawVolumeCapacity(totalBytes: 1_000, availableBytes: 400))
+    ) throws -> WidgetSampler {
+        try WidgetSampler(
+            host: SystemMonitor(driver: host), network: NetworkMonitor(driver: network),
+            volumes: VolumeMonitor(driver: WidgetVolumeDriver(result: volume)), waitForInterval: {}
+        )
     }
 
     private func hostSample(seconds: UInt64, failure: HostDriverError? = nil) -> RawHostSnapshot {
@@ -171,4 +193,10 @@ private actor WidgetNetworkDriver: NetworkSampleReading {
         readCount += 1
         return samples.removeFirst()
     }
+}
+
+private struct WidgetVolumeDriver: VolumeCapacityReading {
+    let result: Result<RawVolumeCapacity, VolumeCapacityError>
+
+    func startupVolume() async -> Result<RawVolumeCapacity, VolumeCapacityError> { result }
 }

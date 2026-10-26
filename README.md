@@ -36,7 +36,7 @@ A menu bar extra shows CPU in the menu bar and opens mini lanes; it shares
 the window's sampler and keeps sampling while the window is closed.
 
 Desktop widgets show CPU, estimated used memory with pressure, primary-interface
-download/upload rates, or an overview, in small and medium sizes. Open the app
+download/upload rates, startup-disk space, or an overview, in small and medium sizes. Open the app
 once after installation, then right-click the desktop, choose **Edit Widgets**
 and search for **Coreography**. Widgets take their own short samples even when
 the app is closed. Each shows its sample time; refreshes are requested every

@@ -7,6 +7,8 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
 ## [Unreleased]
 
 ### Fixed
+- The System Overview widget's readings are larger, and its values no
+  longer shrink below the size of their labels.
 - The toolbar's "Live · last 1 min" label has room inside its capsule.
 - The inspector no longer explains a program as a macOS process when
   its signature shows another developer or none.
@@ -40,6 +42,8 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
   after the store first exceeds it.
 
 ### Added
+- A Disk desktop widget shows the startup volume's free space and how
+  much of it is used; the System Overview widget shows free disk space.
 - The CPU lane is a braid of the apps that made it. Pull it up or click it
   to open it at a moment: strands lift in their apps' colours and a card
   names each share over that interval, unattributed CPU included. Click an

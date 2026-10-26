@@ -15,6 +15,17 @@ public struct VolumeMonitor: Sendable {
         return min(max(Double(capacity.availableBytes) / Double(capacity.totalBytes), 0), 1)
     }
 
+    /// The startup volume's capacity, or why it cannot be read.
+    public func startupCapacity() async -> StartupCapacity {
+        switch await driver.startupVolume() {
+        case .failure(.unsupportedPlatform): .unavailable(reason: "Volumes need macOS")
+        case .failure(.unavailable(let reason)): .unavailable(reason: reason)
+        case .success(let capacity) where capacity.totalBytes > 0:
+            .measured(totalBytes: capacity.totalBytes, availableBytes: min(max(capacity.availableBytes, 0), capacity.totalBytes))
+        case .success: .unavailable(reason: "The startup volume reports no capacity")
+        }
+    }
+
     /// Visible volumes, startup first, then internal, external and network, by name.
     public func volumes() async -> VolumeList {
         switch await driver.mountedVolumes() {
@@ -57,6 +68,24 @@ public struct VolumeCapacity: Identifiable, Codable, Equatable, Sendable {
 
     /// Used share, 0...1.
     public var usedFraction: Double { min(max(1 - Double(availableBytes) / Double(totalBytes), 0), 1) }
+}
+
+/// The startup volume's size and space available for important use
+/// (purgeable space included, as Finder counts it).
+public enum StartupCapacity: Equatable, Sendable {
+    case measured(totalBytes: Int64, availableBytes: Int64)
+    case unavailable(reason: String)
+
+    public var usedBytes: Int64? {
+        guard case .measured(let total, let available) = self else { return nil }
+        return total - available
+    }
+
+    /// Used share, 0...1.
+    public var usedFraction: Double? {
+        guard case .measured(let total, _) = self, let usedBytes else { return nil }
+        return Double(usedBytes) / Double(total)
+    }
 }
 
 public struct VolumeList: Codable, Equatable, Sendable {
