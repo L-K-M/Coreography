@@ -40,6 +40,39 @@ final class VolumeMonitorTests: XCTestCase {
         XCTAssertEqual(none.problem, "Mounted volumes could not be listed")
         XCTAssertTrue(none.volumes.isEmpty)
     }
+
+    func testStartupCapacityKeepsReasonsAndClampsFreeSpace() async {
+        let measured = await VolumeMonitor(driver: Startup(.success(RawVolumeCapacity(totalBytes: 1_000, availableBytes: 250))))
+            .startupCapacity()
+        XCTAssertEqual(measured, .measured(totalBytes: 1_000, availableBytes: 250))
+        XCTAssertEqual(measured.usedBytes, 750)
+        XCTAssertEqual(measured.usedFraction ?? 0, 0.75, accuracy: 1e-9)
+
+        let overfull = await VolumeMonitor(driver: Startup(.success(RawVolumeCapacity(totalBytes: 1_000, availableBytes: 2_000))))
+            .startupCapacity()
+        XCTAssertEqual(overfull.usedBytes, 0, "free space never exceeds the volume")
+
+        let empty = await VolumeMonitor(driver: Startup(.success(RawVolumeCapacity(totalBytes: 0, availableBytes: 0))))
+            .startupCapacity()
+        XCTAssertNil(empty.usedFraction, "a volume without a size is unknown, not full")
+
+        // A capacity built directly keeps the same bounds as one the monitor read.
+        XCTAssertNil(StartupCapacity.measured(totalBytes: 0, availableBytes: 0).usedFraction)
+        XCTAssertEqual(StartupCapacity.measured(totalBytes: 100, availableBytes: 300).usedFraction, 0)
+        XCTAssertEqual(StartupCapacity.measured(totalBytes: 100, availableBytes: -5).usedFraction, 1)
+
+        let failed = await VolumeMonitor(driver: Startup(.failure(.unavailable("No capacity")))).startupCapacity()
+        XCTAssertEqual(failed, .unavailable(reason: "No capacity"))
+        XCTAssertNil(failed.usedBytes)
+    }
+}
+
+private struct Startup: VolumeCapacityReading {
+    let result: Result<RawVolumeCapacity, VolumeCapacityError>
+
+    init(_ result: Result<RawVolumeCapacity, VolumeCapacityError>) { self.result = result }
+
+    func startupVolume() async -> Result<RawVolumeCapacity, VolumeCapacityError> { result }
 }
 
 private struct Mounted: VolumeCapacityReading {

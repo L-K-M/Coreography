@@ -9,6 +9,7 @@ private struct CoreographyWidgets: WidgetBundle {
         CPUWidget()
         MemoryWidget()
         NetworkWidget()
+        DiskWidget()
     }
 }
 
@@ -29,8 +30,12 @@ private struct NetworkWidget: Widget {
     var body: some WidgetConfiguration { statsConfiguration(.network) }
 }
 
+private struct DiskWidget: Widget {
+    var body: some WidgetConfiguration { statsConfiguration(.disk) }
+}
+
 private enum Statistic: String {
-    case overview, cpu, memory, network
+    case overview, cpu, memory, network, disk
 
     var title: LocalizedStringKey {
         switch self {
@@ -38,6 +43,7 @@ private enum Statistic: String {
         case .cpu: "CPU"
         case .memory: "Memory"
         case .network: "Network"
+        case .disk: "Disk"
         }
     }
 
@@ -47,6 +53,7 @@ private enum Statistic: String {
         case .cpu: "cpu"
         case .memory: "memorychip"
         case .network: "network"
+        case .disk: "internaldrive"
         }
     }
 
@@ -55,6 +62,7 @@ private enum Statistic: String {
         case .overview, .cpu: .blue
         case .memory: .teal
         case .network: .indigo
+        case .disk: .purple
         }
     }
 }
@@ -125,9 +133,10 @@ private struct StatsView: View {
     @Environment(\.widgetFamily) private var family
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        // Tight spacing leaves the overview's five rows room in a small widget.
+        VStack(alignment: .leading, spacing: 4) {
             Label(statistic.title, systemImage: statistic.symbol)
-                .font(.caption.weight(.semibold))
+                .font(.subheadline.weight(.semibold))
                 .foregroundStyle(statistic.color)
             Spacer(minLength: 0)
 
@@ -205,24 +214,92 @@ private struct StatsView: View {
                 }
                 Text(networkStatus(snapshot)).font(.caption).foregroundStyle(.secondary).lineLimit(2)
             }
-        case .overview:
+        case .disk:
             VStack(alignment: .leading, spacing: 6) {
-                overviewRow("CPU", symbol: "cpu", value: WidgetText.value(snapshot.host.cpuPercentOfMachine, as: .percent))
-                overviewRow("Memory", symbol: "memorychip", value: WidgetText.value(snapshot.host.memoryUsedBytes, as: .bytes))
-                overviewRow("Download", symbol: "arrow.down", value: WidgetText.value(snapshot.primaryInterface?.receivedBytesPerSecond, as: .rate))
-                overviewRow("Upload", symbol: "arrow.up", value: WidgetText.value(snapshot.primaryInterface?.sentBytesPerSecond, as: .rate))
+                switch snapshot.disk {
+                case .measured(let total, let available):
+                    Text(WidgetText.bytes(Double(available))).font(.title.weight(.semibold)).lineLimit(1).minimumScaleFactor(0.75)
+                    if let fraction = snapshot.disk.usedFraction {
+                        ProgressView(value: fraction).tint(statistic.color)
+                            .accessibilityLabel("Used disk space")
+                    }
+                    Text("available of \(WidgetText.bytes(Double(total)))")
+                        .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    if family == .systemMedium, let used = snapshot.disk.usedBytes {
+                        Text("\(WidgetText.bytes(Double(used))) used on the startup volume")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                case .unavailable(let reason):
+                    Text("–").font(.title.weight(.semibold))
+                    Text(reason).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                }
+            }
+        case .overview:
+            let items = overviewItems(snapshot)
+            if family == .systemMedium {
+                Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 10) {
+                    ForEach(Array(stride(from: 0, to: items.count, by: Self.overviewColumns)), id: \.self) { start in
+                        GridRow {
+                            ForEach(start..<min(start + Self.overviewColumns, items.count), id: \.self) { overviewTile(items[$0]) }
+                        }
+                    }
+                }
+            } else {
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(items.indices, id: \.self) { overviewRow(items[$0].title, symbol: items[$0].symbol, value: items[$0].value) }
+                }
             }
         }
+    }
+
+    private struct OverviewItem {
+        let title: LocalizedStringKey
+        let symbol: String
+        let value: String
+    }
+
+    /// Medium overview tiles per row; five readings make a row of three and a row of two.
+    private static let overviewColumns = 3
+
+    private func overviewItems(_ snapshot: WidgetSnapshot) -> [OverviewItem] {
+        [
+            OverviewItem(title: "CPU", symbol: "cpu", value: WidgetText.value(snapshot.host.cpuPercentOfMachine, as: .percent)),
+            OverviewItem(title: "Memory", symbol: "memorychip", value: WidgetText.value(snapshot.host.memoryUsedBytes, as: .bytes)),
+            OverviewItem(title: "Disk", symbol: "internaldrive", value: WidgetText.free(snapshot)),
+            OverviewItem(
+                title: "Download", symbol: "arrow.down",
+                value: WidgetText.value(snapshot.primaryInterface?.receivedBytesPerSecond, as: .rate)
+            ),
+            OverviewItem(
+                title: "Upload", symbol: "arrow.up",
+                value: WidgetText.value(snapshot.primaryInterface?.sentBytesPerSecond, as: .rate)
+            )
+        ]
+    }
+
+    private func overviewTile(_ item: OverviewItem) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Label {
+                Text(item.title).foregroundStyle(.secondary)
+            } icon: {
+                Image(systemName: item.symbol).foregroundStyle(statistic.color)
+            }
+            .font(.subheadline)
+            Text(item.value).font(.title3.weight(.semibold)).lineLimit(1).minimumScaleFactor(0.7)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text("\(Text(item.title)): \(item.value)"))
     }
 
     private func overviewRow(_ title: LocalizedStringKey, symbol: String, value: String) -> some View {
         HStack {
             Label(title, systemImage: symbol).labelStyle(.iconOnly).foregroundStyle(statistic.color)
-            if family == .systemMedium { Text(title).foregroundStyle(.secondary) }
             Spacer(minLength: 4)
-            Text(value).fontWeight(.semibold).lineLimit(1).minimumScaleFactor(0.75)
+            // Without priority the row shrinks the value to fit before the spacer gives way.
+            Text(value).fontWeight(.semibold).lineLimit(1).minimumScaleFactor(0.75).layoutPriority(1)
         }
-        .font(.subheadline)
+        .font(.callout)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text("\(Text(title)): \(value)"))
     }
@@ -283,6 +360,11 @@ private enum WidgetText {
         case .rate: text = bytes(value) + "/s"
         }
         return reading.availability == .estimated ? "≈" + text : text
+    }
+
+    static func free(_ snapshot: WidgetSnapshot) -> String {
+        guard case .measured(_, let available) = snapshot.disk else { return "–" }
+        return String(localized: "\(bytes(Double(available))) free")
     }
 
     static func bytes(_ value: Double) -> String {

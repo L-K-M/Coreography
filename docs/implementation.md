@@ -88,12 +88,15 @@ Implemented:
   because sampling resumes on the main actor, lanes lose seconds of
   samples. Moving collection onto its own actor, and the cursor text out of
   the toolbar's layout, are outstanding.
-- Desktop widgets: CPU, memory, network and system overview, each in small
-  and medium sizes. A sandboxed WidgetKit extension takes two host and
+- Desktop widgets: CPU, memory, network, disk and system overview, each in
+  small and medium sizes. A sandboxed WidgetKit extension takes two host and
   interface samples a second apart through the existing services and
   monitors, so it works with the app closed and records no history.
   CPU uses the whole machine; memory keeps its estimate and pressure;
-  network uses only the published primary interface, never a guessed one.
+  network uses only the published primary interface, never a guessed one;
+  disk is the startup volume's free space for important use, as Finder
+  counts it, with its unreadable reason when it cannot be read. The
+  medium overview lays its five readings out as tiles.
   Missing readings keep their reasons. Every widget shows its sample
   time, asks macOS for another sample after 15 minutes, and labels the
   retained reading as older after 30 minutes. These are snapshots, not
@@ -1042,7 +1045,9 @@ This is not a notarized production release. Check:
    own gestures and stop when interface sound effects are off; the
    trackpad ticks at interval detents and focus changes.
 6. Add each Coreography desktop widget in both sizes. Check the sample
-   time, memory estimate/pressure and network direction against the app;
+   time, memory estimate/pressure, network direction and disk free space
+   against the app and Finder; check the overview's five readings fit
+   both sizes;
    quit the app and wait for a macOS-scheduled refresh. Clicking a widget
    must reopen the dashboard. Check an offline Mac for an explicit missing
    primary-interface reason, and an overdue sample for the older label.
