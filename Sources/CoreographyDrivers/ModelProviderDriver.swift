@@ -47,3 +47,28 @@ public struct AnthropicMessagesDriver: ModelTransport {
         )
     }
 }
+
+/// POSTs to an OpenAI-compatible `chat/completions` endpoint, such as
+/// DeepSeek's. The key goes only in the Authorization header, to the base
+/// URL the person configured; `betas` has no meaning there and is ignored.
+public struct ChatCompletionsDriver: ModelTransport {
+    private let endpoint: URL
+    /// A short single-turn request; the caller can cancel sooner.
+    private static let timeout: TimeInterval = 60
+
+    public init(baseURL: URL) { endpoint = baseURL.appendingPathComponent("chat/completions") }
+
+    public func post(_ body: Data, apiKey: String, betas: [String]) async throws -> ProviderResponse {
+        var request = URLRequest(url: endpoint, timeoutInterval: Self.timeout)
+        request.httpMethod = "POST"
+        request.httpBody = body
+        request.setValue("application/json", forHTTPHeaderField: "content-type")
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "authorization")
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        let http = response as? HTTPURLResponse
+        return ProviderResponse(
+            status: http?.statusCode ?? 0, body: data, retryAfter: http?.value(forHTTPHeaderField: "retry-after")
+        )
+    }
+}

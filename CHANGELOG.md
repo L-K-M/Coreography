@@ -42,6 +42,11 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
   after the store first exceeds it.
 
 ### Added
+- A Briefing desktop widget sums up the last five minutes in one or two
+  sentences, written every 15 minutes by a model you choose: Claude Haiku
+  5.5 or Sonnet 5.5, or an OpenAI-compatible endpoint such as DeepSeek.
+  It is off until you turn it on in Settings; without a fresh briefing it
+  shows a rule-based hint from its own sample.
 - A Disk desktop widget shows the startup volume's free space and how
   much of it is used; the System Overview widget shows free disk space.
 - The CPU lane is a braid of the apps that made it. Pull it up or click it

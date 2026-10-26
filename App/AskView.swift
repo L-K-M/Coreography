@@ -100,6 +100,7 @@ struct SettingsView: View {
     @Bindable var hud: HUDController
     let updates: UpdateChecker
     let helperAccess: HelperAccess
+    let briefing: BriefingController
     @State private var key = ""
     @State private var message: String?
     @State private var confirmingDelete = false
@@ -257,6 +258,7 @@ struct SettingsView: View {
                 if let message { Text(message).font(.caption) }
                 Text(sharingNotice).font(.caption).foregroundStyle(.secondary)
             }
+            BriefingSection(briefing: briefing, hasAnthropicKey: model.hasProviderKey)
         }
         .formStyle(.grouped)
         .frame(width: 460)
@@ -375,5 +377,109 @@ private enum MenuBarText {
         case .upload: String(localized: "Upload")
         case .temperature: String(localized: "Temperature")
         }
+    }
+}
+
+/// Settings > Briefing widget. Off until turned on, because it sends
+/// readings on a schedule rather than when you ask.
+private struct BriefingSection: View {
+    let briefing: BriefingController
+    let hasAnthropicKey: Bool
+    @State private var baseURL = ""
+    @State private var model = ""
+    @State private var key = ""
+    @State private var message: String?
+
+    var body: some View {
+        Section("Briefing widget") {
+            Toggle("Write a briefing every 15 minutes", isOn: setting(\.isEnabled))
+            Picker("Provider", selection: setting(\.provider)) {
+                Text("Anthropic").tag(BriefingProvider.anthropic)
+                Text("OpenAI-compatible").tag(BriefingProvider.compatible)
+            }
+            switch briefing.settings.provider {
+            case .anthropic:
+                Picker("Model", selection: setting(\.anthropicModel)) {
+                    Text("Claude Haiku 5.5").tag(BriefingSettings.anthropicModels[0])
+                    Text("Claude Sonnet 5.5").tag(BriefingSettings.anthropicModels[1])
+                }
+                Text(hasAnthropicKey ? "Uses the key saved under Ask Coreography." : "Save an Anthropic key under Ask Coreography first.")
+                    .font(.caption)
+            case .compatible:
+                compatibleFields
+            }
+            HStack {
+                status
+                Spacer()
+                Button("Write Now") { Task { await briefing.writeNow() } }
+                    .disabled(!briefing.settings.isEnabled || briefing.status == .writing)
+            }
+            if let problem = briefing.problem { Text(problem).font(.caption).foregroundStyle(.red) }
+            Text("Each briefing sends five minutes of readings (resource use, app and process names, never executable paths or arguments) to the provider above, a few thousand tokens each time. Nothing is sent while this is off. Without a fresh briefing, the widget shows a hint from its own sample.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+        .task {
+            baseURL = briefing.settings.compatibleBaseURL
+            model = briefing.settings.compatibleModel
+            await briefing.refreshKeys()
+        }
+    }
+
+    @ViewBuilder private var compatibleFields: some View {
+        TextField("Base URL", text: $baseURL, prompt: Text(verbatim: "https://api.deepseek.com"))
+        TextField("Model", text: $model, prompt: Text(verbatim: "deepseek-chat"))
+        // Typed values take effect only on Apply, so a half-typed address never receives the key.
+        Button("Apply") {
+            var settings = briefing.settings
+            settings.compatibleBaseURL = baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
+            settings.compatibleModel = model.trimmingCharacters(in: .whitespacesAndNewlines)
+            briefing.update(settings)
+        }
+        .disabled(baseURL == briefing.settings.compatibleBaseURL && model == briefing.settings.compatibleModel)
+        if !briefing.settings.compatibleBaseURL.isEmpty, BriefingSettings.baseURL(briefing.settings.compatibleBaseURL) == nil {
+            Text("Use an HTTPS address; plain HTTP is allowed only to this Mac.").font(.caption).foregroundStyle(.red)
+        }
+        SecureField("API key", text: $key)
+        HStack {
+            Button("Save key") {
+                Task {
+                    message = await briefing.saveCompatibleKey(key) ?? String(localized: "Key saved in the Keychain.")
+                    key = ""
+                }
+            }
+            .disabled(key.trimmingCharacters(in: .whitespaces).isEmpty)
+            Button("Remove key", role: .destructive) {
+                Task { message = await briefing.removeCompatibleKey() ?? String(localized: "Key removed.") }
+            }
+            .disabled(!briefing.hasCompatibleKey)
+        }
+        Text(briefing.hasCompatibleKey ? "A key is stored, separate from the Anthropic key." : "No key is stored.")
+            .font(.caption)
+        if let message { Text(message).font(.caption) }
+    }
+
+    private var status: Text {
+        switch briefing.status {
+        case .off: return Text("Off.")
+        case .collecting: return Text("Waiting for five minutes of readings.")
+        case .writing: return Text("Writing…")
+        case .written(let written):
+            let time = written.windowEnd.formatted(date: .omitted, time: .shortened)
+            switch written.outcome {
+            case .text(let text): return Text("\(time): \(text)")
+            case .failed(let problem): return Text("Failed at \(time): \(problem)")
+            }
+        }
+    }
+
+    private func setting<Value>(_ keyPath: WritableKeyPath<BriefingSettings, Value>) -> Binding<Value> {
+        Binding(
+            get: { briefing.settings[keyPath: keyPath] },
+            set: {
+                var settings = briefing.settings
+                settings[keyPath: keyPath] = $0
+                briefing.update(settings)
+            }
+        )
     }
 }

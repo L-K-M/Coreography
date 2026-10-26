@@ -1,5 +1,6 @@
 import SwiftUI
 import UniformTypeIdentifiers
+import WidgetKit
 import CoreographyServices
 
 @main
@@ -14,6 +15,7 @@ private struct CoreographyApp: App {
     private let mcpApproval: MCPApprovalPresenter
     private let helperAccess = HelperAccess()
     private let updates: UpdateChecker
+    private let briefing: BriefingController
 
     /// One sampler for every surface, running from launch, so the menu bar
     /// extra stays live while the window is closed.
@@ -32,6 +34,12 @@ private struct CoreographyApp: App {
         mcpApproval = MCPApprovalPresenter(access: access, automation: automation)
         updates = UpdateChecker(version: version)
         updates.start()
+        // Live readings, never a held display or an open recording.
+        let briefing = BriefingController(snapshot: { model.liveDiagnosticSnapshot() }) {
+            WidgetCenter.shared.reloadTimelines(ofKind: BriefingController.widgetKind)
+        }
+        briefing.start()
+        self.briefing = briefing
         AutomationAppDelegate.onTerminate = { access.shutdown() }
         AutomationAppDelegate.beforeTerminate = { await model.stopForQuit() }
     }
@@ -79,7 +87,9 @@ private struct CoreographyApp: App {
         .menuBarExtraStyle(.window)
 
         Settings {
-            SettingsView(model: dashboard, mcpAccess: mcpAccess, hud: hud, updates: updates, helperAccess: helperAccess)
+            SettingsView(
+                model: dashboard, mcpAccess: mcpAccess, hud: hud, updates: updates, helperAccess: helperAccess, briefing: briefing
+            )
         }
     }
 }
