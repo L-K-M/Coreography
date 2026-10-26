@@ -243,6 +243,22 @@ struct AppLedger: Sendable {
         )
     }
 
+    /// Every app's CPU share (% of machine) in the interval holding `time`,
+    /// largest first, the tail included; nil between intervals or without a
+    /// core count. Example: the members folded into the braid's "other apps".
+    func cpuShares(at time: Date) -> [Contributor]? {
+        guard let interval = intervals.last(where: { $0.start < time && $0.end >= time }), interval.cores > 0 else {
+            return nil
+        }
+        let seconds = interval.end.timeIntervalSince(interval.start)
+        return interval.entries.compactMap { entry -> Contributor? in
+            guard entry.cpuSeconds > 0 else { return nil }
+            let share = entry.cpuSeconds / (seconds * interval.cores) * Self.percentScale
+            return Contributor(name: names[entry.app], value: share, isEstimate: entry.isLowerBound)
+        }
+        .sorted { $0.value != $1.value ? $0.value > $1.value : $0.name < $1.name }
+    }
+
     func series(for name: String) -> (cpu: [DashboardPoint], disk: [DashboardPoint], network: [DashboardPoint]) {
         let app = indices[name]
         var cpu: [DashboardPoint] = []
