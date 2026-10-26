@@ -15,6 +15,10 @@ struct DashboardView: View {
     @State private var queuedPaletteAction: ProcessActionRequest?
     @State private var markerName = ""
     @State private var paletteAction: ProcessActionRequest?
+    /// The CPU braid's lens (plan: the CPU lane opens into its apps).
+    @State private var inspection = BraidInspection()
+    @State private var braidCache = BraidCache()
+    @State private var braidKeys = BraidKeys()
 
     var body: some View {
         ScrollView {
@@ -40,6 +44,8 @@ struct DashboardView: View {
                     laneView(kind)
                         .environment(\.laneGraphHeight, Layout.graphHeight(model.laneLayout.size(of: kind)))
                         .overlay(alignment: .topTrailing) { LaneMenu(model: model, lane: kind) }
+                        // The open braid's card reaches over the lanes below.
+                        .zIndex(kind == .cpu && inspection.isOpen ? 1 : 0)
                 }
 
                 AskPanel(model: model)
@@ -193,12 +199,17 @@ struct DashboardView: View {
         .alert("Add a marker", isPresented: $model.markerPromptShown) {
             TextField("Name", text: $markerName)
             Button("Add") {
-                model.addMarker(named: markerName)
+                // While the braid is open, M marks the moment being read, not now.
+                model.addMarker(named: markerName, at: inspection.isOpen ? inspection.time ?? Date() : Date())
                 markerName = ""
             }
             Button("Cancel", role: .cancel) { markerName = "" }
         } message: {
-            Text("It appears on every lane at this moment.")
+            if inspection.isOpen, let time = inspection.time {
+                Text("It appears on every lane at \(time.formatted(date: .omitted, time: .standard)), the moment you are reading.")
+            } else {
+                Text("It appears on every lane at this moment.")
+            }
         }
         .inspector(isPresented: $model.inspectorShown) {
             InspectorView(model: model)
@@ -289,6 +300,145 @@ struct DashboardView: View {
         .onAppear { model.start() }
     }
 
+    private func braidGeometry(_ braid: CPUBraid, _ rect: CGRect, _ window: ClosedRange<Date>) -> BraidGeometry {
+        braidCache.geometry(braid, rect: rect, window: window)
+    }
+
+    /// The CPU plot's answers to a press, a pull, a click and the pointer.
+    private func braidPull(_ shape: BraidGeometry) -> PlotPull {
+        let plot = shape.plot
+        return PlotPull(
+            // A pull anchors only on recorded intervals, never in a sampling gap.
+            began: { location in
+                guard let column = shape.braid.column(at: plot.time(atX: location.x)) else { return }
+                inspection.beginPull(at: column.middle, model: model)
+            },
+            changed: { location, travel in
+                let column = shape.braid.column(at: plot.time(atX: location.x))
+                inspection.updatePull(travel: Double(travel), time: column?.middle, model: model)
+            },
+            ended: {
+                inspection.endPull(model: model)
+                announceBraid(shape.braid)
+            },
+            // A cancelled drag may be reported before its end: fold only if nothing latched it meanwhile.
+            cancelled: {
+                Task { @MainActor in if inspection.phase == .pulling { inspection.fold(model: model) } }
+            },
+            clicked: { location in
+                // Open: a click on an app's strand catches it; anywhere else folds the lens.
+                if inspection.phase == .open {
+                    if let index = braidStrand(at: location, shape), let app = shape.braid.strands[index].appName {
+                        inspection.scope(to: app, model: model)
+                    } else {
+                        inspection.fold(model: model)
+                    }
+                    return
+                }
+                let time = plot.time(atX: location.x)
+                guard let column = shape.braid.column(at: time) else { return }
+                inspection.open(at: column.middle, model: model)
+                announceBraid(shape.braid)
+            },
+            hovered: { location in
+                guard let location else {
+                    // Leaving the plot lets go of the strand, so Return catches the biggest app instead.
+                    if inspection.phase == .open { inspection.setFocus(nil) }
+                    return inspection.setHovered(nil)
+                }
+                let strand = braidStrand(at: location, shape)
+                if inspection.phase == .open { inspection.setFocus(strand) } else { inspection.setHovered(strand) }
+            }
+        )
+    }
+
+    /// The strand under a point of the open lens, with hysteresis.
+    private func braidStrand(at location: CGPoint, _ shape: BraidGeometry) -> Int? {
+        let center = inspection.time.map { shape.plot.x($0) } ?? location.x
+        let lens = LensState(center: center, spread: inspection.spread(at: Date()))
+        guard let bands = shape.bands(atX: location.x, lens: lens) else { return nil }
+        return BraidLens.focus(y: Double(shape.plot.rect.maxY - location.y), bands: bands, current: inspection.focused)
+    }
+
+    private func announceBraid(_ braid: CPUBraid) {
+        guard inspection.phase == .open, let time = inspection.time, let column = braid.column(at: time) else { return }
+        AccessibilityNotification.Announcement(BraidText.announcement(braid, column)).post()
+    }
+
+    /// The braid's keys, anywhere in the window but a text field: U opens
+    /// or closes it; while open, arrows step intervals (Option: peaks), Up
+    /// and Down choose a strand, Return catches the chosen app (or the
+    /// biggest), Escape folds. Escape on a closed braid clears the scope.
+    private func braidKey(_ press: BraidKeyPress) -> Bool {
+        guard !model.paletteShown, !model.markerPromptShown, !model.annotationPromptShown, model.typingFields.isEmpty
+        else { return false }
+        switch (press.key, inspection.phase) {
+        // Escape lets go even mid-pull, and a fold already under way keeps the scope.
+        case (.escape, .pulling):
+            inspection.fold(model: model)
+            return true
+        case (.escape, .folding):
+            return true
+        case (.escape, .closed):
+            guard model.scopedApp != nil else { return false }
+            model.scopedApp = nil
+            return true
+        default:
+            break
+        }
+        guard let braid = model.cpuBraid(in: LaneWindow.range(model)) else { return false }
+        if inspection.phase == .pulling { return false }
+        // U during a fold opens it again; other keys wait until it has closed.
+        if inspection.phase == .folding, press.key != .toggle { return false }
+        let open = inspection.phase == .open
+        switch press.key {
+        case .left, .right:
+            guard open else { return false }
+            let forward = press.key == .right
+            let column = press.option
+                ? braid.peak(from: inspection.time, forward: forward)
+                : braid.column(from: inspection.time, offset: forward ? 1 : -1)
+            if let column { inspection.move(to: column.middle, model: model) }
+            return true
+        case .up, .down:
+            guard open else { return false }
+            let step = press.key == .up ? 1 : -1
+            let next = (inspection.focused ?? (step > 0 ? -1 : braid.strands.count)) + step
+            inspection.setFocus(min(max(next, 0), braid.strands.count - 1))
+            return true
+        case .returnKey:
+            guard open else { return false }
+            guard !press.isRepeat else { return true }
+            // Nothing chosen: the biggest app at this interval, the likeliest culprit.
+            if let index = inspection.focused ?? biggestApp(in: braid), braid.strands.indices.contains(index),
+               let app = braid.strands[index].appName {
+                inspection.scope(to: app, model: model)
+            }
+            return true
+        case .escape:
+            guard open else { return false }
+            inspection.fold(model: model)
+            return true
+        case .toggle:
+            guard !press.isRepeat else { return true }
+            if open { inspection.fold(model: model) } else { openBraid(braid, at: model.cursorTime) }
+            return true
+        }
+    }
+
+    private func biggestApp(in braid: CPUBraid) -> Int? {
+        guard let time = inspection.time, let column = braid.column(at: time) else { return nil }
+        return braid.strands.indices
+            .filter { braid.strands[$0].appName != nil }
+            .max { (column.shares[$0] ?? 0) < (column.shares[$1] ?? 0) }
+    }
+
+    private func openBraid(_ braid: CPUBraid, at time: Date?) {
+        guard let column = time.flatMap(braid.column(at:)) ?? braid.columns.last else { return }
+        inspection.open(at: column.middle, model: model)
+        announceBraid(braid)
+    }
+
     @ViewBuilder private func laneView(_ kind: LaneKind) -> some View {
         switch kind {
         case .cpu: lane(.cpu).alertTint(model.activeAlerts[.cpu])
@@ -313,7 +463,17 @@ struct DashboardView: View {
         let start = window.start
         let end = window.end
         let points = visiblePoints(model.points(for: metric), start, end)
-        let scoped = metric == .cpu ? model.scopedSeries().map { visiblePoints($0.cpu, start, end) } : nil
+        // Per-app strands over the live hour; without them the lane keeps user under system.
+        let braid = metric == .cpu ? model.cpuBraid(in: start...end) : nil
+        let palette = braid.map { braidCache.palette($0, bundles: model.sampledApps, dark: BraidPalette.isDark) }
+        let scopedStrand = braid?.strands.firstIndex { $0.appName != nil && $0.appName == model.scopedApp }
+        // In the braid the scoped app is its own lit strand; an app idle all window has none, so its series still answers.
+        let scoped = metric == .cpu && scopedStrand == nil ? model.scopedSeries().map { visiblePoints($0.cpu, start, end) } : nil
+        let scopedNow: Double? = if let braid, let scopedStrand, let last = braid.columns.last {
+            last.shares[scopedStrand]
+        } else {
+            scoped?.last?.value
+        }
         let split = metric == .cpu ? model.cpuSplitPoints().filter { (start...end).contains($0.time) } : []
         let allTiers = metric == .cpu ? model.tierBandCells() : []
         let tiers = allTiers.filter { $0.end >= start && $0.start <= end }
@@ -363,7 +523,7 @@ struct DashboardView: View {
                     }
                     ContributorLine(model: model, subsystem: .cpu)
                     if let app = model.scopedApp {
-                        Text("\(app): \(MetricText.percent(scoped?.last?.value))")
+                        Text("\(app): \(MetricText.percent(scopedNow))")
                             .font(.caption.weight(.medium)).foregroundStyle(.blue)
                     }
                 }
@@ -376,7 +536,8 @@ struct DashboardView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Chart {
                         // User under system (plan: CPU lane); position, not hue, tells them apart.
-                        ForEach(split) { point in
+                        // The braid replaces them with apps; the header keeps the split.
+                        ForEach(braid == nil ? split : []) { point in
                             AreaMark(
                                 x: .value("Time", point.time), yStart: .value("User", 0), yEnd: .value("User", point.user),
                                 series: .value("Segment", "user-\(point.segment)")
@@ -395,10 +556,12 @@ struct DashboardView: View {
                                 y: .value(title, point.value),
                                 series: .value("Segment", "lane-\(point.segment)")
                             )
-                            .foregroundStyle(metric == .cpu ? Color.blue : Color.teal)
+                            // With a braid the line is drawn over the strands instead, to fade inside the lens.
+                            .foregroundStyle(braid != nil ? Color.clear : metric == .cpu ? Color.blue : Color.teal)
                             .interpolationMethod(.linear)
                         }
-                        // The scoped app's share, as a second series in the lane's hue (plan P8).
+                        // The scoped app's share, as a second series in the lane's hue (plan P8);
+                        // in the braid its strand is lit instead, so this is built only without one.
                         ForEach(scoped ?? []) { point in
                             LineMark(
                                 x: .value("Time", point.time), y: .value(title, point.value),
@@ -412,7 +575,65 @@ struct DashboardView: View {
                         SelectionBand(selection: model.draftComparison ?? model.comparison, range: start...end, tint: .orange)
                         MarkerRules(markers: model.timelineMarkers, range: start...end)
                     }
-                    .chartCursor(model)
+                    .chartBackground { proxy in
+                        if let braid, let palette {
+                            GeometryReader { geometry in
+                                if let frame = proxy.plotFrame {
+                                    BraidLayer(
+                                        geometry: braidGeometry(braid, geometry[frame], start...end), palette: palette,
+                                        host: points, inspection: inspection,
+                                        scopedIndex: scopedStrand
+                                    )
+                                    .equatable()
+                                }
+                            }
+                        }
+                    }
+                    .chartOverlay { proxy in
+                        GeometryReader { geometry in
+                            let shape = braid.flatMap { braid in
+                                proxy.plotFrame.map { braidGeometry(braid, geometry[$0], start...end) }
+                            }
+                            ZStack(alignment: .topLeading) {
+                                ChartInteraction(
+                                    model: model, proxy: proxy, geometry: geometry, pull: shape.map(braidPull)
+                                )
+                                if let shape, let palette, inspection.isOpen {
+                                    BraidOverlay(
+                                        geometry: shape, palette: palette, inspection: inspection, model: model,
+                                        scope: {
+                                            inspection.scope(to: $0, model: model)
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    .onAppear { braidKeys.install(braidKey) }
+                    .accessibilityActions {
+                        if let braid {
+                            Button(inspection.isOpen ? "Close the CPU braid" : "Open the CPU braid") {
+                                if inspection.isOpen {
+                                    inspection.fold(model: model)
+                                } else {
+                                    openBraid(braid, at: model.cursorTime)
+                                }
+                            }
+                        }
+                    }
+                    // Hiding the lane or losing its braid mid-inspection closes it and its hold.
+                    .onDisappear {
+                        inspection.reset(model: model)
+                        braidKeys.remove()
+                    }
+                    .onChange(of: braid == nil) { _, gone in if gone { inspection.reset(model: model) } }
+                    // A new range or a return to live takes the inspected moment away.
+                    .onChange(of: model.timeRange) { _, _ in inspection.reset(model: model) }
+                    .onChange(of: model.displayMode) { _, mode in if mode == .live { inspection.reset(model: model) } }
+                    // Opening a recording clears the cursor under a pinned inspection: let go of it too.
+                    .onChange(of: model.cursorTime) { _, time in
+                        if time == nil, model.cursorPinned { inspection.reset(model: model) }
+                    }
                     .chartLegend(.hidden)
                     .chartXScale(domain: start...end)
                     .chartYScale(domain: 0...max(1, maximum))
@@ -2381,7 +2602,7 @@ private struct AppIcon: View {
 
 /// Icons by bundle path: NSWorkspace reads each from disk, so once per app.
 @MainActor
-private enum AppIcons {
+enum AppIcons {
     private static var cache: [String: NSImage] = [:]
 
     static func icon(_ bundlePath: String) -> NSImage {
@@ -3358,11 +3579,17 @@ private struct ChartInteraction: View {
     let model: DashboardModel
     let proxy: ChartProxy
     let geometry: GeometryProxy
+    /// The CPU lane opens when pulled; its presses are classified first.
+    var pull: PlotPull?
     @GestureState private var dragging = false
     /// Decided when a drag starts: Command makes it the comparison range.
     @State private var dragsComparison: Bool?
+    /// What a press on a pulled lane became, once it moved far enough to tell.
+    @State private var intent: PlotDragIntent?
     /// This plot's claim on horizontal scrolling while the pointer is over it.
     @State private var scrollOwner = UUID()
+    /// Travel below which a press on a pulled lane is a click.
+    private static let clickSlop: CGFloat = 4
     private static let pinchCloser: CGFloat = 1.15
     private static let pinchWider: CGFloat = 1 / 1.15
 
@@ -3374,39 +3601,89 @@ private struct ChartInteraction: View {
                 switch phase {
                 case .active(let location):
                     guard let plot = proxy.plotFrame else { return }
+                    pull?.hovered(location)
                     let x = location.x - geometry[plot].origin.x
                     // The axis margin maps to no date; keep the cursor rather than flicker to live.
-                    if let time = proxy.value(atX: x, as: Date.self) { model.cursorTime = time }
+                    // An open braid holds the cursor at the moment it reads.
+                    if !model.cursorPinned, let time = proxy.value(atX: x, as: Date.self) { model.cursorTime = time }
                     // Two-finger sideways scrolling pans: content moving right shows older data.
                     let width = max(geometry[plot].size.width, 1)
                     ScrollPanner.shared.begin(scrollOwner) { delta in
+                        guard !model.cursorPinned else { return }
                         model.pan(bySeconds: Double(delta) * model.timeRange.seconds / Double(width))
                     }
                 case .ended:
-                    model.cursorTime = nil
+                    pull?.hovered(nil)
+                    if !model.cursorPinned { model.cursorTime = nil }
                     ScrollPanner.shared.end(scrollOwner)
                 }
             }
-            // A lane torn down under the pointer never sees its hover end.
-            .onDisappear { ScrollPanner.shared.end(scrollOwner) }
+            // A lane torn down under the pointer never sees its hover end, nor its drag.
+            .onDisappear {
+                ScrollPanner.shared.end(scrollOwner)
+                guard intent != nil || dragsComparison != nil else { return }
+                if intent == .pull { pull?.cancelled() }
+                model.draftSelection = nil
+                model.draftComparison = nil
+                intent = nil
+                dragsComparison = nil
+            }
             // Pinching steps through the range pills: apart zooms closer, together wider; a slight touch does nothing.
             .simultaneousGesture(MagnifyGesture().onEnded { value in
+                // A pinch never zooms the window out from under a pull or an open braid.
+                if intent == .pull || model.cursorPinned { return }
                 if value.magnification > Self.pinchCloser { model.zoom(.closer) }
                 if value.magnification < Self.pinchWider { model.zoom(.wider) }
             })
             // Dragging across any lane selects one range for all of them (plan P7).
-            .gesture(DragGesture(minimumDistance: 4).updating($dragging) { _, state, _ in
+            // A pulled lane sees every press from the first point, to tell a click,
+            // a range drag and a pull apart; other lanes keep the 4 pt start.
+            .gesture(DragGesture(minimumDistance: pull == nil ? 4 : 0).updating($dragging) { _, state, _ in
                 state = true
             }.onChanged { drag in
                 guard let plot = proxy.plotFrame else { return }
+                let comparing = dragsComparison ?? (NSEvent.modifierFlags.contains(.command) && model.selection != nil)
+                dragsComparison = comparing
+                if let pull {
+                    if intent == nil || intent == .undecided {
+                        intent = BraidLens.intent(dx: drag.translation.width, dy: drag.translation.height, comparing: comparing)
+                        if intent == .pull {
+                            ScrollPanner.shared.end(scrollOwner)
+                            pull.began(drag.startLocation)
+                        }
+                    }
+                    switch intent {
+                    case .pull?:
+                        pull.changed(drag.location, -drag.translation.height)
+                        return
+                    case .undecided?, nil:
+                        return
+                    case .range?, .comparison?:
+                        break
+                    }
+                }
                 let origin = geometry[plot].origin.x
                 guard let first = proxy.value(atX: drag.startLocation.x - origin, as: Date.self),
                       let second = proxy.value(atX: drag.location.x - origin, as: Date.self) else { return }
-                let comparing = dragsComparison ?? (NSEvent.modifierFlags.contains(.command) && model.selection != nil)
-                dragsComparison = comparing
                 let range = min(first, second)...max(first, second)
                 if comparing { model.draftComparison = range } else { model.draftSelection = range }
-            }.onEnded { _ in
+            }.onEnded { drag in
+                if let pull {
+                    let decided = intent
+                    intent = nil
+                    switch decided {
+                    case .pull?:
+                        dragsComparison = nil
+                        return pull.ended()
+                    case .undecided?, nil:
+                        dragsComparison = nil
+                        // A small wobble that never became a drag is no click either.
+                        let travel = hypot(drag.translation.width, drag.translation.height)
+                        return travel < Self.clickSlop ? pull.clicked(drag.location) : ()
+                    case .range?, .comparison?:
+                        break
+                    }
+                }
                 // Commit once, so the range report is computed per drag, not per frame.
                 if dragsComparison == true {
                     if let draft = model.draftComparison { model.comparison = draft }
@@ -3423,6 +3700,9 @@ private struct ChartInteraction: View {
                 model.draftSelection = nil
                 model.draftComparison = nil
                 dragsComparison = nil
+                // A pull the system cancelled never reached onEnded.
+                if intent == .pull { pull?.cancelled() }
+                intent = nil
             }
     }
 }
@@ -4086,8 +4366,12 @@ struct ReportsTyping: ViewModifier {
 @MainActor
 private enum LaneWindow {
     static func bounds(_ model: DashboardModel) -> (start: Date, end: Date) {
-        let window = model.visibleWindow ?? Date().addingTimeInterval(-model.timeRange.seconds)...Date()
+        let window = range(model)
         return (window.lowerBound, window.upperBound)
+    }
+
+    static func range(_ model: DashboardModel) -> ClosedRange<Date> {
+        model.visibleWindow ?? Date().addingTimeInterval(-model.timeRange.seconds)...Date()
     }
 }
 
