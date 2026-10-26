@@ -63,6 +63,31 @@ the reviews of the merged slices found, in
 
 Implemented:
 
+- The CPU braid (plan: cause beside symptom, made tactile): the CPU lane's
+  area is stacked per-app strands from the ledger, drawn as interval steps
+  because the ledger knows two-second averages, not instants. The top
+  five apps over the window keep their own strands (a scoped app always
+  does); the rest fold into "other apps". The remainder is the host's
+  CPU over the interval, weighted by the time each host reading covers,
+  minus every observed app: unknown without full host coverage, and the
+  card says so when the apps add up to more than the host. A mostly
+  vertical pull (12 pt; horizontal drags still select ranges, Command-drag
+  still compares), a click or U opens a lens at one interval:
+  strands part by whole gaps without bending the axis and bloom into
+  their icons' hues, and a card lists each share with the interval. The
+  display holds while it is open and the shared cursor stays on the
+  inspected interval; arrows step intervals and Option-arrows peaks.
+  Clicking an app or pressing Return scopes to it (Command-Z restores the
+  previous scope); Escape folds. Plucked-string cues are synthesized on
+  their own audio thread and play only for the person's gestures, while
+  macOS plays interface sounds. Live hour only: stored ranges keep the
+  plain line. A known cost found while filming it, on `main` as well:
+  every hover rewrites the toolbar's cursor text, and a toolbar that
+  overflows (as at 1,024 points) re-lays itself out each time. On the
+  three-core CI runner that keeps the main thread busy while hovering, and
+  because sampling resumes on the main actor, lanes lose seconds of
+  samples. Moving collection onto its own actor, and the cursor text out of
+  the toolbar's layout, are outstanding.
 - Desktop widgets: CPU, memory, network and system overview, each in small
   and medium sizes. A sandboxed WidgetKit extension takes two host and
   interface samples a second apart through the existing services and
@@ -970,6 +995,7 @@ outstanding. The store, MCP and model features above await stack delivery.
 | Native GPU statistics, thermal notify state and six-lane UI | GPU slice: 93 Swift tests, 34 tooling tests and the Linux thermal C contract pass; native CI pending. The C bridge asserts the level constants against the SDK at compile time |
 | Native executable paths, responsibility lookup and grouped table | App-grouping slice: 88 Swift tests pass on Linux, including a fail-first regression for bundle-less owners combining unrelated apps; current native CI pending |
 | Native swap/pressure sysctls, memory composition and stacked lane | Passed [native CI](https://github.com/L-K-M/Coreography/actions/runs/39112973077) at `1274ff0`: 83 tests including real sysctl reads, and the snapshot gate's composition sum |
+| CPU braid | 21 Swift tests pass on Linux (strands and remainder adding up to the time-weighted host share, ranking inside the window, unknown remainders, disagreement, every interval kept, lookups and peaks; drag intent, spread, falloff, settling without overshoot, hue separation, focus hysteresis; synthesis level, decay and determinism; both sound switches). Native CI builds it and drives it on the runner's GUI session with real pointer and key events after a real compile and browser benchmark, filming and profiling each run (`tools/ui-capture`); its feel, sound and haptics are owner checks |
 | CPU, memory and wakeup budgets | In-app readout of own CPU and footprint against budget (111 Swift tests pass on Linux); wakeups and S2 measurements pending |
 | Developer ID and notarization | Pending credentials; the owner chose ad-hoc builds for now (2026-10-20) |
 
@@ -1010,7 +1036,12 @@ This is not a notarized production release. Check:
    the memory line.
 4. Check light/dark appearance, keyboard access and VoiceOver chart/table
    readings. Return the OS/build, architecture and concrete discrepancies.
-5. Add each Coreography desktop widget in both sizes. Check the sample
+5. Pull up on the CPU lane, click it, and use U, the arrows, Option-arrows,
+   Return and Escape. Strands and the card must agree with Activity
+   Monitor's top apps over the same seconds; sounds play only for your
+   own gestures and stop when interface sound effects are off; the
+   trackpad ticks at interval detents and focus changes.
+6. Add each Coreography desktop widget in both sizes. Check the sample
    time, memory estimate/pressure and network direction against the app;
    quit the app and wait for a macOS-scheduled refresh. Clicking a widget
    must reopen the dashboard. Check an offline Mac for an explicit missing

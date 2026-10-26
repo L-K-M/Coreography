@@ -190,6 +190,9 @@ public final class DashboardModel {
     }
     /// The shared hover time across all lanes; nil follows the live edge.
     public var cursorTime: Date?
+    /// An open inspection (the CPU braid) holds the shared cursor at the
+    /// moment it reads: hovering any lane, panning and pinching leave it be.
+    public var cursorPinned = false
     /// A new range reads its own stored span at once; the reload interval belongs to the old one.
     public var timeRange: TimeRange = .minute {
         didSet {
@@ -300,6 +303,8 @@ public final class DashboardModel {
     @ObservationIgnored private var storedScopedCache: (
         app: String, window: ClosedRange<Date>, series: (cpu: [DashboardPoint], disk: [DashboardPoint], network: [DashboardPoint])
     )?
+    @ObservationIgnored private var sampledAppsCache: (stamp: SampleStamp, apps: [String: String?])?
+    @ObservationIgnored private var braidCache: (key: BraidKey, braid: CPUBraid?)?
     @ObservationIgnored private var scopedReadingCache: (
         app: String, stamp: SampleStamp, readings: [ScopedMetric: ScopedAppReading]
     )?
@@ -564,6 +569,9 @@ public final class DashboardModel {
 
     /// How far behind the newest displayed data the window ends; scrolling sets it.
     public private(set) var panOffset: TimeInterval = 0
+    /// Counts every hold and return to live, so a temporary hold (the CPU
+    /// braid's) can tell whether the one in place is still its own.
+    public private(set) var holdGeneration = 0
 
     /// What the lanes draw: the range's width, ending `panOffset` before the newest data.
     public var visibleWindow: ClosedRange<Date>? {
@@ -830,6 +838,8 @@ public final class DashboardModel {
             return error.message
         }
         displayMode = .held
+        // A recording's hold replaces whatever hold was in place, the braid's included.
+        holdGeneration += 1
         openRecording = OpenRecording(
             name: fileName ?? document.name, start: document.start, end: document.end, appNames: document.appNames
         )
@@ -1937,6 +1947,57 @@ public final class DashboardModel {
         )
     }
 
+    /// The CPU lane's braid over the window, from the displayed ledger and
+    /// host samples; the scoped app keeps its own strand. Live hour only:
+    /// stored ledgers name apps by their own index, so they are not braided.
+    /// Cached per window and data: hovering redraws the window on every
+    /// pointer move, and an hour holds 1,800 intervals.
+    public func cpuBraid(in window: ClosedRange<Date>) -> CPUBraid? {
+        // Stored history has no braid yet; the scoped app's dashed line covers it instead.
+        guard !timeRange.reachesStoredHistory else { return nil }
+        let key = BraidKey(
+            window: window, names: ledger.names, intervals: ledger.intervals.count,
+            firstInterval: ledger.intervals.first?.start, lastInterval: ledger.intervals.last?.end,
+            frames: frames.count, firstFrame: frames.first?.stamp.wallTime, lastFrame: frames.last?.stamp.wallTime,
+            pinned: scopedApp
+        )
+        if let braidCache, braidCache.key == key { return braidCache.braid }
+        let host = frames.map { (time: $0.stamp.wallTime, cpu: $0.cpuPercentOfMachine) }
+        let braid = Braids.cpu(intervals: ledger.intervals, names: ledger.names, host: host, window: window, pinned: scopedApp)
+        braidCache = (key, braid)
+        return braid
+    }
+
+    /// Names as well as bounds: a redacted and a named recording of the
+    /// same minute differ only there.
+    private struct BraidKey: Equatable {
+        let window: ClosedRange<Date>
+        let names: [String]
+        let intervals: Int
+        let firstInterval: Date?
+        let lastInterval: Date?
+        let frames: Int
+        let firstFrame: Date?
+        let lastFrame: Date?
+        let pinned: String?
+    }
+
+    /// Apps folded into the braid's "other apps" at `time`, largest first.
+    public func braidOtherApps(at time: Date, excluding named: Set<String>) -> [Contributor] {
+        (ledger.cpuShares(at: time) ?? []).filter { !named.contains($0.name) }
+    }
+
+    /// Apps in the displayed process sample, each with its bundle for the
+    /// icon; an app missing here has exited since its strand was recorded.
+    public var sampledApps: [String: String?] {
+        guard let processSnapshot else { return [:] }
+        if let cache = sampledAppsCache, cache.stamp == processSnapshot.stamp { return cache.apps }
+        let rows = ProcessGroups.rows(in: processSnapshot, matching: "", sortedBy: .name, grouping: .app)
+        let apps = Dictionary(rows.map { ($0.name, $0.appBundlePath) }, uniquingKeysWith: { first, _ in first })
+        sampledAppsCache = (stamp: processSnapshot.stamp, apps: apps)
+        return apps
+    }
+
     /// Built and reduced once per load and app: the stored ledger holds up
     /// to six hours of intervals, too many to walk on every redraw.
     private func storedScopedSeries(_ app: String) -> (cpu: [DashboardPoint], disk: [DashboardPoint], network: [DashboardPoint])? {
@@ -2204,6 +2265,7 @@ public final class DashboardModel {
     }
 
     public func toggleDisplayHold() {
+        holdGeneration += 1
         if displayMode == .live {
             displayMode = .held
             return

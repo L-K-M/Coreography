@@ -103,6 +103,7 @@ struct SettingsView: View {
     @State private var key = ""
     @State private var message: String?
     @State private var confirmingDelete = false
+    @AppStorage(InteractionFeedback.settingKey) private var braidSounds = InteractionFeedback.enabledByDefault
 
     var body: some View {
         Form {
@@ -185,6 +186,9 @@ struct SettingsView: View {
                 Button("Restore default lanes") { model.laneLayout = .standard }
                     .disabled(model.laneLayout == .standard)
                 Text("Each lane's menu moves, resizes or hides it.")
+                    .font(.caption).foregroundStyle(.secondary)
+                Toggle("Sounds when the CPU braid opens, folds or catches an app", isOn: $braidSounds)
+                Text("Only for your own gestures, and only while macOS plays interface sound effects.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section("Menu bar") {

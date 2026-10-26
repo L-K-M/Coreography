@@ -79,6 +79,13 @@ Hovering any lane moves one cursor through all of them: every header
 shows its value at that time, and the CPU, memory and disk headers name
 the apps that led then.
 
+The CPU lane is a braid of the apps that made it. Pull it up, or click
+it, and it comes apart at that moment: each app's strand lifts and takes
+its icon's colour, and a card names every share over that two-second
+interval, with what no observed app accounts for shown as unattributed.
+Click an app or press Return to scope the window to it; Escape folds the
+braid back. The braid covers the live hour.
+
 The process pane adds PID/start-time-safe CPU share, physical footprint
 and disk read/write rates, with filtering, sorting and explicit restricted
 or unreadable coverage. It refreshes every two seconds using public libproc
