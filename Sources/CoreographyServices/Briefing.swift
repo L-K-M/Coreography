@@ -291,6 +291,13 @@ public struct StoredBriefing: Sendable {
     public static func read() -> StoredBriefing { StoredBriefing(stored: BriefingStore().read()) }
 
     public func card(at date: Date) -> BriefingCard { BriefingCard.card(stored, now: date) }
+
+    /// When a briefing showing at `date` turns into the hint. The widget adds
+    /// a timeline entry then, so a postponed refresh never keeps old text up.
+    public func expiry(after date: Date) -> Date? {
+        guard case .briefing(_, _, let end) = card(at: date) else { return nil }
+        return end.addingTimeInterval(BriefingCard.staleAfter)
+    }
 }
 
 public enum BriefingStatus: Equatable, Sendable {

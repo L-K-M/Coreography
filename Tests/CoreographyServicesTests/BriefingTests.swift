@@ -101,6 +101,7 @@ final class BriefingTests: XCTestCase {
 
         XCTAssertEqual(BriefingSettings.baseURL(" https://api.deepseek.com "), URL(string: "https://api.deepseek.com"))
         XCTAssertNotNil(BriefingSettings.baseURL("http://localhost:11434/v1"), "a local model server may use plain HTTP")
+        XCTAssertNotNil(BriefingSettings.baseURL("http://[::1]:8080"), "URL.host reports IPv6 loopback without brackets")
         XCTAssertNil(BriefingSettings.baseURL("http://api.example.com"), "a key never crosses the network in clear text")
         XCTAssertNil(BriefingSettings.baseURL("api.deepseek.com"))
         XCTAssertNil(BriefingSettings.baseURL(""))
@@ -120,6 +121,21 @@ final class BriefingTests: XCTestCase {
 
         let failed = Briefing(outcome: .failed("No key"), model: "m", windowStart: end, windowEnd: end)
         XCTAssertEqual(BriefingCard.card(.success(failed), now: end), .offline(reason: .failed("No key")))
+    }
+
+    func testAShowingBriefingNamesWhenItExpiresSoTheWidgetCanAgeItOut() {
+        let end = Self.epoch
+        let text = StoredBriefing(stored: .success(Briefing(
+            outcome: .text("Quiet."), model: "m", windowStart: end.addingTimeInterval(-300), windowEnd: end
+        )))
+        let expiry = text.expiry(after: end.addingTimeInterval(600))
+        XCTAssertEqual(expiry, end.addingTimeInterval(BriefingCard.staleAfter))
+        XCTAssertEqual(text.card(at: try! XCTUnwrap(expiry)), .offline(reason: .stale(since: end)))
+        XCTAssertNil(text.expiry(after: end.addingTimeInterval(BriefingCard.staleAfter)), "already the hint")
+
+        let failed = StoredBriefing(stored: .success(Briefing(outcome: .failed("x"), model: "m", windowStart: end, windowEnd: end)))
+        XCTAssertNil(failed.expiry(after: end), "only briefing text needs ageing out")
+        XCTAssertNil(StoredBriefing.none.expiry(after: end))
     }
 
     // MARK: Controller

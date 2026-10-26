@@ -134,6 +134,10 @@ private struct StatsProvider: TimelineProvider {
                     snapshot: snapshot, problem: nil, briefing: entry.briefing
                 ))
             }
+            if let expiry = entry.briefing.expiry(after: entry.date) {
+                entries.append(StatsEntry(date: expiry, snapshot: entry.snapshot, problem: entry.problem, briefing: entry.briefing))
+                entries.sort { $0.date < $1.date }
+            }
             completion(Timeline(entries: entries, policy: .after(entry.date.addingTimeInterval(StatsEntry.refreshInterval))))
         }
     }
