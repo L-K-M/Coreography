@@ -40,6 +40,11 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
   after the store first exceeds it.
 
 ### Added
+- The CPU lane is a braid of the apps that made it. Pull it up or click it
+  to open it at a moment: strands lift in their apps' colours and a card
+  names each share over that interval, unattributed CPU included. Click an
+  app or press Return to scope to it; Escape folds it. Quiet plucked-string
+  sounds mark your own gestures only (Settings > Lanes turns them off).
 - With the privileged helper installed, Quit, Force Quit, Suspend, the
   other signals and Lower Priority also work on other users' processes
   after macOS refuses Coreography's own request. Quit is then a plain

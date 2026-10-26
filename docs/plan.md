@@ -393,6 +393,22 @@ animations for panes, nothing springy, numbers change with the system's
 numeric transition. With Reduce Motion, scrolling becomes discrete and
 highlights become instant. Motion never carries meaning on its own.
 
+### The CPU braid
+
+The [design note](braid.md) explains the choice. The CPU lane is the one
+place the window departs from these quiet
+defaults, and only while the person handles it. At rest its area is
+stacked app strands in the lane's blue. Pulled or clicked open, app
+strands take muted versions of their icons' hues, at least 30 degrees
+apart and never red: that colour carries identity, not a quantity, and
+the card names every strand. Strands move only by whole gaps, so each
+keeps its measured thickness and the axis never bends. Motion follows
+the hand, eases closed without passing a measured boundary, and leaves
+only a decorative ring in the seams. Three synthesized plucks mark
+opening, catching an app and folding; they never sound for live data and
+follow the macOS interface-sound setting. Haptic ticks mark interval
+detents and focus, at most every 100 ms.
+
 ### Accessibility and localisation
 
 - Every chart has an `AXChartDescriptor`, which gives VoiceOver users a
