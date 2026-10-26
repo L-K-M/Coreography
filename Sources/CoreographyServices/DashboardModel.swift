@@ -838,6 +838,8 @@ public final class DashboardModel {
             return error.message
         }
         displayMode = .held
+        // A recording's hold replaces whatever hold was in place, the braid's included.
+        holdGeneration += 1
         openRecording = OpenRecording(
             name: fileName ?? document.name, start: document.start, end: document.end, appNames: document.appNames
         )

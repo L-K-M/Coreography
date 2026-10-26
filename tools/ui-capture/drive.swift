@@ -41,7 +41,10 @@ func shot(_ name: String) {
 func profile(_ name: String) {
     let process = Process()
     process.executableURL = URL(fileURLWithPath: "/usr/bin/sudo")
-    let pid = coreography()?.processIdentifier ?? 0
+    guard let pid = coreography()?.processIdentifier else {
+        log("profile \(name) skipped: Coreography is not running")
+        return
+    }
     process.arguments = ["-n", "/usr/bin/sample", "\(pid)", "3", "-mayDie", "-file", "\(output)/sample-\(name).txt"]
     process.standardOutput = FileHandle.nullDevice
     process.standardError = FileHandle.nullDevice
