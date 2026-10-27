@@ -176,6 +176,9 @@ jobs:
           codesign --display --entitlements - --xml "$WIDGET" > "$RUNNER_TEMP/widget-entitlements.plist"
           sandbox=$(/usr/libexec/PlistBuddy -c 'Print :com.apple.security.app-sandbox' "$RUNNER_TEMP/widget-entitlements.plist")
           test "$sandbox" = true
+          # The Briefing widget reads only the app's briefing folder, read-only.
+          briefing=$(/usr/libexec/PlistBuddy -c 'Print :com.apple.security.temporary-exception.files.home-relative-path.read-only:0' "$RUNNER_TEMP/widget-entitlements.plist")
+          test "$briefing" = "/Library/Application Support/Coreography/Widgets/" || { echo "::error::briefing read exception is '$briefing'"; exit 1; }
           codesign --verify --strict "$WIDGET"
 
       - name: Verify the URL scheme and App Intents metadata

@@ -105,6 +105,31 @@ final class WidgetSnapshotTests: XCTestCase {
         }
     }
 
+    func testOfflineHintNamesActivityAndTheMostPressingReading() async throws {
+        func hint(
+            busy: UInt64, pressure: KernelMemoryPressure = .normal,
+            volume: RawVolumeCapacity = RawVolumeCapacity(totalBytes: 1_000_000_000, availableBytes: 500_000_000)
+        ) async throws -> String {
+            let host = WidgetHostDriver(samples: [0, 1].map { hostSample(seconds: $0, busyPercent: busy, pressure: pressure) })
+            let network = WidgetNetworkDriver(samples: [networkSample(seconds: 0), networkSample(seconds: 1)])
+            return OfflineHint.text(try await sampler(host: host, network: network, volume: .success(volume)).sample())
+        }
+
+        let quiet = try await hint(busy: 5)
+        XCTAssertEqual(quiet, "Your Mac is mostly idle, with the CPU at 5%. Memory pressure is normal.")
+        let critical = try await hint(busy: 90, pressure: .critical)
+        XCTAssertEqual(critical, "Your Mac is busy, with the CPU at 90%. Memory pressure is critical.")
+        let full = try await hint(busy: 40, volume: RawVolumeCapacity(totalBytes: 1_000_000_000, availableBytes: 50_000_000))
+        XCTAssertTrue(full.hasPrefix("Your Mac is moderately busy, with the CPU at 40%. The startup disk is nearly full, with "))
+
+        let host = WidgetHostDriver(samples: [0, 1].map {
+            hostSample(seconds: $0, failure: .systemCall(operation: "host_statistics", code: 5))
+        })
+        let network = WidgetNetworkDriver(samples: [networkSample(seconds: 0), networkSample(seconds: 1)])
+        let unavailable = OfflineHint.text(try await sampler(host: host, network: network).sample())
+        XCTAssertEqual(unavailable, "The CPU reading is unavailable.", "with memory unreadable, its .warning pressure is not reported")
+    }
+
     func testNativeSamplerMeasuresOrReportsUnsupportedPlatform() async throws {
         let snapshot = try await WidgetSampler().sample()
         #if os(macOS)
@@ -134,19 +159,23 @@ final class WidgetSnapshotTests: XCTestCase {
         )
     }
 
-    private func hostSample(seconds: UInt64, failure: HostDriverError? = nil) -> RawHostSnapshot {
+    private func hostSample(
+        seconds: UInt64, failure: HostDriverError? = nil, busyPercent: UInt64 = 25, pressure: KernelMemoryPressure = .warning
+    ) -> RawHostSnapshot {
         RawHostSnapshot(
             clockID: Self.clock, monotonicNanoseconds: seconds * Self.nanosecondsPerSecond,
             wallTime: Self.epoch.addingTimeInterval(Double(seconds)),
             inventory: HostInventory(operatingSystem: "fixture", architecture: "arm64", logicalCPUCount: 8, physicalMemoryBytes: 16 * 4096),
-            cpu: failure.map { .failure($0) } ?? .success(ProcessorTicks(user: seconds * 25, system: 0, idle: seconds * 75, nice: 0)),
+            cpu: failure.map { .failure($0) } ?? .success(ProcessorTicks(
+                user: seconds * busyPercent, system: 0, idle: seconds * (100 - busyPercent), nice: 0
+            )),
             memory: failure.map { .failure($0) } ?? .success(MemoryPages(
                 active: 5, inactive: 0, speculative: 0, wired: 2, compressed: 1,
                 compressorContents: 2, purgeable: 0, fileBacked: 0,
                 pageIns: 0, swapIns: 0, swapOuts: 0, pageSizeBytes: 4096
             )),
             swap: .success(SwapUsage(totalBytes: 2048, usedBytes: 1024)),
-            memoryPressure: .success(.warning), thermalPressure: .success(.nominal)
+            memoryPressure: .success(pressure), thermalPressure: .success(.nominal)
         )
     }
 

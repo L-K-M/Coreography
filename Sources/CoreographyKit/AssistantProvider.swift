@@ -23,6 +23,22 @@ public actor AssistantProvider {
         self.init(credentials: KeychainCredentialStore(), transport: AnthropicMessagesDriver())
     }
 
+    /// An OpenAI-compatible provider at `baseURL`, such as DeepSeek. Its key
+    /// has its own Keychain item, so the Anthropic key is never sent there.
+    public init(compatibleBaseURL baseURL: URL) {
+        self.init(
+            credentials: KeychainCredentialStore(account: Self.compatibleAccount),
+            transport: ChatCompletionsDriver(baseURL: baseURL)
+        )
+    }
+
+    /// The compatible provider's key, for saving or removing it without an endpoint.
+    public static func compatibleKeys() -> AssistantProvider {
+        AssistantProvider(credentials: KeychainCredentialStore(account: compatibleAccount), transport: NoTransport())
+    }
+
+    private static let compatibleAccount = "openai-compatible"
+
     init(credentials: any CredentialStoring, transport: any ModelTransport) {
         self.credentials = credentials
         self.transport = transport
@@ -65,5 +81,12 @@ public actor AssistantProvider {
         case 400..<500: throw AssistantProviderFailure.badRequest(detail)
         default: throw AssistantProviderFailure.server(status: response.status, message: detail)
         }
+    }
+}
+
+/// Key management only: without an endpoint there is nowhere to send a request.
+private struct NoTransport: ModelTransport {
+    func post(_ body: Data, apiKey: String, betas: [String]) async throws -> ProviderResponse {
+        throw AssistantProviderFailure.badRequest("No endpoint is configured")
     }
 }

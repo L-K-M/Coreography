@@ -42,6 +42,15 @@ and search for **Coreography**. Widgets take their own short samples even when
 the app is closed. Each shows its sample time; refreshes are requested every
 15 minutes and scheduled by macOS. Click a widget for live readings in the app.
 
+The Briefing widget says in one or two sentences what your Mac did in the
+last five minutes. It is off until you turn it on in Settings > Briefing
+widget and choose a model: Claude Haiku 5.5 or Sonnet 5.5 with the Anthropic
+key from Ask Coreography, or any OpenAI-compatible endpoint (such as DeepSeek)
+with its own key. While the app runs, it sends five minutes of readings,
+including app and process names but never paths or arguments, to that
+provider every 15 minutes. Without a fresh briefing the widget shows a
+labelled, rule-based hint from its own sample and sends nothing.
+
 MCP clients can query the same read-only diagnostic tools through the
 running app. Turn on Settings > MCP access; the app asks once for each
 client app and lists approved clients with Revoke. For example, in an MCP

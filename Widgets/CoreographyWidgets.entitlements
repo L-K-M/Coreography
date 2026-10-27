@@ -3,5 +3,10 @@
 <plist version="1.0">
 <dict>
     <key>com.apple.security.app-sandbox</key><true/>
+    <!-- Read-only, and only the folder where the app writes briefing.json (BriefingStore). -->
+    <key>com.apple.security.temporary-exception.files.home-relative-path.read-only</key>
+    <array>
+        <string>/Library/Application Support/Coreography/Widgets/</string>
+    </array>
 </dict>
 </plist>

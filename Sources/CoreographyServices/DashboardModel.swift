@@ -1184,6 +1184,20 @@ public final class DashboardModel {
         )
     }
 
+    /// The newest collected readings, whatever the window shows: a held
+    /// display or an open recording never stands in for now.
+    public func liveDiagnosticSnapshot() -> DiagnosticSnapshot {
+        let newest = [
+            liveFrames.last?.stamp.wallTime, liveNetworkFrames.last?.stamp.wallTime, liveGPUFrames.last?.stamp.wallTime,
+            livePowerFrames.last?.stamp.wallTime, liveSensorFrames.last?.stamp.wallTime, liveSiliconFrames.last?.stamp.wallTime
+        ].compactMap { $0 }.max()
+        return DiagnosticSnapshot(
+            takenAt: newest ?? Date(), host: liveFrames, network: liveNetworkFrames, gpu: liveGPUFrames,
+            power: livePowerFrames, sensors: liveSensorFrames, processes: liveProcesses, ledger: liveLedger,
+            sleep: sleepState, assertions: liveAssertions, maintenance: maintenanceStatus, silicon: liveSiliconFrames
+        )
+    }
+
     /// Run tmutil and mdutil off the sampling path when the last read is
     /// older than `age`; never two reads at once.
     private func refreshMaintenance(olderThan age: TimeInterval) {

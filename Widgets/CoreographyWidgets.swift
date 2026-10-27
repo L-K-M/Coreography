@@ -10,6 +10,7 @@ private struct CoreographyWidgets: WidgetBundle {
         MemoryWidget()
         NetworkWidget()
         DiskWidget()
+        BriefingWidget()
     }
 }
 
@@ -34,8 +35,12 @@ private struct DiskWidget: Widget {
     var body: some WidgetConfiguration { statsConfiguration(.disk) }
 }
 
+private struct BriefingWidget: Widget {
+    var body: some WidgetConfiguration { statsConfiguration(.briefing) }
+}
+
 private enum Statistic: String {
-    case overview, cpu, memory, network, disk
+    case overview, cpu, memory, network, disk, briefing
 
     var title: LocalizedStringKey {
         switch self {
@@ -44,6 +49,7 @@ private enum Statistic: String {
         case .memory: "Memory"
         case .network: "Network"
         case .disk: "Disk"
+        case .briefing: "Briefing"
         }
     }
 
@@ -54,6 +60,7 @@ private enum Statistic: String {
         case .memory: "memorychip"
         case .network: "network"
         case .disk: "internaldrive"
+        case .briefing: "text.bubble"
         }
     }
 
@@ -63,19 +70,29 @@ private enum Statistic: String {
         case .memory: .teal
         case .network: .indigo
         case .disk: .purple
+        case .briefing: .orange
+        }
+    }
+
+    var description: LocalizedStringKey {
+        switch self {
+        case .briefing:
+            "What your Mac did in the last five minutes, written by the model you choose in Coreography's Settings. Without one, a hint from a short sample."
+        default:
+            "A short system sample. macOS controls refreshes; open Coreography for live readings."
         }
     }
 }
 
 @MainActor
 private func statsConfiguration(_ statistic: Statistic) -> some WidgetConfiguration {
-    StaticConfiguration(kind: "ch.lkmc.Coreography.widget.\(statistic.rawValue)", provider: StatsProvider()) { entry in
+    StaticConfiguration(kind: "ch.lkmc.Coreography.widget.\(statistic.rawValue)", provider: StatsProvider(statistic: statistic)) { entry in
         StatsView(statistic: statistic, entry: entry)
             .containerBackground(.background, for: .widget)
             .widgetURL(URL(string: "coreography://show"))
     }
     .configurationDisplayName(statistic.title)
-    .description("A short system sample. macOS controls refreshes; open Coreography for live readings.")
+    .description(statistic.description)
     .supportedFamilies([.systemSmall, .systemMedium])
 }
 
@@ -83,6 +100,8 @@ private struct StatsEntry: TimelineEntry, Sendable {
     let date: Date
     let snapshot: WidgetSnapshot?
     let problem: String?
+    /// Read only for the Briefing widget; the others show `.none`.
+    var briefing = StoredBriefing.none
 
     // A second entry ages the sample even when macOS postpones the next refresh.
     static let refreshInterval: TimeInterval = 15 * 60
@@ -95,6 +114,8 @@ private struct StatsEntry: TimelineEntry, Sendable {
 }
 
 private struct StatsProvider: TimelineProvider {
+    let statistic: Statistic
+
     func placeholder(in context: Context) -> StatsEntry {
         StatsEntry(date: .now, snapshot: nil, problem: nil)
     }
@@ -110,19 +131,24 @@ private struct StatsProvider: TimelineProvider {
             if let snapshot = entry.snapshot {
                 entries.append(StatsEntry(
                     date: snapshot.sampledAt.addingTimeInterval(StatsEntry.staleInterval),
-                    snapshot: snapshot, problem: nil
+                    snapshot: snapshot, problem: nil, briefing: entry.briefing
                 ))
+            }
+            if let expiry = entry.briefing.expiry(after: entry.date) {
+                entries.append(StatsEntry(date: expiry, snapshot: entry.snapshot, problem: entry.problem, briefing: entry.briefing))
+                entries.sort { $0.date < $1.date }
             }
             completion(Timeline(entries: entries, policy: .after(entry.date.addingTimeInterval(StatsEntry.refreshInterval))))
         }
     }
 
     private func sample() async -> StatsEntry {
+        let briefing = statistic == .briefing ? StoredBriefing.read() : .none
         do {
             let snapshot = try await WidgetSampler().sample()
-            return StatsEntry(date: .now, snapshot: snapshot, problem: nil)
+            return StatsEntry(date: .now, snapshot: snapshot, problem: nil, briefing: briefing)
         } catch {
-            return StatsEntry(date: .now, snapshot: nil, problem: error.localizedDescription)
+            return StatsEntry(date: .now, snapshot: nil, problem: error.localizedDescription, briefing: briefing)
         }
     }
 }
@@ -133,6 +159,14 @@ private struct StatsView: View {
     @Environment(\.widgetFamily) private var family
 
     var body: some View {
+        if statistic == .briefing {
+            BriefingView(entry: entry)
+        } else {
+            stats
+        }
+    }
+
+    private var stats: some View {
         // Tight spacing leaves the overview's five rows room in a small widget.
         VStack(alignment: .leading, spacing: 4) {
             Label(statistic.title, systemImage: statistic.symbol)
@@ -170,6 +204,9 @@ private struct StatsView: View {
 
     @ViewBuilder private func readings(_ snapshot: WidgetSnapshot) -> some View {
         switch statistic {
+        case .briefing:
+            // BriefingView draws this kind; body never routes it here.
+            EmptyView()
         case .cpu:
             VStack(alignment: .leading, spacing: 6) {
                 Text(WidgetText.value(snapshot.host.cpuPercentOfMachine, as: .percent)).font(.largeTitle.weight(.semibold))
@@ -336,6 +373,54 @@ private struct StatsView: View {
         case .warning: .orange
         case .critical: .red
         default: .teal
+        }
+    }
+}
+
+/// The app's briefing while it is fresh; otherwise a rule-based hint from
+/// the widget's own sample, labelled as such, with why there is no briefing.
+private struct BriefingView: View {
+    let entry: StatsEntry
+    @Environment(\.widgetFamily) private var family
+
+    var body: some View {
+        let card = entry.briefing.card(at: entry.date)
+        VStack(alignment: .leading, spacing: 4) {
+            Label(Statistic.briefing.title, systemImage: Statistic.briefing.symbol)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(Statistic.briefing.color)
+            Spacer(minLength: 0)
+            Text(text(card))
+                .font(family == .systemSmall ? .callout : .body)
+                .lineLimit(family == .systemSmall ? 6 : 4)
+                .minimumScaleFactor(0.8)
+            Spacer(minLength: 0)
+            footer(card)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    private func text(_ card: BriefingCard) -> String {
+        if case .briefing(let text, _, _) = card { return text }
+        if let snapshot = entry.snapshot { return OfflineHint.text(snapshot) }
+        return entry.problem.map { String(localized: "No sample: \($0)") } ?? String(localized: "Collecting…")
+    }
+
+    private func footer(_ card: BriefingCard) -> Text {
+        switch card {
+        case .briefing(_, let model, let end):
+            Text("\(model) · 5 min to \(end.formatted(date: .omitted, time: .shortened))")
+        case .offline(.off):
+            Text("Hint from one sample. Turn on briefings in Coreography's Settings.")
+        case .offline(.stale(let since)):
+            Text("Hint from one sample. Last briefing \(since.formatted(.dateTime.month(.abbreviated).day().hour().minute())).")
+        case .offline(.failed(let message)):
+            Text("Hint from one sample. Briefing failed: \(message)")
+        case .offline(.unreadable(let reason)):
+            Text("Hint from one sample. Briefing unreadable: \(reason)")
         }
     }
 }

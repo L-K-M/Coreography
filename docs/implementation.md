@@ -104,6 +104,28 @@ Implemented:
   the extension, preserving its sandbox entitlement and checking both
   architectures. Gallery registration, layout and sandboxed collection
   remain owner Mac checks.
+- Briefing widget: off by default. Once turned on in Settings, the app
+  writes one or two sentences about the last five minutes every 15
+  minutes while it runs, from the live readings (never a held display
+  or an open recording) and only after five minutes of readings exist.
+  Each briefing is one request with no tool loop: fixed calls to the
+  shared diagnostic tools (summary, top apps by CPU, network and disk,
+  CPU and memory history) become the prompt, about 3 KB on a fixture.
+  The model is Claude Haiku 5.5 (default) or Sonnet 5.5 at low effort
+  over the Messages API with the Ask key, Sonnet with the server-side
+  refusal fallback, or any OpenAI-compatible `chat/completions` endpoint
+  with its own Keychain key and a model name you type. Endpoints must be
+  HTTPS, or plain HTTP only to this Mac, and typed values apply only on
+  Apply, so a key is never sent to a half-typed address. The app writes
+  the briefing, or the named failure, to
+  `~/Library/Application Support/Coreography/Widgets/briefing.json`;
+  the widget reads only that folder, read-only, through a sandbox
+  exception that CI checks after signing. A briefing older than 30
+  minutes, a failure, an unreadable file or briefings turned off show a
+  rule-based hint from the widget's own sample instead, labelled with
+  why. Turning briefings off deletes the file. Live provider calls, the
+  sandbox exception on a signed build and widget layout are owner Mac
+  checks.
 
 - Recordings (plan: a frozen copy of a range as a portable
   `.coreotrace` package): Save Recording… in the range panel writes the
@@ -1051,6 +1073,11 @@ This is not a notarized production release. Check:
    quit the app and wait for a macOS-scheduled refresh. Clicking a widget
    must reopen the dashboard. Check an offline Mac for an explicit missing
    primary-interface reason, and an overdue sample for the older label.
+   For the Briefing widget, turn briefings on with each provider, confirm
+   a briefing appears within about six minutes of launch, and that the
+   widget reads it (an "unreadable" footer means the sandbox exception
+   did not apply). Quit the app and wait 30 minutes for the labelled
+   hint; turn briefings off and confirm the file is gone.
 
 More specific S1/S6 probes follow when those providers and HUD exist.
 Do not mark a physical-Mac gate passed from a cross-compile or fixture.
