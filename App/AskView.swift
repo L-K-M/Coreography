@@ -443,8 +443,13 @@ private struct BriefingSection: View {
         HStack {
             Button("Save key") {
                 Task {
-                    message = await briefing.saveCompatibleKey(key) ?? String(localized: "Key saved in the Keychain.")
-                    key = ""
+                    // Keep the typed key after a failed save, so it can be retried.
+                    if let failure = await briefing.saveCompatibleKey(key) {
+                        message = failure
+                    } else {
+                        message = String(localized: "Key saved in the Keychain.")
+                        key = ""
+                    }
                 }
             }
             .disabled(key.trimmingCharacters(in: .whitespaces).isEmpty)

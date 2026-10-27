@@ -127,7 +127,7 @@ final class WidgetSnapshotTests: XCTestCase {
         })
         let network = WidgetNetworkDriver(samples: [networkSample(seconds: 0), networkSample(seconds: 1)])
         let unavailable = OfflineHint.text(try await sampler(host: host, network: network).sample())
-        XCTAssertEqual(unavailable, "The CPU reading is unavailable.", "an unknown pressure is not reported as normal")
+        XCTAssertEqual(unavailable, "The CPU reading is unavailable.", "with memory unreadable, its .warning pressure is not reported")
     }
 
     func testNativeSamplerMeasuresOrReportsUnsupportedPlatform() async throws {
