@@ -8,7 +8,8 @@ observable contract — early exit for --check/--help/--version, a
 behaviour: flag translation, env config, rejection of unsupported signing
 modes, error propagation and the fleet zip-naming convention. They never fake
 a Mac build: no test asserts xcodebuild/codesign/lipo output, and the
-assemble-app.sh tests only cover its honest pre-flight failures.
+assemble-app.sh tests only cover its honest pre-flight failures and the
+settings it hands xcodebuild.
 
 Run:  python3 tools/tests/test_buildscripts.py
 """
@@ -75,6 +76,14 @@ MOCK_RELEASE = """\
   echo "RELEASE_INVOKED_AS=${RELEASE_INVOKED_AS:-}"
 } > "$MOCK_RECORD"
 exit "${MOCK_FAIL:-0}"
+"""
+
+# Records the settings assemble-app.sh passes, then fails like a broken build so
+# the script stops before staging anything.
+MOCK_XCODEBUILD = """\
+#!/usr/bin/env bash
+for a in "$@"; do echo "ARG:$a"; done > "$MOCK_RECORD"
+exit 65
 """
 
 
@@ -316,6 +325,52 @@ class TestAssembleSh(ScriptTestCase):
         r = self.run_script(ASSEMBLE, "--debug")
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("xcodebuild", r.stderr)
+
+    def write_project(self, *versions):
+        project = self.repo / "Coreography.xcodeproj"
+        project.mkdir()
+        lines = [f"\t\t\t\tMARKETING_VERSION = {v};" for v in versions]
+        (project / "project.pbxproj").write_text("\n".join(lines) + "\n")
+
+    def build_number_passed(self, *versions):
+        # A fresh sandbox per call keeps each subTest's project and record apart.
+        self.setUp()
+        self.write_project(*versions)
+        self.install_mock("xcodebuild", MOCK_XCODEBUILD)
+        r = self.run_script(ASSEMBLE)
+        if not self.record.exists():
+            return None, r
+        args, _ = self.recorded()
+        numbers = [a.partition("=")[2] for a in args if a.startswith("CURRENT_PROJECT_VERSION=")]
+        self.assertEqual(len(numbers), 1, args)
+        return numbers[0], r
+
+    def test_build_number_follows_the_marketing_version(self):
+        # macOS tells builds of one bundle apart by CFBundleVersion; a constant
+        # one let the widget gallery keep an older release's widget list.
+        for version, expected in (("0.5.0", "500"), ("0.5.1", "501"),
+                                  ("1.2", "10200"), ("2.10.3", "21003")):
+            with self.subTest(version=version):
+                number, r = self.build_number_passed(version, version)
+                self.assertEqual(number, expected, r.stderr)
+
+    def test_build_number_uses_the_real_project_version(self):
+        shutil.copytree(REPO / "Coreography.xcodeproj", self.repo / "Coreography.xcodeproj")
+        self.install_mock("xcodebuild", MOCK_XCODEBUILD)
+        self.run_script(ASSEMBLE)
+        args, _ = self.recorded()
+        self.assertTrue(any(a.startswith("CURRENT_PROJECT_VERSION=") for a in args), args)
+
+    def test_build_number_rejects_versions_it_cannot_order(self):
+        for versions, message in ((("0.5.0", "0.4.0"), "one MARKETING_VERSION"),
+                                  ((), "one MARKETING_VERSION"),
+                                  (("0.100.0",), "below 100"),
+                                  (("0.5.0-beta",), "X.Y[.Z]")):
+            with self.subTest(versions=versions):
+                number, r = self.build_number_passed(*versions)
+                self.assertIsNone(number, "xcodebuild ran despite an unusable version")
+                self.assertNotEqual(r.returncode, 0)
+                self.assertIn(message, r.stderr)
 
 
 class TestScriptFileProperties(unittest.TestCase):

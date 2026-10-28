@@ -40,6 +40,24 @@ esac
 command -v xcodebuild >/dev/null 2>&1 || \
   die "xcodebuild not found; select Xcode 26.6 on a Mac."
 
+# macOS tells builds of one bundle apart by CFBundleVersion, not the marketing
+# version: with a constant build number the widget gallery can keep an older
+# release's widget list, and LaunchServices cannot tell which of two copies is
+# newer. The release engine bumps only MARKETING_VERSION, so derive the build
+# number from it here (X.Y.Z -> X*10000 + Y*100 + Z, e.g. 0.5.0 -> 500). Every
+# release thereby outranks the others and the constant 1 that Xcode builds and
+# releases up to 0.5.0 carry.
+VERSIONS="$(sed -n 's/^[[:space:]]*MARKETING_VERSION = \(.*\);$/\1/p' Coreography.xcodeproj/project.pbxproj | sort -u)"
+[[ -n "$VERSIONS" && "$VERSIONS" != *$'\n'* ]] || \
+  die "Coreography.xcodeproj must set exactly one MARKETING_VERSION (found: ${VERSIONS:-none})."
+[[ "$VERSIONS" =~ ^([0-9]+)\.([0-9]+)(\.([0-9]+))?$ ]] || \
+  die "MARKETING_VERSION '${VERSIONS}' is not X.Y[.Z]."
+MINOR=$((10#${BASH_REMATCH[2]}))
+PATCH=$((10#${BASH_REMATCH[4]:-0}))
+(( MINOR < 100 && PATCH < 100 )) || \
+  die "MARKETING_VERSION '${VERSIONS}' needs minor and patch below 100 to derive a build number."
+BUILD_NUMBER=$((10#${BASH_REMATCH[1]} * 10000 + MINOR * 100 + PATCH))
+
 DERIVED="build"
 APP_SRC="${DERIVED}/Build/Products/${CONFIG}/Coreography.app"
 APP_DST="dist/Coreography.app"
@@ -51,6 +69,7 @@ xcodebuild build \
   -configuration "$CONFIG" \
   -derivedDataPath "$DERIVED" \
   "ARCHS=${ARCHS}" \
+  "CURRENT_PROJECT_VERSION=${BUILD_NUMBER}" \
   ONLY_ACTIVE_ARCH=NO
 
 [[ -d "$APP_SRC" ]] || die "build finished but ${APP_SRC} is missing."
@@ -84,6 +103,13 @@ verify_arches "$WIDGET/Contents/MacOS/CoreographyWidgets"
 WIDGET_POINT="$(/usr/libexec/PlistBuddy -c 'Print :NSExtension:NSExtensionPointIdentifier' "$WIDGET/Contents/Info.plist")" \
   || die "the desktop widget's Info.plist or extension point is missing."
 [[ "$WIDGET_POINT" == com.apple.widgetkit-extension ]] || die "the desktop widget extension point is missing."
+# An extension's build number must match its host app's.
+for plist in "$APP_DST/Contents/Info.plist" "$WIDGET/Contents/Info.plist"; do
+  bundle_version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$plist")" \
+    || die "${plist#dist/} has no CFBundleVersion."
+  [[ "$bundle_version" == "$BUILD_NUMBER" ]] || \
+    die "${plist#dist/} has build ${bundle_version}, expected ${BUILD_NUMBER}; set its CFBundleVersion to \$(CURRENT_PROJECT_VERSION)."
+done
 HELPER_PLIST="$APP_DST/Contents/Library/LaunchDaemons/ch.lkmc.Coreography.helper.plist"
 [[ -f "$HELPER_PLIST" ]] || die "the helper's launch daemon definition is missing."
 plutil -lint "$HELPER_PLIST" >/dev/null || die "the helper's launch daemon definition is malformed."
