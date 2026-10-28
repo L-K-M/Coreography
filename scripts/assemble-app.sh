@@ -108,7 +108,7 @@ for plist in "$APP_DST/Contents/Info.plist" "$WIDGET/Contents/Info.plist"; do
   bundle_version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$plist")" \
     || die "${plist#dist/} has no CFBundleVersion."
   [[ "$bundle_version" == "$BUILD_NUMBER" ]] || \
-    die "${plist#dist/} has build ${bundle_version}, expected ${BUILD_NUMBER}."
+    die "${plist#dist/} has build ${bundle_version}, expected ${BUILD_NUMBER}; set its CFBundleVersion to \$(CURRENT_PROJECT_VERSION)."
 done
 HELPER_PLIST="$APP_DST/Contents/Library/LaunchDaemons/ch.lkmc.Coreography.helper.plist"
 [[ -f "$HELPER_PLIST" ]] || die "the helper's launch daemon definition is missing."

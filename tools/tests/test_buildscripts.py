@@ -333,6 +333,8 @@ class TestAssembleSh(ScriptTestCase):
         (project / "project.pbxproj").write_text("\n".join(lines) + "\n")
 
     def build_number_passed(self, *versions):
+        # A fresh sandbox per call keeps each subTest's project and record apart.
+        self.setUp()
         self.write_project(*versions)
         self.install_mock("xcodebuild", MOCK_XCODEBUILD)
         r = self.run_script(ASSEMBLE)
@@ -349,7 +351,6 @@ class TestAssembleSh(ScriptTestCase):
         for version, expected in (("0.5.0", "500"), ("0.5.1", "501"),
                                   ("1.2", "10200"), ("2.10.3", "21003")):
             with self.subTest(version=version):
-                self.setUp()
                 number, r = self.build_number_passed(version, version)
                 self.assertEqual(number, expected, r.stderr)
 
@@ -366,7 +367,6 @@ class TestAssembleSh(ScriptTestCase):
                                   (("0.100.0",), "below 100"),
                                   (("0.5.0-beta",), "X.Y[.Z]")):
             with self.subTest(versions=versions):
-                self.setUp()
                 number, r = self.build_number_passed(*versions)
                 self.assertIsNone(number, "xcodebuild ran despite an unusable version")
                 self.assertNotEqual(r.returncode, 0)
