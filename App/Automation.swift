@@ -121,6 +121,15 @@ final class AutomationAppDelegate: NSObject, NSApplicationDelegate {
         NSApplication.shared.reply(toApplicationShouldTerminate: true)
     }
 
+    /// Opening the app again, from Finder, Spotlight or the Dock, brings the
+    /// window to the front: in the background there is no Dock icon to
+    /// click. The flag is not trusted, as the menu bar extra's open panel
+    /// may count as a visible window.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        AutomationRouter.shared?.showDashboard()
+        return false
+    }
+
     func application(_ application: NSApplication, open urls: [URL]) {
         urls.forEach(AutomationRouter.receive)
     }

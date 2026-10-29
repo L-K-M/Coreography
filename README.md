@@ -34,6 +34,9 @@ samples stays in memory, and charts keep every spike when zoomed out.
 
 A menu bar extra shows CPU in the menu bar and opens mini lanes; it shares
 the window's sampler and keeps sampling while the window is closed.
+To keep Coreography running without a window, turn on **Settings >
+Background**: it starts at login with only the menu bar item, and the
+window and Dock icon appear when you open it from there.
 
 Desktop widgets show CPU, estimated used memory with pressure, primary-interface
 download/upload rates, startup-disk space, or an overview, in small and medium sizes. Open the app
