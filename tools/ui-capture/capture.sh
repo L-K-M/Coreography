@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Drives the CPU braid with real pointer and key events on a macOS GUI
-# session and films it, so the interaction can be reviewed in motion from
-# CI (this app is partly developed on Linux, where the UI cannot run).
+# Drives the CPU and space braids with real pointer and key events on a
+# macOS GUI session and films them, so the interaction can be reviewed in
+# motion from CI (this app is partly developed on Linux, where the UI
+# cannot run).
 # Fails when the app quits or crashes during the capture.
 #
 # Usage: tools/ui-capture/capture.sh <Coreography.app> <output directory>

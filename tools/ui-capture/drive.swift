@@ -23,10 +23,13 @@ func coreography() -> NSRunningApplication? {
         .max { ($0.launchDate ?? .distantPast) < ($1.launchDate ?? .distantPast) }
 }
 
-func shot(_ name: String) {
+/// The whole placed window, for lanes below the top ones.
+let window = CGRect(x: 0, y: 25, width: 1024, height: 743)
+
+func shot(_ name: String, of area: CGRect = region) {
     let process = Process()
     process.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
-    let rect = "\(Int(region.minX)),\(Int(region.minY)),\(Int(region.width)),\(Int(region.height))"
+    let rect = "\(Int(area.minX)),\(Int(area.minY)),\(Int(area.width)),\(Int(area.height))"
     process.arguments = ["-x", "-C", "-R\(rect)", "\(output)/shots/\(name).png"]
     do {
         try process.run()
@@ -79,6 +82,37 @@ func frame(_ element: AXUIElement) -> CGRect? {
 func text(_ element: AXUIElement) -> String {
     [kAXRoleAttribute, kAXDescriptionAttribute, kAXTitleAttribute, kAXLabelValueAttribute]
         .compactMap { attribute(element, $0) as? String }.joined(separator: " | ")
+}
+
+/// The first element whose Accessibility text contains every fragment.
+func element(containing fragments: [String]) -> AXUIElement? {
+    guard let app = coreography() else { return nil }
+    var queue: [(AXUIElement, Int)] = [(AXUIElementCreateApplication(app.processIdentifier), 0)]
+    var visited = 0
+    while !queue.isEmpty, visited < 6000 {
+        let (element, depth) = queue.removeFirst()
+        visited += 1
+        let label = text(element)
+        if fragments.allSatisfy({ label.localizedCaseInsensitiveContains($0) }) { return element }
+        guard depth < 40, let children = attribute(element, kAXChildrenAttribute) as? [AXUIElement] else { continue }
+        queue += children.map { ($0, depth + 1) }
+    }
+    return nil
+}
+
+/// A short film of one step, beside the main recording.
+func film(_ name: String, seconds: Int) -> Process? {
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
+    let rect = "\(Int(window.minX)),\(Int(window.minY)),\(Int(window.width)),\(Int(window.height))"
+    process.arguments = ["-x", "-C", "-V", "\(seconds)", "-R\(rect)", "\(output)/\(name).mov"]
+    do {
+        try process.run()
+        return process
+    } catch {
+        log("film \(name) could not start: \(error)")
+        return nil
+    }
 }
 
 func cpuChart() -> CGRect? {
@@ -248,4 +282,90 @@ press(.escape)
 pause(0.4)
 shot("13-escape")
 mouse(.mouseMoved, CGPoint(x: 20, y: 700))
+log("braid done")
+
+// MARK: The space braid
+
+// The startup volume's rope sits in the Disk lane's header, below the fold.
+let ropeFragments = ["free", "used of"]
+/// Scrolls the lanes until the rope is in the window's middle, by Accessibility
+/// first and by posted wheel events where SwiftUI does not offer that. The
+/// wheel's sign depends on the runner's natural-scrolling setting, so it
+/// flips whenever a notch took the rope further away.
+func visibleRope(_ rope: AXUIElement) -> CGRect? {
+    var lines: Int32 = 0
+    var lastDistance = CGFloat.infinity
+    for attempt in 0..<24 {
+        guard let rect = frame(rope) else { return nil }
+        // The middle, not just inside: lines above the rope re-wrap as samples
+        // arrive and move it by a line or two.
+        if window.insetBy(dx: 0, dy: window.height / 4).contains(rect) { return rect }
+
+        let distance = abs(rect.midY - window.midY)
+        log("rope at \(rect), attempt \(attempt)")
+        if attempt == 0 {
+            AXUIElementPerformAction(rope, "AXScrollToVisible" as CFString)
+        } else {
+            if lines == 0 {
+                lines = rect.midY > window.midY ? -10 : 10
+            } else if distance > lastDistance {
+                lines = -lines
+            }
+            mouse(.mouseMoved, CGPoint(x: window.midX, y: window.midY))
+            CGEvent(scrollWheelEvent2Source: source, units: .line, wheelCount: 1, wheel1: lines, wheel2: 0, wheel3: 0)?
+                .post(tap: .cghidEventTap)
+        }
+        lastDistance = distance
+        pause(0.5)
+    }
+    return nil
+}
+
+// A rope that cannot be driven fails the capture: a run without the space
+// stills must not pass for one that filmed them.
+guard let rope = element(containing: ropeFragments) else {
+    log("error: no space rope found through Accessibility")
+    exit(1)
+}
+guard let rect = visibleRope(rope) else {
+    log("error: the space rope could not be scrolled into the window")
+    exit(1)
+}
+
+log("space rope at \(rect)")
+shot("20-space-rest", of: window)
+/// The rope's centre now, as the layout may have moved it since the last look.
+func ropeCenter() -> CGPoint {
+    let now = frame(rope) ?? rect
+    return CGPoint(x: now.midX, y: now.midY)
+}
+let hover = ropeCenter()
+move(from: CGPoint(x: hover.x + 80, y: hover.y), to: hover, seconds: 0.4)
+shot("21-space-hover", of: window)
+let opening = film("space-open", seconds: 4)
+pause(0.5)
+let target = ropeCenter()
+click(target)
+log("click the rope at \(target)")
+pause(0.12)
+shot("22-space-unbraiding", of: window)
+pause(0.6)
+shot("23-space-open", of: window)
+opening?.waitUntilExit()
+guard element(containing: ["What takes up space"]) != nil else {
+    log("error: the space lens did not open")
+    exit(1)
+}
+// Walking the runner's folders takes a while; Xcode alone is huge.
+for (wait, label) in [(15.0, "15s"), (30.0, "45s"), (45.0, "90s")] {
+    pause(wait)
+    shot("24-space-\(label)", of: window)
+}
+press(.down)
+press(.down)
+pause(0.3)
+shot("25-space-focus", of: window)
+press(.escape)
+pause(0.5)
+shot("26-space-closed", of: window)
 log("done")

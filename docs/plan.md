@@ -409,6 +409,10 @@ opening, catching an app and folding; they never sound for live data and
 follow the macOS interface-sound setting. Haptic ticks mark interval
 detents and focus, at most every 100 ms.
 
+The Disk lane's startup-volume bar uses the same vocabulary for space:
+one hue in shades at rest, the folders' own hues once opened, the
+unexplained rest hatched, and the same plucks.
+
 ### Accessibility and localisation
 
 - Every chart has an `AXChartDescriptor`, which gives VoiceOver users a
