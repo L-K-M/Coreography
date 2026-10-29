@@ -54,6 +54,12 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
   names each share over that interval, unattributed CPU included. Click an
   app or press Return to scope to it; Escape folds it. Quiet plucked-string
   sounds mark your own gestures only (Settings > Lanes turns them off).
+- The startup volume's bar in the Disk lane is a braid of the folders that
+  fill it. Click it to see Applications, Library, Movies, the rest of your
+  home and what no folder explains, each with its biggest items; click a
+  folder to show it in Finder. Desktop, Documents, Downloads, app data and
+  cloud drives are measured only after you click Measure, because macOS
+  asks before Coreography reads them.
 - With the privileged helper installed, Quit, Force Quit, Suspend, the
   other signals and Lower Priority also work on other users' processes
   after macOS refuses Coreography's own request. Quit is then a plain

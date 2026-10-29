@@ -2,9 +2,10 @@ import Foundation
 import Observation
 import CoreographyKit
 
-/// Measures where the startup volume's space goes, only when the person
-/// looks: walking a home folder reads hundreds of thousands of files, so it
-/// never runs in the background on its own.
+/// Measures where the startup volume's space goes. Walking a home folder
+/// reads hundreds of thousands of files, so a survey starts only when the
+/// person looks; once started it finishes even if the lens closes, as it
+/// does when a macOS privacy prompt takes the focus.
 @MainActor
 @Observable
 public final class SpaceSurveyor {
@@ -54,8 +55,9 @@ public final class SpaceSurveyor {
     /// Walks every area the access allows; widening the access is
     /// remembered. Sizes from the last survey stay until each is replaced.
     public func measure(_ widened: CapturedSpaceAccess? = nil) {
+        guard let survey else { return }
         if let widened { defaults.set(widened.rawValue, forKey: Self.accessKey) }
-        guard let survey, task == nil || widened != nil else { return }
+        guard task == nil || widened != nil else { return }
         task?.cancel()
 
         let areas = SpaceSurvey.order.filter { access == .askingMacOS || !$0.asksMacOS }
@@ -72,12 +74,5 @@ public final class SpaceSurveyor {
             self.measuredAt = Date()
             self.task = nil
         }
-    }
-
-    /// Stops a walk in progress; what was measured stays.
-    public func cancel() {
-        task?.cancel()
-        task = nil
-        measuring = nil
     }
 }

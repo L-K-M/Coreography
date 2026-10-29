@@ -4250,7 +4250,7 @@ private struct VolumeBars: View {
             ForEach(list.volumes.prefix(Self.shown)) { volume in
                 // The startup volume holds the home folder, so only it can be taken apart.
                 if volume.isStartup {
-                    SpaceRope(volume: volume, space: space)
+                    SpaceRope(volume: volume, space: space, detail: VolumeText.detail(volume))
                 } else {
                     bar(volume)
                 }

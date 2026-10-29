@@ -288,10 +288,27 @@ log("braid done")
 
 // The startup volume's rope sits in the Disk lane's header, below the fold.
 let ropeFragments = ["free", "used of"]
-if let rope = element(containing: ropeFragments) {
-    AXUIElementPerformAction(rope, "AXScrollToVisible" as CFString)
-    pause(0.8)
-    if let rect = frame(element(containing: ropeFragments) ?? rope) {
+/// Scrolls the lanes until the rope is inside the window, by Accessibility
+/// first and by posted wheel events where SwiftUI does not offer that.
+func visibleRope() -> CGRect? {
+    for attempt in 0..<12 {
+        guard let rope = element(containing: ropeFragments), let rect = frame(rope) else { return nil }
+        if window.insetBy(dx: 0, dy: 40).contains(rect) { return rect }
+        if attempt == 0 {
+            AXUIElementPerformAction(rope, "AXScrollToVisible" as CFString)
+        } else {
+            let lines: Int32 = rect.midY > window.midY ? -4 : 4
+            mouse(.mouseMoved, CGPoint(x: window.midX, y: window.midY))
+            CGEvent(scrollWheelEvent2Source: source, units: .line, wheelCount: 1, wheel1: lines, wheel2: 0, wheel3: 0)?
+                .post(tap: .cghidEventTap)
+        }
+        pause(0.5)
+    }
+    return nil
+}
+
+if element(containing: ropeFragments) != nil {
+    if let rect = visibleRope() {
         log("space rope at \(rect)")
         shot("20-space-rest", of: window)
         let center = CGPoint(x: rect.midX, y: rect.maxY - 4)
@@ -319,7 +336,7 @@ if let rope = element(containing: ropeFragments) {
         pause(0.5)
         shot("26-space-closed", of: window)
     } else {
-        log("error: the space rope has no frame")
+        log("error: the space rope could not be scrolled into the window")
     }
 } else {
     log("error: no space rope found through Accessibility")

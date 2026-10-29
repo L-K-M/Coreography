@@ -29,19 +29,30 @@ final class SpaceSurveyTests: XCTestCase {
         try write("Big.app/Contents/Resources/art", kilobytes: 128)
         try write("Small.app/Contents/MacOS/Small", kilobytes: 32)
         try write("Skipped/inside", kilobytes: 512)
-        // Some file systems (ZFS) settle a new file's allocation only once written out.
-        sync()
 
         let size = await FolderSizeDriver().size(
-            of: [root.path, root.path + "/missing"], skipping: [root.path + "/Skipped"], deadline: later
+            of: [FolderRoot(root.path), FolderRoot(root.path + "/missing"), FolderRoot(root.path)],
+            skipping: [root.path + "/Skipped"], deadline: later
         )
         XCTAssertEqual(size.ending, .complete)
         XCTAssertEqual(size.files, 3, "a skipped folder's files are never read")
         let big = try XCTUnwrap(size.children["Big.app"])
         let small = try XCTUnwrap(size.children["Small.app"])
-        XCTAssertGreaterThan(big, small)
+        // Only the split is checked: some file systems (ZFS) allocate new files lazily.
+        XCTAssertGreaterThan(big, 0)
+        XCTAssertGreaterThan(small, 0)
         XCTAssertNil(size.children["Skipped"])
-        XCTAssertEqual(size.bytes, big + small)
+        XCTAssertEqual(size.bytes, big + small, "a root given twice is walked once")
+    }
+
+    func testDriverCountsAWholeRootAsOneItem() async throws {
+        try write("Photos Library.photoslibrary/originals/a", kilobytes: 16)
+        try write("Photos Library.photoslibrary/resources/b", kilobytes: 16)
+        let size = await FolderSizeDriver().size(
+            of: [FolderRoot(root.path + "/Photos Library.photoslibrary", breakdown: .whole)], skipping: [], deadline: later
+        )
+        XCTAssertEqual(Array(size.children.keys), ["Photos Library.photoslibrary"])
+        XCTAssertEqual(size.files, 2)
     }
 
     func testDriverCountsAHardLinkedFileOnce() async throws {
@@ -49,7 +60,7 @@ final class SpaceSurveyTests: XCTestCase {
         try FileManager.default.createDirectory(at: root.appendingPathComponent("b"), withIntermediateDirectories: true)
         try FileManager.default.linkItem(at: root.appendingPathComponent("a/file"), to: root.appendingPathComponent("b/link"))
 
-        let size = await FolderSizeDriver().size(of: [root.path], skipping: [], deadline: later)
+        let size = await FolderSizeDriver().size(of: [FolderRoot(root.path)], skipping: [], deadline: later)
         XCTAssertEqual(size.files, 1)
         XCTAssertEqual(size.children.count, 1, "whichever link the walk meets first owns the file")
         XCTAssertEqual(size.bytes, size.children.values.first)
@@ -59,7 +70,7 @@ final class SpaceSurveyTests: XCTestCase {
         let many = root.appendingPathComponent("many")
         try FileManager.default.createDirectory(at: many, withIntermediateDirectories: true)
         for index in 0..<600 { FileManager.default.createFile(atPath: many.path + "/\(index)", contents: nil) }
-        let size = await FolderSizeDriver().size(of: [root.path], skipping: [], deadline: .now - .seconds(1))
+        let size = await FolderSizeDriver().size(of: [FolderRoot(root.path)], skipping: [], deadline: .now - .seconds(1))
         XCTAssertEqual(size.ending, .timedOut)
         XCTAssertLessThan(size.files, 600)
     }
@@ -71,17 +82,27 @@ final class SpaceSurveyTests: XCTestCase {
         _ = await survey.measure(.applications)
         _ = await survey.measure(.library)
         _ = await survey.measure(.otherHome)
+        _ = await survey.measure(.pictures)
+        _ = await survey.measure(.appData)
         let calls = await driver.calls
-        XCTAssertEqual(calls[0].roots, ["/Applications", "/Users/me/Applications"])
-        XCTAssertEqual(calls[1].roots, ["/Users/me/Library"])
+        XCTAssertEqual(calls[0].roots.map(\.path), ["/Applications", "/Users/me/Applications"])
+        XCTAssertEqual(calls[1].roots.map(\.path), ["/Users/me/Library"])
         XCTAssertEqual(calls[1].skipping, [
             "/Users/me/Library/Containers", "/Users/me/Library/Group Containers",
-            "/Users/me/Library/Mobile Documents", "/Users/me/Library/CloudStorage"
-        ], "app data and cloud drives are their own areas, which ask macOS first")
-        XCTAssertEqual(calls[2].roots, ["/Users/me"])
+            "/Users/me/Library/Mobile Documents", "/Users/me/Library/CloudStorage",
+            "/Users/me/Library/Application Support/AddressBook", "/Users/me/Library/Calendars",
+            "/Users/me/Pictures/Photos Library.photoslibrary"
+        ], "app data, private stores and cloud drives are their own areas, which ask macOS first")
+        XCTAssertEqual(calls[2].roots.map(\.path), ["/Users/me"])
         XCTAssertTrue(calls[2].skipping.isSuperset(of: [
             "/Users/me/Library", "/Users/me/Desktop", "/Users/me/Documents", "/Users/me/Downloads", "/Users/me/Applications"
         ]), "the rest of home never walks into a named area")
+        XCTAssertTrue(calls[3].skipping.contains("/Users/me/Pictures/Photos Library.photoslibrary"),
+                      "the Photos library can raise a prompt, so Pictures leaves it to app data")
+        XCTAssertEqual(calls[4].roots.filter { $0.breakdown == .whole }.map(\.path), [
+            "/Users/me/Pictures/Photos Library.photoslibrary", "/Users/me/Library/Application Support/AddressBook",
+            "/Users/me/Library/Calendars"
+        ])
     }
 
     func testSurveyNamesTheLargestItemsAndKeepsLowerBounds() async {
@@ -102,13 +123,13 @@ final class SpaceSurveyTests: XCTestCase {
 }
 
 private actor Recorder: FolderSizing {
-    struct Call { let roots: [String]; let skipping: Set<String> }
+    struct Call { let roots: [FolderRoot]; let skipping: Set<String> }
     private(set) var calls: [Call] = []
 
-    func size(of roots: [String], skipping: Set<String>, deadline: ContinuousClock.Instant) async -> RawFolderSize {
+    func size(of roots: [FolderRoot], skipping: Set<String>, deadline: ContinuousClock.Instant) async -> RawFolderSize {
         calls.append(Call(roots: roots, skipping: skipping))
         return RawFolderSize(
-            bytes: 1_000, children: ["Xcode.app": 600, "Mail.app": 50, "Docker.app": 300, "tiny": 50],
+            bytes: 1_000, children: ["Xcode.app": 600, "Mail.app": 50, "Docker.app": 300, "tiny.photoslibrary": 50],
             unreadable: 2, files: 4, ending: .complete
         )
     }

@@ -6,9 +6,9 @@ loud?") and want a culprit, not a graph
 Coreography's rare asset is memory: its ledger keeps every app's
 CPU-seconds, disk and network bytes for each two-second interval of the
 last hour. Any moment of the CPU line can be taken apart into who made
-it. Before this prototype that knowledge hid in a one-line caption. Each concept below puts the invention at a
-different moment of the same arc: finding the culprit, acting on it,
-keeping the evidence.
+it. Before this prototype that knowledge hid in a one-line caption.
+Each concept below puts the invention at a different moment of the same
+arc: finding the culprit, acting on it, keeping the evidence.
 
 ## 1. Unbraid (discovery)
 
@@ -115,13 +115,32 @@ behind them, a white grip under the hand, and three sounds synthesized as
 plucked strings (Karplus-Strong), quiet and only for the person's own
 gestures.
 
+## Sequel: the space braid
+
+Used space is the other quantity that adds up, so the startup volume's
+bar in the Disk lane became a rope too. At rest it is the familiar 8 pt
+bar, now in shades of blue by size with hairline seams and the
+unexplained rest hatched. Click it and a lens drops each stretch from its
+place in the rope into its own row over 0.32 s, 30 ms apart, blooming into
+the folder's hue: "Library ≥ 61 GB · Developer 38 GB · Caches 9 GB".
+A row shows its folder in Finder with the area's own pluck.
+
+Its honesty rules mirror the CPU braid's. Each file is counted once, hard
+links included, so "macOS and the rest" is used space minus every area;
+when APFS clones make the areas exceed it, there is no rest and the lens
+says why. A walk stops after 90 s per area and reports "at least". Nothing
+walks in the background: only an open lens with a survey older than ten
+minutes. Opening it never raises a privacy prompt; Desktop, Documents,
+Downloads, other apps' containers and cloud drives wait for an explicit
+Measure.
+
 ## What I deliberately did not do
 
 - No per-app colour at rest: the everyday lane stays calm and blue; colour
   is the reward for pulling.
 - No braids for memory or GPU time: footprints and GPU milliseconds do not
-  add up, so stacking them would lie. Disk and network could follow; they
-  are not in this prototype.
+  add up, so stacking them would lie. Nor for disk or network transfer
+  yet: apps' logical bytes include cached reads the devices never see.
 - No stored-history braid: stored ledgers index apps differently, so
   beyond the live hour the lane falls back to the plain line.
 - No instantaneous attribution, no rescaling: the remainder is "host minus

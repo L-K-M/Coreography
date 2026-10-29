@@ -6,8 +6,9 @@ public enum SpaceArea: String, CaseIterable, Codable, Sendable {
     case applications, desktop, documents, downloads, movies, music, pictures, library, appData, cloud, otherHome
 
     /// macOS asks the person before an app reads these: Desktop, Documents
-    /// and Downloads once each, other apps' containers and cloud drives as
-    /// "data from other apps". They are only measured when the person asks.
+    /// and Downloads once each; other apps' containers, cloud drives,
+    /// Photos, Contacts and Calendars as other apps' data. They are only
+    /// measured when the person asks.
     public var asksMacOS: Bool {
         switch self {
         case .desktop, .documents, .downloads, .appData, .cloud: true
@@ -58,7 +59,8 @@ public struct SpaceAreaSize: Equatable, Codable, Sendable {
 /// ~/Desktop ~/Documents ~/Downloads     asks macOS
 /// ~/Movies ~/Music ~/Pictures           as named
 /// ~/Library                             minus app data and cloud drives
-/// ~/Library/Containers, Group Containers   appData (asks macOS)
+/// ~/Library/Containers, Group Containers,  appData (asks macOS)
+///   Contacts, Calendars, Photos Library
 /// ~/Library/Mobile Documents, CloudStorage cloud (asks macOS)
 /// everything else in ~                  otherHome
 /// ```
@@ -94,42 +96,57 @@ public struct SpaceSurvey: Sendable {
             .sorted { $0.value != $1.value ? $0.value > $1.value : $0.key < $1.key }
             .prefix(Self.largestShown)
             .map { SpaceItem(name: Self.displayName($0.key), bytes: $0.value) }
-        return SpaceAreaSize(area: area, bytes: raw.bytes, largest: largest, completeness: completeness, path: paths[0])
+        return SpaceAreaSize(area: area, bytes: raw.bytes, largest: largest, completeness: completeness, path: paths[0].path)
     }
 
-    private func roots(_ area: SpaceArea) -> [String] {
+    private func roots(_ area: SpaceArea) -> [FolderRoot] {
         let library = home + "/Library"
         return switch area {
-        case .applications: ["/Applications", home + "/Applications"]
-        case .desktop: [home + "/Desktop"]
-        case .documents: [home + "/Documents"]
-        case .downloads: [home + "/Downloads"]
-        case .movies: [home + "/Movies"]
-        case .music: [home + "/Music"]
-        case .pictures: [home + "/Pictures"]
-        case .library: [library]
-        case .appData: [library + "/Containers", library + "/Group Containers"]
-        case .cloud: [library + "/Mobile Documents", library + "/CloudStorage"]
-        case .otherHome: [home]
+        case .applications: [FolderRoot("/Applications"), FolderRoot(home + "/Applications")]
+        case .desktop: [FolderRoot(home + "/Desktop")]
+        case .documents: [FolderRoot(home + "/Documents")]
+        case .downloads: [FolderRoot(home + "/Downloads")]
+        case .movies: [FolderRoot(home + "/Movies")]
+        case .music: [FolderRoot(home + "/Music")]
+        case .pictures: [FolderRoot(home + "/Pictures")]
+        case .library: [FolderRoot(library)]
+        case .appData:
+            [FolderRoot(library + "/Containers"), FolderRoot(library + "/Group Containers")]
+                + privateStores.map { FolderRoot($0, breakdown: .whole) }
+        case .cloud: [FolderRoot(library + "/Mobile Documents"), FolderRoot(library + "/CloudStorage")]
+        case .otherHome: [FolderRoot(home)]
         }
+    }
+
+    /// Stores whose reading can raise a Contacts, Calendars or Photos
+    /// prompt; they belong to app data, behind the person's Measure.
+    private var privateStores: [String] {
+        [home + "/Pictures/Photos Library.photoslibrary", home + "/Library/Application Support/AddressBook",
+         home + "/Library/Calendars"]
     }
 
     /// Paths an area's walk must not enter: other areas, so nothing counts twice.
     private func skipped(_ area: SpaceArea) -> Set<String> {
         switch area {
         case .library:
-            Set(roots(.appData) + roots(.cloud))
+            Set((roots(.appData) + roots(.cloud)).map(\.path))
+        case .pictures:
+            Set(privateStores)
         case .otherHome:
-            Set([SpaceArea.desktop, .documents, .downloads, .movies, .music, .pictures, .library].flatMap(roots))
+            Set([SpaceArea.desktop, .documents, .downloads, .movies, .music, .pictures, .library].flatMap(roots).map(\.path))
                 .union([home + "/Applications"])
         default:
             []
         }
     }
 
-    /// "Xcode.app" reads as "Xcode", as Finder shows it.
+    /// "Xcode.app" reads as "Xcode" and "Photos Library.photoslibrary" as
+    /// "Photos Library", as Finder shows them.
     private static func displayName(_ name: String) -> String {
-        name.hasSuffix(".app") ? String(name.dropLast(4)) : name
+        for suffix in [".app", ".photoslibrary"] where name.hasSuffix(suffix) {
+            return String(name.dropLast(suffix.count))
+        }
+        return name
     }
 
     /// The person's real home, never a container.

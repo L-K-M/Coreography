@@ -95,6 +95,12 @@ interval, with what no observed app accounts for shown as unattributed.
 Click an app or press Return to scope the window to it; Escape folds the
 braid back. The braid covers the live hour.
 
+The startup volume's bar in the Disk lane braids its used space the same
+way. Click it and the bar comes apart into Applications, Library, Movies,
+the rest of your home and "macOS and the rest", each with its biggest
+items. Folders are measured only while you look, at most every ten
+minutes; the ones macOS protects wait until you click Measure.
+
 The process pane adds PID/start-time-safe CPU share, physical footprint
 and disk read/write rates, with filtering, sorting and explicit restricted
 or unreadable coverage. It refreshes every two seconds using public libproc

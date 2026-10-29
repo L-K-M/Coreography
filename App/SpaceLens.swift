@@ -17,6 +17,8 @@ struct SpaceRope: View {
     static let nearlyFull = 0.9
     let volume: CapturedVolume
     let space: SpaceSurveyor
+    /// The volume's kind, path and purgeable note, as the plain bars say it.
+    let detail: String
     @Environment(\.colorScheme) private var colorScheme
     @State private var lensShown = false
     @State private var hovered = false
@@ -40,7 +42,7 @@ struct SpaceRope: View {
         .onHover { inside in
             withAnimation(.easeOut(duration: 0.12)) { hovered = inside }
         }
-        .help(String(localized: "Click to see what takes up the space"))
+        .help(String(localized: "\(detail). Click to see what takes up the space."))
         .accessibilityLabel(SpaceText.volumeSummary(volume))
         .accessibilityHint(String(localized: "Shows what takes up the space"))
         .popover(isPresented: $lensShown, arrowEdge: .trailing) {
@@ -164,7 +166,8 @@ private struct SpaceLens: View {
     let feedback: InteractionFeedback
     @Environment(\.colorScheme) private var colorScheme
     @State private var unbraided = false
-    @State private var focused: Int?
+    /// Kept by strand, not position: rows re-sort as areas finish measuring.
+    @State private var focused: SpaceStrand.Kind?
     @FocusState private var keyboardFocus: Bool
     private var reduceMotion: Bool { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }
     private var barWidth: CGFloat { Self.width - 2 * Self.inset }
@@ -191,11 +194,11 @@ private struct SpaceLens: View {
         .focusable()
         .focusEffectDisabled()
         .focused($keyboardFocus)
-        .onKeyPress(.downArrow) { step(1, count: braid.strands.count) }
-        .onKeyPress(.upArrow) { step(-1, count: braid.strands.count) }
+        .onKeyPress(.downArrow) { step(1, in: braid.strands) }
+        .onKeyPress(.upArrow) { step(-1, in: braid.strands) }
         .onKeyPress(.return) {
-            guard let focused, braid.strands.indices.contains(focused) else { return .ignored }
-            reveal(braid.strands[focused])
+            guard let strand = braid.strands.first(where: { $0.kind == focused }), case .area = strand.kind else { return .ignored }
+            reveal(strand)
             return .handled
         }
         .onAppear {
@@ -238,7 +241,7 @@ private struct SpaceLens: View {
             SpaceIcon(strand: strand)
             VStack(alignment: .leading, spacing: 1) {
                 Text(SpaceText.name(strand.kind))
-                    .font(.system(size: 13, weight: index == focused ? .semibold : .regular))
+                    .font(.system(size: 13, weight: strand.kind == focused ? .semibold : .regular))
                     .lineLimit(1)
                 if let detail = SpaceText.detail(strand) {
                     Text(detail).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
@@ -258,10 +261,10 @@ private struct SpaceLens: View {
                 .frame(width: max(unbraided ? rowWidth : ropeWidth, Self.barHeight), height: Self.barHeight)
                 .offset(x: Self.inset + (unbraided ? 0 : ropeOffset), y: unbraided ? -4 : -rise)
         }
-        .background(index == focused ? Color.primary.opacity(0.07) : .clear)
+        .background(strand.kind == focused ? Color.primary.opacity(0.07) : .clear)
         .animation(reduceMotion ? nil : Animation.easeOut(duration: Self.unbraidSeconds).delay(Double(index) * Self.stagger), value: unbraided)
         .contentShape(Rectangle())
-        .onHover { inside in focused = inside ? index : (focused == index ? nil : focused) }
+        .onHover { inside in focused = inside ? strand.kind : (focused == strand.kind ? nil : focused) }
 
         switch strand.kind {
         case .area:
@@ -288,14 +291,14 @@ private struct SpaceLens: View {
                 Text(areas.map { SpaceText.name(.area($0)) }.formatted(.list(type: .and)))
                     .font(.system(size: 12))
                     .lineLimit(2)
-                Text(String(localized: "Not measured. macOS asks once for each."))
+                Text(String(localized: "Not measured. macOS may ask before each."))
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
             Spacer(minLength: 4)
             Button(String(localized: "Measure")) { space.measure(.askingMacOS) }
                 .controlSize(.small)
-                .help(String(localized: "Measure these too; macOS asks for access once for each"))
+                .help(String(localized: "Measure these too; macOS may ask for access before each"))
         }
         .padding(.horizontal, Self.inset)
         .padding(.vertical, 6)
@@ -304,6 +307,11 @@ private struct SpaceLens: View {
 
     private func footer(_ braid: SpaceBraid) -> some View {
         VStack(alignment: .leading, spacing: 4) {
+            if !braid.refused.isEmpty {
+                Text(SpaceText.refused(braid.refused))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
             if !braid.reconciles {
                 Text(SpaceText.overrun)
                     .font(.caption)
@@ -323,10 +331,11 @@ private struct SpaceLens: View {
         .padding(.vertical, 10)
     }
 
-    private func step(_ delta: Int, count: Int) -> KeyPress.Result {
-        guard count > 0 else { return .ignored }
-        let next = (focused.map { $0 + delta } ?? (delta > 0 ? 0 : count - 1))
-        focused = min(max(next, 0), count - 1)
+    private func step(_ delta: Int, in strands: [SpaceStrand]) -> KeyPress.Result {
+        guard !strands.isEmpty else { return .ignored }
+        let current = strands.firstIndex { $0.kind == focused }
+        let next = current.map { $0 + delta } ?? (delta > 0 ? 0 : strands.count - 1)
+        focused = strands[min(max(next, 0), strands.count - 1)].kind
         return .handled
     }
 
@@ -360,6 +369,11 @@ enum SpaceText {
     static let restHelp = String(localized: "Used space no folder above explains: macOS itself, other users, swap, local snapshots and folders not measured.")
     static let overrun = String(localized: "The folders add up to more than the used space: APFS clones and shared files count once per copy.")
 
+    static func refused(_ areas: [CapturedSpaceArea]) -> String {
+        let names = areas.map { name(.area($0)) }.formatted(.list(type: .and))
+        return String(localized: "macOS did not allow reading \(names). Privacy & Security in System Settings can allow it.")
+    }
+
     static func name(_ kind: SpaceStrand.Kind) -> String {
         switch kind {
         case .rest: String(localized: "macOS and the rest")
@@ -388,7 +402,7 @@ enum SpaceText {
         var parts = size.largest.prefix(shownItems).map { "\($0.name) \(MetricText.bytes(Double($0.bytes)))" }
         switch size.completeness {
         case .complete: break
-        case .unreadable: parts.append(String(localized: "some items unreadable"))
+        case .unreadable: parts.append(String(localized: "some items macOS keeps private"))
         case .timedOut: parts.append(String(localized: "still counting when time ran out"))
         }
         return parts.isEmpty ? nil : parts.joined(separator: " · ")

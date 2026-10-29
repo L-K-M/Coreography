@@ -29,10 +29,29 @@ public struct RawFolderSize: Equatable, Sendable {
     }
 }
 
+/// A folder to walk and how its bytes are itemised.
+public struct FolderRoot: Equatable, Sendable {
+    public enum Breakdown: Equatable, Sendable {
+        /// One item per first-level child ("Xcode.app", "Caches").
+        case byChild
+        /// The whole root is one item, named after it ("Photos Library.photoslibrary").
+        case whole
+    }
+
+    public let path: String
+    public let breakdown: Breakdown
+
+    public init(_ path: String, breakdown: Breakdown = .byChild) {
+        self.path = path
+        self.breakdown = breakdown
+    }
+}
+
 public protocol FolderSizing: Sendable {
     /// Walks each root, never crossing into another volume or into a
-    /// skipped path. A missing root counts as empty.
-    func size(of roots: [String], skipping: Set<String>, deadline: ContinuousClock.Instant) async -> RawFolderSize
+    /// skipped path. A missing root counts as empty; roots that resolve to
+    /// the same folder are walked once.
+    func size(of roots: [FolderRoot], skipping: Set<String>, deadline: ContinuousClock.Instant) async -> RawFolderSize
 }
 
 /// Sums allocated sizes with a file enumerator on its own queue, so a walk
@@ -57,15 +76,28 @@ public actor FolderSizeDriver: FolderSizing {
         .isRegularFileKey, .isVolumeKey, .totalFileAllocatedSizeKey, .fileAllocatedSizeKey, .fileSizeKey, .linkCountKey
     ]
 
-    public func size(of roots: [String], skipping: Set<String>, deadline: ContinuousClock.Instant) async -> RawFolderSize {
+    public func size(of roots: [FolderRoot], skipping: Set<String>, deadline: ContinuousClock.Instant) async -> RawFolderSize {
         var walk = Walk()
+        // The enumerator reports resolved paths (/private/var for /var), so
+        // roots and skipped paths are compared in that form.
+        let skipped = Set(skipping.map(Self.resolved))
+        var walked: Set<String> = []
         for root in roots {
             guard walk.ending == .complete else { break }
-            walk.add(root: root, skipping: skipping, deadline: deadline)
+            let path = Self.resolved(root.path)
+            guard walked.insert(path).inserted else { continue }
+            walk.add(root: path, breakdown: root.breakdown, skipping: skipped, deadline: deadline)
         }
         return RawFolderSize(
             bytes: walk.bytes, children: walk.children, unreadable: walk.unreadable, files: walk.files, ending: walk.ending
         )
+    }
+
+    /// realpath(3), not `resolvingSymlinksInPath`, which strips /private again.
+    private static func resolved(_ path: String) -> String {
+        guard let real = realpath(path, nil) else { return path }
+        defer { free(real) }
+        return String(cString: real)
     }
 
     private struct Walk {
@@ -77,8 +109,8 @@ public actor FolderSizeDriver: FolderSizing {
         /// Device and inode of files with more than one link, so each counts once.
         private var linked: Set<[UInt64]> = []
 
-        mutating func add(root: String, skipping: Set<String>, deadline: ContinuousClock.Instant) {
-            let rootURL = URL(fileURLWithPath: root, isDirectory: true).standardizedFileURL
+        mutating func add(root: String, breakdown: FolderRoot.Breakdown, skipping: Set<String>, deadline: ContinuousClock.Instant) {
+            let rootURL = URL(fileURLWithPath: root, isDirectory: true)
             guard FileManager.default.fileExists(atPath: rootURL.path) else { return }
             let prefix = rootURL.path.hasSuffix("/") ? rootURL.path : rootURL.path + "/"
             var denied = 0
@@ -121,6 +153,10 @@ public actor FolderSizeDriver: FolderSizing {
                 let size = Int64(values.totalFileAllocatedSize ?? values.fileAllocatedSize ?? values.fileSize ?? 0)
                 bytes += size
                 files += 1
+                if breakdown == .whole {
+                    children[rootURL.lastPathComponent, default: 0] += size
+                    continue
+                }
                 guard path.hasPrefix(prefix) else { continue }
                 let child = path.dropFirst(prefix.count).prefix { $0 != "/" }
                 children[String(child), default: 0] += size

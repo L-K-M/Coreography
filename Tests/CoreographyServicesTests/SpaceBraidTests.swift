@@ -45,6 +45,15 @@ final class SpaceBraidTests: XCTestCase {
         XCTAssertTrue(walking.strands[0].isUpperBound)
     }
 
+    func testAFolderMacOSRefusedIsNamedRatherThanShownAsEmpty() {
+        let braid = SpaceBraid(
+            volume: volume, sizes: [.documents: size(.documents, 0, .unreadable(1)), .movies: size(.movies, 0)],
+            unmeasured: [], measuring: nil
+        )
+        XCTAssertEqual(braid.refused, [.documents], "an empty folder is not a refusal")
+        XCTAssertEqual(braid.strands.map(\.kind), [.rest])
+    }
+
     func testAreasAddingUpToMoreThanTheUsedSpaceDoNotInventARest() {
         let braid = SpaceBraid(volume: volume, sizes: [.library: size(.library, 900)], unmeasured: [], measuring: nil)
         XCTAssertNil(braid.strands.last?.bytes)
@@ -87,8 +96,8 @@ final class SpaceBraidTests: XCTestCase {
 private actor Walks: FolderSizing {
     private(set) var roots: [String] = []
 
-    func size(of roots: [String], skipping: Set<String>, deadline: ContinuousClock.Instant) async -> RawFolderSize {
-        self.roots += roots
+    func size(of roots: [FolderRoot], skipping: Set<String>, deadline: ContinuousClock.Instant) async -> RawFolderSize {
+        self.roots += roots.map(\.path)
         return RawFolderSize(bytes: 10, children: [:], unreadable: 0, files: 1, ending: .complete)
     }
 }

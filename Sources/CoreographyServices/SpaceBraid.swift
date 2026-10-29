@@ -43,6 +43,9 @@ public struct SpaceBraid: Equatable, Sendable {
     public let unmeasured: [CapturedSpaceArea]
     /// The area being walked now.
     public let measuring: CapturedSpaceArea?
+    /// Areas macOS refused to let the walk read at all, as when the person
+    /// declined its prompt; they explain nothing rather than zero bytes.
+    public let refused: [CapturedSpaceArea]
 
     public var usedBytes: Int64 { volume.totalBytes - volume.availableBytes }
 
@@ -74,6 +77,7 @@ public struct SpaceBraid: Equatable, Sendable {
 
         let used = max(volume.totalBytes - volume.availableBytes, 0)
         let share = { (bytes: Int64) -> Double? in used > 0 ? Double(bytes) / Double(used) : nil }
+        refused = SpaceSurvey.order.filter { sizes[$0].map { $0.bytes == 0 && $0.isLowerBound } ?? false }
         let measured = sizes.values
             .filter { $0.bytes > 0 }
             .sorted { $0.bytes != $1.bytes ? $0.bytes > $1.bytes : $0.area.rawValue < $1.area.rawValue }
