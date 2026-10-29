@@ -71,7 +71,7 @@ struct SpaceRopeShape: View {
                                   height: size.height)
                 let stretch = Path(rect)
                 context.fill(stretch, with: .color(palette.rest[index]))
-                if palette.hatched[index] { hatch(stretch, in: &context) }
+                if palette.hatched[index] { hatch(stretch, in: context) }
                 if lifted {
                     let shine = Path(CGRect(x: rect.minX, y: 0, width: rect.width, height: size.height * 0.35))
                     context.fill(shine, with: .color(.white.opacity(0.22)))
@@ -86,7 +86,7 @@ struct SpaceRopeShape: View {
         .accessibilityHidden(true)
     }
 
-    private func hatch(_ path: Path, in context: inout GraphicsContext) {
+    private func hatch(_ path: Path, in context: GraphicsContext) {
         var hatched = context
         hatched.clip(to: path)
         let bounds = path.boundingRect
@@ -174,7 +174,8 @@ private struct SpaceLens: View {
 
     var body: some View {
         let braid = space.braid(for: volume)
-        let palette = SpacePalette(braid: braid, measured: !space.sizes.isEmpty, full: false, dark: colorScheme == .dark)
+        let palette = SpacePalette(braid: braid, measured: !space.sizes.isEmpty,
+                                   full: volume.usedFraction > SpaceRope.nearlyFull, dark: colorScheme == .dark)
         let spans = braid.spans
         VStack(alignment: .leading, spacing: 0) {
             header(braid)

@@ -52,6 +52,7 @@ final class SpaceBraidTests: XCTestCase {
         )
         XCTAssertEqual(braid.refused, [.documents], "an empty folder is not a refusal")
         XCTAssertEqual(braid.strands.map(\.kind), [.rest])
+        XCTAssertTrue(braid.strands[0].isUpperBound, "the refused folder's contents sit in the rest")
     }
 
     func testAreasAddingUpToMoreThanTheUsedSpaceDoNotInventARest() {

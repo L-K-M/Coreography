@@ -289,56 +289,71 @@ log("braid done")
 // The startup volume's rope sits in the Disk lane's header, below the fold.
 let ropeFragments = ["free", "used of"]
 /// Scrolls the lanes until the rope is inside the window, by Accessibility
-/// first and by posted wheel events where SwiftUI does not offer that.
-func visibleRope() -> CGRect? {
-    for attempt in 0..<12 {
-        guard let rope = element(containing: ropeFragments), let rect = frame(rope) else { return nil }
+/// first and by posted wheel events where SwiftUI does not offer that. The
+/// wheel's sign depends on the runner's natural-scrolling setting, so it
+/// flips whenever a notch took the rope further away.
+func visibleRope(_ rope: AXUIElement) -> CGRect? {
+    var lines: Int32 = 0
+    var lastDistance = CGFloat.infinity
+    for attempt in 0..<24 {
+        guard let rect = frame(rope) else { return nil }
         if window.insetBy(dx: 0, dy: 40).contains(rect) { return rect }
+
+        let distance = abs(rect.midY - window.midY)
+        log("rope at \(rect), attempt \(attempt)")
         if attempt == 0 {
             AXUIElementPerformAction(rope, "AXScrollToVisible" as CFString)
         } else {
-            let lines: Int32 = rect.midY > window.midY ? -4 : 4
+            if lines == 0 {
+                lines = rect.midY > window.midY ? -10 : 10
+            } else if distance > lastDistance {
+                lines = -lines
+            }
             mouse(.mouseMoved, CGPoint(x: window.midX, y: window.midY))
             CGEvent(scrollWheelEvent2Source: source, units: .line, wheelCount: 1, wheel1: lines, wheel2: 0, wheel3: 0)?
                 .post(tap: .cghidEventTap)
         }
+        lastDistance = distance
         pause(0.5)
     }
     return nil
 }
 
-if element(containing: ropeFragments) != nil {
-    if let rect = visibleRope() {
-        log("space rope at \(rect)")
-        shot("20-space-rest", of: window)
-        let center = CGPoint(x: rect.midX, y: rect.maxY - 4)
-        move(from: CGPoint(x: center.x + 80, y: center.y), to: center, seconds: 0.4)
-        shot("21-space-hover", of: window)
-        let opening = film("space-open", seconds: 4)
-        pause(0.5)
-        click(center)
-        log("click the rope")
-        pause(0.12)
-        shot("22-space-unbraiding", of: window)
-        pause(0.6)
-        shot("23-space-open", of: window)
-        opening?.waitUntilExit()
-        // Walking the runner's folders takes a while; Xcode alone is huge.
-        for (wait, label) in [(15.0, "15s"), (30.0, "45s"), (45.0, "90s")] {
-            pause(wait)
-            shot("24-space-\(label)", of: window)
-        }
-        press(.down)
-        press(.down)
-        pause(0.3)
-        shot("25-space-focus", of: window)
-        press(.escape)
-        pause(0.5)
-        shot("26-space-closed", of: window)
-    } else {
-        log("error: the space rope could not be scrolled into the window")
-    }
-} else {
+// A rope that cannot be driven fails the capture: a run without the space
+// stills must not pass for one that filmed them.
+guard let rope = element(containing: ropeFragments) else {
     log("error: no space rope found through Accessibility")
+    exit(1)
 }
+guard let rect = visibleRope(rope) else {
+    log("error: the space rope could not be scrolled into the window")
+    exit(1)
+}
+
+log("space rope at \(rect)")
+shot("20-space-rest", of: window)
+let center = CGPoint(x: rect.midX, y: rect.maxY - 4)
+move(from: CGPoint(x: center.x + 80, y: center.y), to: center, seconds: 0.4)
+shot("21-space-hover", of: window)
+let opening = film("space-open", seconds: 4)
+pause(0.5)
+click(center)
+log("click the rope")
+pause(0.12)
+shot("22-space-unbraiding", of: window)
+pause(0.6)
+shot("23-space-open", of: window)
+opening?.waitUntilExit()
+// Walking the runner's folders takes a while; Xcode alone is huge.
+for (wait, label) in [(15.0, "15s"), (30.0, "45s"), (45.0, "90s")] {
+    pause(wait)
+    shot("24-space-\(label)", of: window)
+}
+press(.down)
+press(.down)
+pause(0.3)
+shot("25-space-focus", of: window)
+press(.escape)
+pause(0.5)
+shot("26-space-closed", of: window)
 log("done")

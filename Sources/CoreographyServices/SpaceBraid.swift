@@ -88,7 +88,8 @@ public struct SpaceBraid: Equatable, Sendable {
 
         let remainder = used - measured.reduce(0) { $0 + $1.bytes }
         let rest: Int64? = remainder >= 0 ? remainder : nil
-        let upper = !unmeasured.isEmpty || measuring != nil || measured.contains(where: \.isLowerBound)
+        // A refused area measures nothing, so its contents sit in the rest too.
+        let upper = !unmeasured.isEmpty || measuring != nil || sizes.values.contains(where: \.isLowerBound)
         strands.append(SpaceStrand(kind: .rest, bytes: rest, share: rest.flatMap(share),
                                    isLowerBound: false, isUpperBound: upper, size: nil))
         self.strands = strands
