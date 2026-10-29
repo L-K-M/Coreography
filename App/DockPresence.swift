@@ -60,9 +60,10 @@ final class DockPresence {
     }
 
     /// The dashboard or Settings; the HUD and the menu bar extra are panels.
+    /// A minimized window is still open: hiding the icon would strand it.
     private var hasOpenWindow: Bool {
         NSApplication.shared.windows.contains { window in
-            window.isVisible && window.styleMask.contains(.titled) && !(window is NSPanel)
+            (window.isVisible || window.isMiniaturized) && window.styleMask.contains(.titled) && !(window is NSPanel)
         }
     }
 

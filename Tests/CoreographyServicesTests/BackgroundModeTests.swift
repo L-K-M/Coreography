@@ -52,6 +52,7 @@ final class BackgroundModeTests: XCTestCase {
         XCTAssertEqual(mode.loginStart, .awaitingApproval)
         mode.openLoginItems()
         XCTAssertEqual(registration.settingsOpened, 1)
+        XCTAssertEqual(registration.registrations, 1, "a login item changed in System Settings is not registered again")
     }
 }
 
