@@ -99,6 +99,14 @@ Implemented:
   old, on their own queue, 90 s per area at most ("at least" beyond that).
   Areas that make macOS ask are walked only after Measure, which is
   remembered; a refused one is named rather than shown as empty.
+- Background mode (Settings > Background): Coreography starts at login
+  through `SMAppService.mainApp` with only its menu bar extra. The window
+  is not opened or restored at launch, and the Dock icon appears only
+  while the window or Settings is open. Sampling, alerts, history and the
+  Briefing widget keep running; the other widgets sample on their own
+  either way. Reopening the app from Finder opens the window, and the menu
+  bar extra gains Settings and Quit. A login item turned off in System
+  Settings is shown, not silently re-registered.
 - Desktop widgets: CPU, memory, network, disk and system overview, each in
   small and medium sizes. A sandboxed WidgetKit extension takes two host and
   interface samples a second apart through the existing services and
@@ -1033,6 +1041,7 @@ outstanding. The store, MCP and model features above await stack delivery.
 | Native swap/pressure sysctls, memory composition and stacked lane | Passed [native CI](https://github.com/L-K-M/Coreography/actions/runs/39112973077) at `1274ff0`: 83 tests including real sysctl reads, and the snapshot gate's composition sum |
 | CPU braid | 21 Swift tests pass on Linux (strands and remainder adding up to the time-weighted host share, ranking inside the window, unknown remainders, disagreement, every interval kept, lookups and peaks; drag intent, spread, falloff, settling without overshoot, hue separation, focus hysteresis; synthesis level, decay and determinism; both sound switches). Native CI builds it and drives it on the runner's GUI session with real pointer and key events after a real compile and browser benchmark, filming and profiling each run (`tools/ui-capture`); its feel, sound and haptics are owner checks |
 | Space braid | 12 Swift tests pass on Linux (the walk's per-child sums, skipped paths, roots walked once, whole-root items, hard links once and deadline; areas never counting each other; the rest, its bounds and the overrun; refused areas; prompt-raising areas left alone until asked, and the choice remembered). Native CI films the lens walking the runner's prompt-free areas and fails if it cannot reach the rope (`tools/ui-capture`); Measure, macOS privacy prompts and Finder reveal are owner checks |
+| Background mode | 3 Swift tests pass on Linux (off by default; the choice remembered; the login item registered and removed once each; a refused login item keeps the menu bar mode and says why; a login item changed in System Settings shows on refresh). Native CI compiles the app; starting at login and the Dock icon are owner checks |
 | CPU, memory and wakeup budgets | In-app readout of own CPU and footprint against budget (111 Swift tests pass on Linux); wakeups and S2 measurements pending |
 | Developer ID and notarization | Pending credentials; the owner chose ad-hoc builds for now (2026-10-20) |
 
@@ -1096,6 +1105,11 @@ This is not a notarized production release. Check:
    asks for Desktop, Documents, Downloads and other apps' data, that a
    declined folder is named as refused, and that a row shows its folder
    in Finder.
+8. Turn on Settings > Background, quit, log out and back in. Coreography
+   must start with only its menu bar item, no window and no Dock icon.
+   Open it from the menu bar: the window and Dock icon appear, and
+   closing the window hides the icon again. Check that Login Items lists
+   Coreography and that turning it off there shows in Settings.
 
 More specific S1/S6 probes follow when those providers and HUD exist.
 Do not mark a physical-Mac gate passed from a cross-compile or fixture.

@@ -9,6 +9,7 @@ private struct CoreographyApp: App {
     @NSApplicationDelegateAdaptor(AutomationAppDelegate.self) private var appDelegate
     @State private var dashboard: DashboardModel
     @State private var hud: HUDController
+    @State private var background: BackgroundMode
     private let automation: AutomationRouter
     private let dockTile: DockTileController
     private let mcpAccess: MCPAccess
@@ -16,6 +17,7 @@ private struct CoreographyApp: App {
     private let helperAccess = HelperAccess()
     private let updates: UpdateChecker
     private let briefing: BriefingController
+    private let dockPresence: DockPresence
 
     /// One sampler for every surface, running from launch, so the menu bar
     /// extra stays live while the window is closed.
@@ -40,6 +42,11 @@ private struct CoreographyApp: App {
         }
         briefing.start()
         self.briefing = briefing
+        let background = BackgroundMode()
+        _background = State(initialValue: background)
+        dockPresence = DockPresence(mode: background)
+        // In the background the Dock icon never appears at launch.
+        dockPresence.apply()
         AutomationAppDelegate.onTerminate = { access.shutdown() }
         AutomationAppDelegate.beforeTerminate = { await model.stopForQuit() }
     }
@@ -50,6 +57,10 @@ private struct CoreographyApp: App {
                 .modifier(MCPApprovalAlert(access: mcpAccess))
         }
         .defaultSize(width: 1120, height: 900)
+        // Read at launch: in the background only the menu bar extra appears,
+        // and a window left open at the last quit is not restored either.
+        .defaultLaunchBehavior(background.presence == .background ? .suppressed : .automatic)
+        .restorationBehavior(background.presence == .background ? .disabled : .automatic)
         .commands {
             CommandGroup(after: .toolbar) {
                 Button(hud.isShown ? "Hide HUD" : "Show HUD") { hud.toggle() }
@@ -80,16 +91,18 @@ private struct CoreographyApp: App {
         }
 
         MenuBarExtra {
-            MenuBarView(model: dashboard, hud: hud)
+            MenuBarView(model: dashboard, hud: hud, dockPresence: dockPresence)
         } label: {
-            MenuBarLabel(model: dashboard, automation: automation)
+            MenuBarLabel(model: dashboard, automation: automation, dockPresence: dockPresence)
         }
         .menuBarExtraStyle(.window)
 
         Settings {
             SettingsView(
-                model: dashboard, mcpAccess: mcpAccess, hud: hud, updates: updates, helperAccess: helperAccess, briefing: briefing
+                model: dashboard, mcpAccess: mcpAccess, hud: hud, updates: updates, helperAccess: helperAccess, briefing: briefing,
+                background: background
             )
+            .onChange(of: background.presence) { dockPresence.apply() }
         }
     }
 }

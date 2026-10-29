@@ -42,6 +42,9 @@ annotated `vX.Y.Z` cut by `scripts/release.sh`.
   after the store first exceeds it.
 
 ### Added
+- Background mode: Coreography can start at login with only its menu bar
+  item, no window and no Dock icon, while alerts, history and the
+  Briefing widget keep running. Turn it on in Settings > Background.
 - A Briefing desktop widget sums up the last five minutes in one or two
   sentences, written every 15 minutes by a model you choose: Claude Haiku
   5.5 or Sonnet 5.5, or an OpenAI-compatible endpoint such as DeepSeek.

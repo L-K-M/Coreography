@@ -10,7 +10,9 @@ import CoreographyServices
 struct MenuBarView: View {
     @Bindable var model: DashboardModel
     let hud: HUDController
+    let dockPresence: DockPresence
     @Environment(\.openWindow) private var openWindow
+    @Environment(\.openSettings) private var openSettings
 
     var body: some View {
         let capacity = Double(model.latest?.inventory.physicalMemoryBytes ?? 0)
@@ -40,9 +42,15 @@ struct MenuBarView: View {
                 Button(hud.isShown ? "Hide HUD" : "Show HUD") { hud.toggle() }
                 Spacer()
                 Button("Open Coreography") {
-                    openWindow(id: "dashboard")
+                    dockPresence.reveal { openWindow(id: "dashboard") }
                     NSApplication.shared.activate()
                 }
+            }
+            // In the background there is no app menu until a window opens.
+            HStack {
+                Button("Settings…") { dockPresence.reveal { openSettings() } }
+                Spacer()
+                Button("Quit Coreography") { NSApplication.shared.terminate(nil) }
             }
         }
         .monospacedDigit()
@@ -60,12 +68,13 @@ struct MenuBarView: View {
 struct MenuBarLabel: View {
     let model: DashboardModel
     let automation: AutomationRouter
+    let dockPresence: DockPresence
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         content
             // Always shown while the app runs, so links can open a closed window.
-            .onAppear { automation.openDashboard = { openWindow(id: "dashboard") } }
+            .onAppear { automation.openDashboard = { dockPresence.reveal { openWindow(id: "dashboard") } } }
     }
 
     /// The default CPU value stays plain text; anything richer becomes one

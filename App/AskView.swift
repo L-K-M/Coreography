@@ -101,6 +101,7 @@ struct SettingsView: View {
     let updates: UpdateChecker
     let helperAccess: HelperAccess
     let briefing: BriefingController
+    let background: BackgroundMode
     @State private var key = ""
     @State private var message: String?
     @State private var confirmingDelete = false
@@ -192,6 +193,7 @@ struct SettingsView: View {
                 Text("Only for your own gestures, and only while macOS plays interface sound effects.")
                     .font(.caption).foregroundStyle(.secondary)
             }
+            BackgroundSection(mode: background)
             Section("Menu bar") {
                 ForEach(0..<MenuBarLayout.maximumItems, id: \.self) { slot in
                     MenuBarSlot(model: model, slot: slot)
@@ -486,5 +488,43 @@ private struct BriefingSection: View {
                 briefing.update(settings)
             }
         )
+    }
+}
+
+/// Menu bar only, started at login (Settings > Background).
+private struct BackgroundSection: View {
+    let mode: BackgroundMode
+
+    var body: some View {
+        Section("Background") {
+            Toggle("Run in the background", isOn: Binding(
+                get: { mode.presence == .background },
+                set: { on in Task { await mode.set(on ? .background : .window) } }
+            ))
+            Text("Starts when you log in with only the menu bar item, and no window or Dock icon until you open Coreography from it. Alerts, history and the Briefing widget keep running.")
+                .font(.caption).foregroundStyle(.secondary)
+            if let note = loginNote {
+                HStack {
+                    Text(note).font(.caption)
+                    Spacer()
+                    Button("Open Login Items…") { mode.openLoginItems() }
+                }
+            }
+            if let problem = mode.problem {
+                Text(problem).font(.caption).foregroundStyle(.red)
+            }
+        }
+        // The person may have changed Login Items since Settings last opened.
+        .task { mode.refresh() }
+    }
+
+    private var loginNote: String? {
+        guard mode.presence == .background else { return nil }
+        return switch mode.loginStart {
+        case .on: nil
+        case .off: String(localized: "Turned off in Login Items, so Coreography will not start at login.")
+        case .awaitingApproval: String(localized: "Waiting for your approval in System Settings > General > Login Items.")
+        case .unavailable: String(localized: "macOS cannot start this copy at login. Move Coreography to Applications, then turn this off and on again.")
+        }
     }
 }
