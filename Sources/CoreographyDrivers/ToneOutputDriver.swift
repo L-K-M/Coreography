@@ -44,9 +44,11 @@ public actor AudioToneDriver: TonePlaying {
     public func play(_ samples: [Float], sampleRate: Double) -> Bool {
         #if os(macOS)
         guard !samples.isEmpty, Self.hasOutputDevice(), let engine = prepare(sampleRate: sampleRate),
-              let format, start(engine) else { return false }
+              let format else { return false }
+        // The buffer comes before the engine starts: a cue that cannot be
+        // built must not leave the audio hardware running with nothing to pause it.
         guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(samples.count)),
-              let channel = buffer.floatChannelData?[0] else { return false }
+              let channel = buffer.floatChannelData?[0], start(engine) else { return false }
         buffer.frameLength = AVAudioFrameCount(samples.count)
         samples.withUnsafeBufferPointer { source in
             guard let base = source.baseAddress else { return }
