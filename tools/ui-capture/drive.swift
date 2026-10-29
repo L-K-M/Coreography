@@ -23,10 +23,13 @@ func coreography() -> NSRunningApplication? {
         .max { ($0.launchDate ?? .distantPast) < ($1.launchDate ?? .distantPast) }
 }
 
-func shot(_ name: String) {
+/// The whole placed window, for lanes below the top ones.
+let window = CGRect(x: 0, y: 25, width: 1024, height: 743)
+
+func shot(_ name: String, of area: CGRect = region) {
     let process = Process()
     process.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
-    let rect = "\(Int(region.minX)),\(Int(region.minY)),\(Int(region.width)),\(Int(region.height))"
+    let rect = "\(Int(area.minX)),\(Int(area.minY)),\(Int(area.width)),\(Int(area.height))"
     process.arguments = ["-x", "-C", "-R\(rect)", "\(output)/shots/\(name).png"]
     do {
         try process.run()
@@ -79,6 +82,37 @@ func frame(_ element: AXUIElement) -> CGRect? {
 func text(_ element: AXUIElement) -> String {
     [kAXRoleAttribute, kAXDescriptionAttribute, kAXTitleAttribute, kAXLabelValueAttribute]
         .compactMap { attribute(element, $0) as? String }.joined(separator: " | ")
+}
+
+/// The first element whose Accessibility text contains every fragment.
+func element(containing fragments: [String]) -> AXUIElement? {
+    guard let app = coreography() else { return nil }
+    var queue: [(AXUIElement, Int)] = [(AXUIElementCreateApplication(app.processIdentifier), 0)]
+    var visited = 0
+    while !queue.isEmpty, visited < 6000 {
+        let (element, depth) = queue.removeFirst()
+        visited += 1
+        let label = text(element)
+        if fragments.allSatisfy({ label.localizedCaseInsensitiveContains($0) }) { return element }
+        guard depth < 40, let children = attribute(element, kAXChildrenAttribute) as? [AXUIElement] else { continue }
+        queue += children.map { ($0, depth + 1) }
+    }
+    return nil
+}
+
+/// A short film of one step, beside the main recording.
+func film(_ name: String, seconds: Int) -> Process? {
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
+    let rect = "\(Int(window.minX)),\(Int(window.minY)),\(Int(window.width)),\(Int(window.height))"
+    process.arguments = ["-x", "-C", "-V", "\(seconds)", "-R\(rect)", "\(output)/\(name).mov"]
+    do {
+        try process.run()
+        return process
+    } catch {
+        log("film \(name) could not start: \(error)")
+        return nil
+    }
 }
 
 func cpuChart() -> CGRect? {
@@ -248,4 +282,46 @@ press(.escape)
 pause(0.4)
 shot("13-escape")
 mouse(.mouseMoved, CGPoint(x: 20, y: 700))
+log("braid done")
+
+// MARK: The space braid
+
+// The startup volume's rope sits in the Disk lane's header, below the fold.
+let ropeFragments = ["free", "used of"]
+if let rope = element(containing: ropeFragments) {
+    AXUIElementPerformAction(rope, "AXScrollToVisible" as CFString)
+    pause(0.8)
+    if let rect = frame(element(containing: ropeFragments) ?? rope) {
+        log("space rope at \(rect)")
+        shot("20-space-rest", of: window)
+        let center = CGPoint(x: rect.midX, y: rect.maxY - 4)
+        move(from: CGPoint(x: center.x + 80, y: center.y), to: center, seconds: 0.4)
+        shot("21-space-hover", of: window)
+        let opening = film("space-open", seconds: 4)
+        pause(0.5)
+        click(center)
+        log("click the rope")
+        pause(0.12)
+        shot("22-space-unbraiding", of: window)
+        pause(0.6)
+        shot("23-space-open", of: window)
+        opening?.waitUntilExit()
+        // Walking the runner's folders takes a while; Xcode alone is huge.
+        for (wait, label) in [(15.0, "15s"), (30.0, "45s"), (45.0, "90s")] {
+            pause(wait)
+            shot("24-space-\(label)", of: window)
+        }
+        press(.down)
+        press(.down)
+        pause(0.3)
+        shot("25-space-focus", of: window)
+        press(.escape)
+        pause(0.5)
+        shot("26-space-closed", of: window)
+    } else {
+        log("error: the space rope has no frame")
+    }
+} else {
+    log("error: no space rope found through Accessibility")
+}
 log("done")

@@ -336,6 +336,8 @@ public final class DashboardModel {
     @ObservationIgnored private var startupFreeFraction: Double?
     /// Every visible volume's capacity, read once a minute; nil before the first read.
     public private(set) var volumes: CapturedVolumes?
+    /// Where the startup volume's space goes, measured when the person looks.
+    public let space: SpaceSurveyor
     @ObservationIgnored private var volumeReadAt: Date?
     @ObservationIgnored private var askTask: Task<Void, Never>?
     @ObservationIgnored private let processMonitor: ProcessMonitor?
@@ -384,6 +386,7 @@ public final class DashboardModel {
         openFileMonitor = OpenFileMonitor()
         shortcutRunner = ShortcutLauncher()
         volumeReader = VolumeMonitor()
+        space = SpaceSurveyor()
         energyMode = EnergyModeMonitor()
         sessionArchive = SessionArchive.makeDefault()
         sampler = ProcessSampler()
@@ -447,8 +450,9 @@ public final class DashboardModel {
         responsivenessMonitor: ResponsivenessMonitor? = nil, exitWatcher: ProcessExitWatcher? = nil,
         maintenanceProvider: MaintenanceStatusProvider? = nil,
         shortcutRunner: ShortcutLauncher? = nil, volumeReader: VolumeMonitor? = nil,
-        energyMode: EnergyModeMonitor? = nil
+        energyMode: EnergyModeMonitor? = nil, space: SpaceSurveyor? = nil
     ) {
+        self.space = space ?? SpaceSurveyor(survey: nil, defaults: UserDefaults(suiteName: UUID().uuidString) ?? .standard)
         self.energyMode = energyMode
         self.shortcutRunner = shortcutRunner
         self.volumeReader = volumeReader

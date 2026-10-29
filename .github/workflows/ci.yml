@@ -789,7 +789,7 @@ jobs:
       # The runner has a GUI session: drive the CPU braid with real pointer and
       # key events under real load, and keep the film for review. Fails if the
       # app quits during it. Runs after packaging so the artifact is untouched.
-      - name: Drive and film the CPU braid
+      - name: Drive and film the CPU and space braids
         timeout-minutes: 15
         run: tools/ui-capture/capture.sh dist/Coreography.app "$RUNNER_TEMP/ui-capture"
 
