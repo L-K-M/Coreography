@@ -92,7 +92,10 @@ public struct SpaceSurvey: Sendable {
         case .timedOut, .cancelled: .timedOut
         case .complete: raw.unreadable > 0 ? .unreadable(raw.unreadable) : .complete
         }
+        // Hidden and empty items still count, but naming ".localized" or
+        // "Zero kB" tells the person nothing.
         let largest = raw.children
+            .filter { $0.value > 0 && !$0.key.hasPrefix(".") }
             .sorted { $0.value != $1.value ? $0.value > $1.value : $0.key < $1.key }
             .prefix(Self.largestShown)
             .map { SpaceItem(name: Self.displayName($0.key), bytes: $0.value) }

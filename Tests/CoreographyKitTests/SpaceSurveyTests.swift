@@ -109,7 +109,7 @@ final class SpaceSurveyTests: XCTestCase {
         let survey = SpaceSurvey(driver: Recorder(), home: "/Users/me")
         let size = await survey.measure(.applications)
         XCTAssertEqual(size.bytes, 1_000)
-        XCTAssertEqual(size.largest.map(\.name), ["Xcode", "Docker", "Mail"], "largest first, without .app")
+        XCTAssertEqual(size.largest.map(\.name), ["Xcode", "Docker", "Mail"], "largest first, without .app, hidden or empty items")
         XCTAssertEqual(size.completeness, .unreadable(2))
         XCTAssertTrue(size.isLowerBound)
         XCTAssertEqual(size.path, "/Applications")
@@ -129,7 +129,9 @@ private actor Recorder: FolderSizing {
     func size(of roots: [FolderRoot], skipping: Set<String>, deadline: ContinuousClock.Instant) async -> RawFolderSize {
         calls.append(Call(roots: roots, skipping: skipping))
         return RawFolderSize(
-            bytes: 1_000, children: ["Xcode.app": 600, "Mail.app": 50, "Docker.app": 300, "tiny.photoslibrary": 50],
+            bytes: 1_000, children: [
+                "Xcode.app": 600, "Mail.app": 50, "Docker.app": 300, "tiny.photoslibrary": 50, ".DS_Store": 700, "Empty.app": 0
+            ],
             unreadable: 2, files: 4, ending: .complete
         )
     }
