@@ -288,7 +288,7 @@ log("braid done")
 
 // The startup volume's rope sits in the Disk lane's header, below the fold.
 let ropeFragments = ["free", "used of"]
-/// Scrolls the lanes until the rope is inside the window, by Accessibility
+/// Scrolls the lanes until the rope is in the window's middle, by Accessibility
 /// first and by posted wheel events where SwiftUI does not offer that. The
 /// wheel's sign depends on the runner's natural-scrolling setting, so it
 /// flips whenever a notch took the rope further away.
@@ -297,7 +297,9 @@ func visibleRope(_ rope: AXUIElement) -> CGRect? {
     var lastDistance = CGFloat.infinity
     for attempt in 0..<24 {
         guard let rect = frame(rope) else { return nil }
-        if window.insetBy(dx: 0, dy: 40).contains(rect) { return rect }
+        // The middle, not just inside: lines above the rope re-wrap as samples
+        // arrive and move it by a line or two.
+        if window.insetBy(dx: 0, dy: window.height / 4).contains(rect) { return rect }
 
         let distance = abs(rect.midY - window.midY)
         log("rope at \(rect), attempt \(attempt)")
@@ -332,18 +334,28 @@ guard let rect = visibleRope(rope) else {
 
 log("space rope at \(rect)")
 shot("20-space-rest", of: window)
-let center = CGPoint(x: rect.midX, y: rect.maxY - 4)
-move(from: CGPoint(x: center.x + 80, y: center.y), to: center, seconds: 0.4)
+/// The rope's centre now, as the layout may have moved it since the last look.
+func ropeCenter() -> CGPoint {
+    let now = frame(rope) ?? rect
+    return CGPoint(x: now.midX, y: now.midY)
+}
+let hover = ropeCenter()
+move(from: CGPoint(x: hover.x + 80, y: hover.y), to: hover, seconds: 0.4)
 shot("21-space-hover", of: window)
 let opening = film("space-open", seconds: 4)
 pause(0.5)
-click(center)
-log("click the rope")
+let target = ropeCenter()
+click(target)
+log("click the rope at \(target)")
 pause(0.12)
 shot("22-space-unbraiding", of: window)
 pause(0.6)
 shot("23-space-open", of: window)
 opening?.waitUntilExit()
+guard element(containing: ["What takes up space"]) != nil else {
+    log("error: the space lens did not open")
+    exit(1)
+}
 // Walking the runner's folders takes a while; Xcode alone is huge.
 for (wait, label) in [(15.0, "15s"), (30.0, "45s"), (45.0, "90s")] {
     pause(wait)
