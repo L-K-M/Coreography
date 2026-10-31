@@ -560,7 +560,8 @@ struct DashboardView: View {
 
     private func lane(_ metric: DashboardMetric) -> some View {
         let reading = model.reading(for: metric)
-        let laneSize = model.section == .timeline ? model.laneLayout.size(of: .cpu) : .regular
+        let section = model.section
+        let laneSize = section == .timeline ? model.laneLayout.size(of: .cpu) : .regular
         let graphHeight = model.section == .timeline ? Layout.graphHeight(laneSize) : Layout.detailGraphHeight
         let title = metric == .cpu ? String(localized: "CPU") : String(localized: "Memory")
         let maximum = metric == .cpu
@@ -596,11 +597,8 @@ struct DashboardView: View {
         return HStack(alignment: .top, spacing: 24) {
             VStack(alignment: .leading, spacing: 10) {
                 Text(title).font(.caption.weight(.medium)).foregroundStyle(.secondary)
-                    .onTapGesture(count: 2) { if metric == .cpu { model.toggleDetail(.cpu) } }
-                    .help(String(localized: "Double-click to show or hide each core"))
-                    .accessibilityActions {
-                        if metric == .cpu { Button("Show or hide detail") { model.toggleDetail(.cpu) } }
-                    }
+                    .modifier(TimelineDetailToggle(model: model, lane: .cpu,
+                        hint: String(localized: "Double-click to show or hide each core")))
                 Text(metric == .cpu
                      ? MetricText.percent(reading?.numericValue)
                      : MetricText.bytes(reading?.numericValue))
@@ -731,7 +729,7 @@ struct DashboardView: View {
                     // Hiding the lane or losing its braid mid-inspection closes it and its hold.
                     .onDisappear {
                         guard metric == .cpu else { return }
-                        inspection.reset(model: model)
+                        inspection.reset(model: model, display: model.section == section ? .restore : .preserve)
                         braidKeys.remove()
                     }
                     .onChange(of: braid == nil) { _, gone in if gone { inspection.reset(model: model) } }
@@ -766,6 +764,7 @@ struct DashboardView: View {
                         title: title, metric: metric, points: points,
                         start: start, end: end, maximum: max(1, maximum)
                     ))
+                    .accessibilityIdentifier("cpu-chart")
                     // Sheds first when the lane is compact (plan: lane sizes).
                     if laneSize != .compact, !tiers.isEmpty {
                         TierStrip(cells: tiers, tiers: tierRows, range: start...end)
@@ -787,6 +786,23 @@ struct DashboardView: View {
     }
 }
 
+private struct TimelineDetailToggle: ViewModifier {
+    let model: DashboardModel
+    let lane: LaneKind
+    let hint: String
+
+    @ViewBuilder func body(content: Content) -> some View {
+        if model.section == .timeline {
+            content
+                .onTapGesture(count: 2) { model.toggleDetail(lane) }
+                .help(hint)
+                .accessibilityAction(named: Text("Show or hide detail")) { model.toggleDetail(lane) }
+        } else {
+            content
+        }
+    }
+}
+
 private struct MemoryLane: View {
     @Environment(\.laneGraphHeight) private var graphHeight
     @Bindable var model: DashboardModel
@@ -804,9 +820,8 @@ private struct MemoryLane: View {
         HStack(alignment: .top, spacing: 24) {
             VStack(alignment: .leading, spacing: 6) {
                 Text("Memory").font(.caption.weight(.medium)).foregroundStyle(.secondary)
-                    .onTapGesture(count: 2) { model.toggleDetail(.memory) }
-                    .help(String(localized: "Double-click to show or hide swap and page-ins over time"))
-                    .accessibilityAction(named: Text("Show or hide detail")) { model.toggleDetail(.memory) }
+                    .modifier(TimelineDetailToggle(model: model, lane: .memory,
+                        hint: String(localized: "Double-click to show or hide swap and page-ins over time")))
                 Text(MetricText.bytes(used?.numericValue))
                     .font(.system(size: 30, weight: .semibold))
                 Text("of \(MetricText.bytes(capacity)) used, estimated").font(.caption)
@@ -1181,9 +1196,8 @@ private struct PowerLane: View {
         HStack(alignment: .top, spacing: 24) {
             VStack(alignment: .leading, spacing: 6) {
                 Text("Power").font(.caption.weight(.medium)).foregroundStyle(.secondary)
-                    .onTapGesture(count: 2) { model.toggleDetail(.power) }
-                    .help(String(localized: "Double-click to show or hide battery capacity and sleep assertions"))
-                    .accessibilityAction(named: Text("Show or hide detail")) { model.toggleDetail(.power) }
+                    .modifier(TimelineDetailToggle(model: model, lane: .power,
+                        hint: String(localized: "Double-click to show or hide battery capacity and sleep assertions")))
                 Text(MetricText.watts(system?.numericValue) + (system?.availability == .estimated ? " est." : ""))
                     .font(.system(size: 30, weight: .semibold))
                 Text(PowerText.systemSource(system)).font(.caption)
@@ -1635,9 +1649,8 @@ private struct NetworkLane: View {
         HStack(alignment: .top, spacing: 24) {
             VStack(alignment: .leading, spacing: 8) {
                 Text("Network").font(.caption.weight(.medium)).foregroundStyle(.secondary)
-                    .onTapGesture(count: 2) { model.toggleDetail(.network) }
-                    .help(String(localized: "Double-click to show or hide each interface"))
-                    .accessibilityAction(named: Text("Show or hide detail")) { model.toggleDetail(.network) }
+                    .modifier(TimelineDetailToggle(model: model, lane: .network,
+                        hint: String(localized: "Double-click to show or hide each interface")))
                 Text("↓ " + MetricText.rate(receiveReading?.numericValue))
                     .font(.system(size: 24, weight: .semibold))
                 Text("↑ " + MetricText.rate(sendReading?.numericValue))
@@ -1725,9 +1738,8 @@ private struct DiskLane: View {
         HStack(alignment: .top, spacing: 24) {
             VStack(alignment: .leading, spacing: 8) {
                 Text("Disk").font(.caption.weight(.medium)).foregroundStyle(.secondary)
-                    .onTapGesture(count: 2) { model.toggleDetail(.disk) }
-                    .help(String(localized: "Double-click to show or hide each device"))
-                    .accessibilityAction(named: Text("Show or hide detail")) { model.toggleDetail(.disk) }
+                    .modifier(TimelineDetailToggle(model: model, lane: .disk,
+                        hint: String(localized: "Double-click to show or hide each device")))
                 Text("↓ " + MetricText.rate(model.reading(for: .diskRead)?.numericValue))
                     .font(.system(size: 24, weight: .semibold))
                 Text("↑ " + MetricText.rate(model.reading(for: .diskWritten)?.numericValue))

@@ -6,7 +6,7 @@ import CoreographyServices
 struct OverviewView: View {
     let model: DashboardModel
     private static let cardSpacing: CGFloat = 16
-    private static let minimumCardWidth: CGFloat = 250
+    private static let minimumCardWidth: CGFloat = 240
 
     var body: some View {
         VStack(alignment: .leading, spacing: Self.cardSpacing) {

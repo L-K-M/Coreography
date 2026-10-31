@@ -55,6 +55,22 @@ final class DashboardNavigationTests: XCTestCase {
     }
 
     @MainActor
+    func testResourceDetailActionsDoNotChangeTimelineExpansion() throws {
+        let model = try makeModel()
+        for section in DashboardSection.allCases where !section.lanes.isEmpty {
+            model.navigate(to: section)
+            for lane in section.lanes {
+                model.toggleDetail(lane)
+                XCTAssertTrue(model.showsLaneDetail(lane))
+                XCTAssertTrue(model.expandedLanes.isEmpty, "Resource pages do not change Timeline preferences")
+            }
+        }
+        model.navigate(to: .timeline)
+        model.toggleDetail(.cpu)
+        XCTAssertEqual(model.expandedLanes, [.cpu])
+    }
+
+    @MainActor
     func testLegacyPaneCommandsRevealTheirSidebarDestination() async throws {
         let model = try makeModel()
         let destinations: [(DetailPane, DashboardSection)] = [

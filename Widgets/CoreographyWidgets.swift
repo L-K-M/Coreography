@@ -323,6 +323,8 @@ private struct StatsView: View {
     private static let overviewLargeColumns = 2
     private static let overviewCardRadius: CGFloat = 10
     private static let overviewCardPadding: CGFloat = 8
+    private static let overviewSummaryPadding: CGFloat = 4
+    private static let overviewSummaryGridSpacing: CGFloat = 6
     private static let overviewGridSpacing: CGFloat = 10
     private static let overviewRowSpacing: CGFloat = 4
 
@@ -379,7 +381,8 @@ private struct StatsView: View {
     private enum OverviewDetail { case summary, context }
 
     private func overviewCardGrid(_ items: [OverviewItem], columns: Int, detail: OverviewDetail) -> some View {
-        Grid(alignment: .leading, horizontalSpacing: Self.overviewGridSpacing, verticalSpacing: Self.overviewGridSpacing) {
+        let spacing = detail == .summary ? Self.overviewSummaryGridSpacing : Self.overviewGridSpacing
+        return Grid(alignment: .leading, horizontalSpacing: spacing, verticalSpacing: spacing) {
             ForEach(Array(stride(from: 0, to: items.count, by: columns)), id: \.self) { start in
                 GridRow {
                     ForEach(start..<min(start + columns, items.count), id: \.self) { index in
@@ -400,9 +403,9 @@ private struct StatsView: View {
             } icon: {
                 Image(systemName: item.symbol).foregroundStyle(statistic.color)
             }
-            .font(.subheadline)
+            .font(detail == .summary ? .caption2 : .subheadline)
             Text(item.value)
-                .font(.title3.weight(.semibold))
+                .font((detail == .summary ? Font.headline : Font.title3).weight(.semibold))
                 .foregroundStyle(item.valueTint ?? .primary)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
@@ -410,7 +413,7 @@ private struct StatsView: View {
                 Text(context).font(.caption2).foregroundStyle(.secondary).lineLimit(2)
             }
         }
-        .padding(Self.overviewCardPadding)
+        .padding(detail == .summary ? Self.overviewSummaryPadding : Self.overviewCardPadding)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(.quaternary, in: .rect(cornerRadius: Self.overviewCardRadius))
     }

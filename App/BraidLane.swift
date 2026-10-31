@@ -16,6 +16,7 @@ import CoreographyServices
 @Observable
 final class BraidInspection {
     enum Phase: Equatable { case closed, pulling, open, folding }
+    enum ResetDisplay { case restore, preserve }
 
     struct Motion: Equatable {
         let from: Double
@@ -240,8 +241,8 @@ final class BraidInspection {
         model.toggleDisplayHold()
     }
 
-    /// The lane went away mid-inspection: close at once, no animation.
-    func reset(model: DashboardModel) {
+    /// Navigation keeps the inspected moment; other teardown restores the owned hold.
+    func reset(model: DashboardModel, display: ResetDisplay = .restore) {
         guard phase != .closed else { return }
         motionToken = UUID()
         motion = nil
@@ -249,6 +250,11 @@ final class BraidInspection {
         time = nil
         focused = nil
         model.cursorPinned = false
+        if display == .preserve {
+            // The held moment now belongs to the investigation, not the hidden lens.
+            ownHold = nil
+            return
+        }
         model.cursorTime = nil
         release(model)
     }

@@ -534,6 +534,8 @@ public final class DashboardModel {
     public private(set) var expandedLanes: Set<LaneKind> = []
 
     public func toggleDetail(_ lane: LaneKind) {
+        // Resource pages stay expanded without changing Timeline preferences.
+        guard section.lanes.isEmpty else { return }
         if expandedLanes.contains(lane) { expandedLanes.remove(lane) } else { expandedLanes.insert(lane) }
     }
 
