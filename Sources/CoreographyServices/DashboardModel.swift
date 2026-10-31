@@ -252,6 +252,8 @@ public final class DashboardModel {
     public private(set) var hasProviderKey = false
     public private(set) var contributorHistory: [ContributorSnapshot] = []
 
+    /// The app supplies timeline invalidation; command-line hosts leave it nil.
+    @ObservationIgnored private let refreshWidgets: (@MainActor (Date) -> Void)?
     @ObservationIgnored private let monitor: SystemMonitor?
     @ObservationIgnored private let controller: ProcessController
     @ObservationIgnored private let askService: AskService
@@ -370,7 +372,11 @@ public final class DashboardModel {
     /// - Parameter notifier: system notifications for actionable alerts; nil
     ///   (as in command-line hosts) keeps alerts to tints and markers.
     ///   History is recorded only when the app supplies a recorder.
-    public init(notifier: AlertDelivery? = nil, history: (recorder: HistoryRecorder?, error: String?) = (nil, nil)) {
+    public init(
+        notifier: AlertDelivery? = nil, history: (recorder: HistoryRecorder?, error: String?) = (nil, nil),
+        refreshWidgets: (@MainActor (Date) -> Void)? = nil
+    ) {
+        self.refreshWidgets = refreshWidgets
         controller = ProcessController()
         askService = AskService()
         self.notifier = notifier
@@ -450,8 +456,10 @@ public final class DashboardModel {
         responsivenessMonitor: ResponsivenessMonitor? = nil, exitWatcher: ProcessExitWatcher? = nil,
         maintenanceProvider: MaintenanceStatusProvider? = nil,
         shortcutRunner: ShortcutLauncher? = nil, volumeReader: VolumeMonitor? = nil,
-        energyMode: EnergyModeMonitor? = nil, space: SpaceSurveyor? = nil
+        energyMode: EnergyModeMonitor? = nil, space: SpaceSurveyor? = nil,
+        refreshWidgets: (@MainActor (Date) -> Void)? = nil
     ) {
+        self.refreshWidgets = refreshWidgets
         self.space = space ?? SpaceSurveyor(survey: nil, defaults: UserDefaults(suiteName: UUID().uuidString) ?? .standard)
         self.energyMode = energyMode
         self.shortcutRunner = shortcutRunner
@@ -2159,6 +2167,8 @@ public final class DashboardModel {
                     self.evaluateAlerts()
                     self.refreshMaintenance(olderThan: Self.maintenanceRefreshAge)
                     self.recordHistory()
+                    // Widgets follow collection even while the display is held or replaying.
+                    if let sampledAt = self.liveSampleTime { self.refreshWidgets?(sampledAt) }
                     if self.timeRange.reachesStoredHistory, self.recordsHistory { self.refreshStoredHistory() }
                     if self.displayMode == .live {
                         self.frames = history
