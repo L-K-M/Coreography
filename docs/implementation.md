@@ -111,8 +111,8 @@ Implemented:
   old, on their own queue, 90 s per area at most ("at least" beyond that).
   Areas that make macOS ask are walked only after Measure, which is
   remembered; a refused one is named rather than shown as empty.
-- Background mode (Settings > Background): Coreography starts at login
-  through `SMAppService.mainApp` with only its menu bar extra. The window
+- Background mode (Settings > Background > Open at login in the menu bar):
+  Coreography starts at login through `SMAppService.mainApp` with only its menu bar extra. The window
   is not opened or restored at launch, and the Dock icon appears only
   while the window or Settings is open. Sampling, alerts, history and the
   Briefing widget keep running; the other widgets sample on their own
@@ -133,8 +133,12 @@ Implemented:
   Missing readings keep their reasons. Every widget shows its sample
   time, asks macOS for another sample after 15 minutes, and labels the
   retained reading as older after 30 minutes. These are snapshots, not
-  live graphs; clicking opens the matching resource page. The build embeds and signs
-  the extension, preserving its sandbox entitlement and checking both
+  live graphs; clicking opens the matching resource page. The running app
+  also requests fresh timelines after its first live sample, then at most
+  every five minutes in the foreground or 15 minutes in the background.
+  Holding the display or viewing a recording does not stop these requests;
+  macOS controls delivery. The build embeds and signs the extension,
+  preserving its sandbox entitlement and checking both
   architectures. Gallery registration, layout and sandboxed collection
   remain owner Mac checks.
 - Briefing widget: off by default. Once turned on in Settings, the app

@@ -6,6 +6,27 @@ import CoreographyDrivers
 
 @MainActor
 final class DashboardModelTests: XCTestCase {
+    func testLiveSamplesOfferWidgetRefreshWhileTheDisplayIsHeld() async throws {
+        let driver = IncreasingHostDriver()
+        var refreshes = 0
+        let model = DashboardModel(
+            monitor: try SystemMonitor(driver: driver), interval: .milliseconds(10),
+            refreshWidgets: { _ in refreshes += 1 }
+        )
+        model.start()
+        defer { model.stop() }
+        try await eventually { model.frames.count >= 2 }
+        XCTAssertGreaterThan(refreshes, 0, "Opening the app must request fresh widget timelines")
+
+        model.toggleDisplayHold()
+        let held = model.latest?.stamp.wallTime
+        let before = refreshes
+        let reads = await driver.readCount
+        try await eventually { await driver.readCount >= reads + 3 }
+        XCTAssertGreaterThan(refreshes, before, "Widgets follow live collection while the display is held")
+        XCTAssertEqual(model.latest?.stamp.wallTime, held)
+    }
+
     func testHoldingDisplayDoesNotPauseCollection() async throws {
         let driver = IncreasingHostDriver()
         let monitor = try SystemMonitor(driver: driver)

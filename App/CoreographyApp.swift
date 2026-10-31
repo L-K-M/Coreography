@@ -22,7 +22,13 @@ private struct CoreographyApp: App {
     /// One sampler for every surface, running from launch, so the menu bar
     /// extra stays live while the window is closed.
     init() {
-        let model = DashboardModel(notifier: AlertNotifications(), history: HistoryRecorder.makeDefault())
+        let widgets = WidgetRefresh { WidgetCenter.shared.reloadAllTimelines() }
+        let model = DashboardModel(
+            notifier: AlertNotifications(), history: HistoryRecorder.makeDefault(),
+            refreshWidgets: { sampledAt in
+                widgets.request(at: sampledAt, activity: NSApplication.shared.isActive ? .foreground : .background)
+            }
+        )
         model.start()
         let hud = HUDController(model: model)
         _dashboard = State(initialValue: model)

@@ -38,8 +38,9 @@ samples stays in memory, and charts keep every spike when zoomed out.
 A menu bar extra shows CPU in the menu bar and opens mini lanes; it shares
 the window's sampler and keeps sampling while the window is closed.
 To keep Coreography running without a window, turn on **Settings >
-Background**: it starts at login with only the menu bar item, and the
-window and Dock icon appear when you open it from there.
+Background > Open at login in the menu bar**: it starts at login with only
+the menu bar item, and the window and Dock icon appear when you open it from
+there.
 
 Desktop widgets show CPU, estimated used memory with pressure, primary-interface
 download/upload rates, startup-disk space, or an overview. Small widgets keep
@@ -48,8 +49,11 @@ overview adds capacity, pressure and source context. Open the app
 once after installation, then right-click the desktop, choose **Edit Widgets**
 and search for **Coreography**. Widgets take their own short samples even when
 the app is closed. Each shows its sample time; refreshes are requested every
-15 minutes and scheduled by macOS. Click a widget or overview card to open
-the matching section. Widgets show snapshots, not live trends.
+15 minutes and scheduled by macOS. While Coreography runs, fresh readings also
+request widget updates: at launch, then at most every five minutes in the
+foreground or 15 minutes in the background. macOS can delay these requests.
+Click a widget or overview card to open the matching section. Widgets show
+snapshots, not live trends.
 
 The Briefing widget says in one or two sentences what your Mac did in the
 last five minutes. It is off until you turn it on in Settings > Briefing
