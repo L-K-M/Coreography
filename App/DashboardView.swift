@@ -735,7 +735,7 @@ struct DashboardView: View {
                     // Hiding the lane or losing its braid mid-inspection closes it and its hold.
                     .onDisappear {
                         guard metric == .cpu else { return }
-                        inspection.reset(model: model, display: model.section == section ? .restore : .preserve)
+                        inspection.reset(model: model)
                     }
                     .onChange(of: braid == nil) { _, gone in if gone { inspection.reset(model: model) } }
                     // A new range or a return to live takes the inspected moment away.

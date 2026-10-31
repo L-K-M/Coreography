@@ -16,7 +16,6 @@ import CoreographyServices
 @Observable
 final class BraidInspection {
     enum Phase: Equatable { case closed, pulling, open, folding }
-    enum ResetDisplay { case restore, preserve }
 
     struct Motion: Equatable {
         let from: Double
@@ -48,6 +47,7 @@ final class BraidInspection {
     /// The model's hold generation after this inspection held the display;
     /// nil when the person's own hold was already in place.
     @ObservationIgnored private var ownHold: Int?
+    @ObservationIgnored private var originSection: DashboardSection?
     @ObservationIgnored private var motionToken = UUID()
     @ObservationIgnored private let feedback = InteractionFeedback()
     @ObservationIgnored private var lastHaptic: ContinuousClock.Instant?
@@ -227,6 +227,7 @@ final class BraidInspection {
 
     /// A live display holds for the inspection; one already held stays the person's.
     private func hold(_ model: DashboardModel) {
+        originSection = model.section
         guard model.displayMode == .live else { return }
         model.toggleDisplayHold()
         ownHold = model.holdGeneration
@@ -242,15 +243,18 @@ final class BraidInspection {
     }
 
     /// Navigation keeps the inspected moment; other teardown restores the owned hold.
-    func reset(model: DashboardModel, display: ResetDisplay = .restore) {
+    func reset(model: DashboardModel) {
         guard phase != .closed else { return }
+        // SwiftUI may update a departing view before its teardown callback runs.
+        let leavingSection = originSection != model.section
+        originSection = nil
         motionToken = UUID()
         motion = nil
         phase = .closed
         time = nil
         focused = nil
         model.cursorPinned = false
-        if display == .preserve {
+        if leavingSection {
             // The held moment now belongs to the investigation, not the hidden lens.
             ownHold = nil
             return
