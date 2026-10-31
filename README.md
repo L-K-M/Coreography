@@ -7,10 +7,13 @@ A graph-first, native Mac system monitor, in early implementation.
 
 **Development version:** v<!-- version -->0.6.0<!-- /version -->
 
-The first slice collects whole-machine CPU activity and estimated used
-memory, shows a minute of aligned graphs, and includes a numeric table
-and the `coreo` diagnostic CLI. Holding the display keeps collection
-running. Missing readings leave gaps instead of invented zeros.
+Overview opens with compact resource cards, recent trends, active alerts
+and the busiest apps. The sidebar opens detailed CPU, Memory, GPU, Storage,
+Network and Power & Thermals pages, plus Processes, Startup and Recordings.
+Timeline keeps the aligned charts and shared cursor for comparing events
+across resources. Navigation preserves your time range and app scope.
+Holding the display keeps collection running. Missing readings leave gaps
+instead of invented zeros. The `coreo` CLI exposes the same diagnostics.
 
 The memory lane stacks app, wired, compressed and cached memory under the
 physical-memory line, with a kernel pressure band above it. Its header and
@@ -39,11 +42,14 @@ Background**: it starts at login with only the menu bar item, and the
 window and Dock icon appear when you open it from there.
 
 Desktop widgets show CPU, estimated used memory with pressure, primary-interface
-download/upload rates, startup-disk space, or an overview, in small and medium sizes. Open the app
+download/upload rates, startup-disk space, or an overview. Small widgets keep
+compact readings; medium overview cards link to each resource, and a large
+overview adds capacity, pressure and source context. Open the app
 once after installation, then right-click the desktop, choose **Edit Widgets**
 and search for **Coreography**. Widgets take their own short samples even when
 the app is closed. Each shows its sample time; refreshes are requested every
-15 minutes and scheduled by macOS. Click a widget for live readings in the app.
+15 minutes and scheduled by macOS. Click a widget or overview card to open
+the matching section. Widgets show snapshots, not live trends.
 
 The Briefing widget says in one or two sentences what your Mac did in the
 last five minutes. It is off until you turn it on in Settings > Briefing
@@ -79,7 +85,8 @@ without history or approval.
 
 Shortcuts and Spotlight get actions for the system summary, top apps,
 starting and stopping a recording, and finding who uses a port or has a
-file open. `coreography://` links navigate only: `show`, `filter?q=`,
+file open. `coreography://` links navigate only: `show`, `show/memory`
+(or another sidebar section), `filter?q=`,
 `find?port=` or `find?file=`, `process?pid=`, `range?seconds=`,
 `record/start?name=`, `record/stop` and `hud/toggle`. No link or action
 quits, signals or exports anything.

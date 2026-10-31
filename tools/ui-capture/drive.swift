@@ -85,7 +85,7 @@ func text(_ element: AXUIElement) -> String {
 }
 
 /// The first element whose Accessibility text contains every fragment.
-func element(containing fragments: [String]) -> AXUIElement? {
+func element(containing fragments: [String] = [], identifier: String? = nil) -> AXUIElement? {
     guard let app = coreography() else { return nil }
     var queue: [(AXUIElement, Int)] = [(AXUIElementCreateApplication(app.processIdentifier), 0)]
     var visited = 0
@@ -93,7 +93,8 @@ func element(containing fragments: [String]) -> AXUIElement? {
         let (element, depth) = queue.removeFirst()
         visited += 1
         let label = text(element)
-        if fragments.allSatisfy({ label.localizedCaseInsensitiveContains($0) }) { return element }
+        let matchesIdentifier = identifier == nil || attribute(element, kAXIdentifierAttribute) as? String == identifier
+        if matchesIdentifier, fragments.allSatisfy({ label.localizedCaseInsensitiveContains($0) }) { return element }
         guard depth < 40, let children = attribute(element, kAXChildrenAttribute) as? [AXUIElement] else { continue }
         queue += children.map { ($0, depth + 1) }
     }
@@ -197,6 +198,42 @@ guard AXIsProcessTrusted() else {
     exit(1)
 }
 logWindows()
+
+enum Destination: String, CaseIterable {
+    case overview, cpu, memory, gpu, storage, network, power, processes, timeline, startup, recordings
+}
+
+func waitForDestination(_ section: Destination) {
+    let deadline = Date().addingTimeInterval(10)
+    while Date() < deadline {
+        if element(identifier: "section-heading-\(section.rawValue)") != nil { return }
+        pause(0.1)
+    }
+    log("error: destination \(section.rawValue) did not appear")
+    exit(1)
+}
+
+func navigate(to section: Destination) {
+    guard let url = URL(string: "coreography://show/\(section.rawValue)"), NSWorkspace.shared.open(url) else {
+        log("error: could not open destination \(section.rawValue)")
+        exit(1)
+    }
+    waitForDestination(section)
+    log("destination \(section.rawValue) visible")
+}
+
+// Check the new destinations before exercising the existing chart gestures.
+for section in Destination.allCases { navigate(to: section) }
+navigate(to: .overview)
+shot("00-overview", of: window)
+guard let card = element(identifier: "overview-cpu"), let cardFrame = frame(card) else {
+    log("error: Overview has no CPU card")
+    exit(1)
+}
+click(CGPoint(x: cardFrame.midX, y: cardFrame.midY))
+waitForDestination(.cpu)
+shot("00-cpu-detail", of: window)
+
 let estimate = CGRect(x: 244, y: 147, width: 640, height: 104)
 let found = cpuChart()
 let chart = found ?? estimate
@@ -285,6 +322,8 @@ mouse(.mouseMoved, CGPoint(x: 20, y: 700))
 log("braid done")
 
 // MARK: The space braid
+
+navigate(to: .storage)
 
 // The startup volume's rope sits in the Disk lane's header, below the fold.
 let ropeFragments = ["free", "used of"]

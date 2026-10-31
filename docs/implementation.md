@@ -63,6 +63,18 @@ the reviews of the merged slices found, in
 
 Implemented:
 
+- Sidebar navigation: Overview opens with six resource cards, segmented
+  mini trends, active alerts and CPU-leading apps. CPU, Memory, GPU,
+  Storage, Network and Power & Thermals open expanded charts and relevant
+  process, connection or sensor panes. Processes, Startup and Recordings
+  have dedicated pages. Timeline retains the aligned lanes, shared cursor,
+  range reports, numeric tables and saved lane layout. Navigation preserves
+  the investigation's time range, selection and app scope. Palette actions,
+  automation and recording opens reveal their destination; widget links
+  use `coreography://show/<section>`. Service tests cover routing and context
+  preservation; native CI drives all destinations and a card before the
+  existing CPU and space braid checks. Widget gallery layout and physical
+  Mac interaction remain owner checks.
 - The CPU braid (plan: cause beside symptom, made tactile): the CPU lane's
   area is stacked per-app strands from the ledger, drawn as interval steps
   because the ledger knows two-second averages, not instants. The top
@@ -108,18 +120,20 @@ Implemented:
   bar extra gains Settings and Quit. A login item turned off in System
   Settings is shown, not silently re-registered.
 - Desktop widgets: CPU, memory, network, disk and system overview, each in
-  small and medium sizes. A sandboxed WidgetKit extension takes two host and
+  small and medium sizes, plus a large system overview. A sandboxed WidgetKit extension takes two host and
   interface samples a second apart through the existing services and
   monitors, so it works with the app closed and records no history.
   CPU uses the whole machine; memory keeps its estimate and pressure;
   network uses only the published primary interface, never a guessed one;
   disk is the startup volume's free space for important use, as Finder
   counts it, with its unreadable reason when it cannot be read. The
-  medium overview lays its five readings out as tiles.
+  medium overview lays CPU, memory, memory pressure, disk, download and
+  upload out as linked cards. Large adds capacity and source context;
+  small folds pressure into the memory row.
   Missing readings keep their reasons. Every widget shows its sample
   time, asks macOS for another sample after 15 minutes, and labels the
   retained reading as older after 30 minutes. These are snapshots, not
-  live graphs; clicking opens the dashboard. The build embeds and signs
+  live graphs; clicking opens the matching resource page. The build embeds and signs
   the extension, preserving its sandbox entitlement and checking both
   architectures. Gallery registration, layout and sandboxed collection
   remain owner Mac checks.

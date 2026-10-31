@@ -80,6 +80,7 @@ private struct CoreographyApp: App {
                 Button("Return to Now") {
                     automation.showDashboard()
                     dashboard.returnToNow()
+                    dashboard.navigate(to: .timeline)
                 }
                 .keyboardShortcut("0", modifiers: .command)
                 Button("Command Palette…") {

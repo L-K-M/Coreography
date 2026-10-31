@@ -17,7 +17,7 @@ ROOT="$(cd "$HERE/../.." && pwd)"
 # Seconds of history before the interaction: a full minute window of strands.
 WARMUP=55
 # Long enough for every step in drive.swift.
-RECORD=46
+RECORD=70
 
 mkdir -p "$OUT/frames" "$OUT/shots"
 

@@ -94,67 +94,64 @@ Monitor. Each row is a flow the design must make short.
 
 ### Layout decision
 
-Three layouts were proposed: a grid of cards (iStat style), a sparkline
-rail with stacked timeline lanes (Task Manager plus Instruments), and the
-classic table with bigger graphs. The plan takes **full-width cards
-stacked as lanes**: each card keeps iStat's anatomy (label, big value,
-secondary facts, top processes) on its left, and its graph fills the rest
-of the row. Because every graph has the same horizontal extent, one
-vertical cursor crosses all of them, which a grid of differently sized
-cards cannot do. That alignment is what makes "what else was happening at
-that moment" visible without effort. It is the combined workflow this
-survey found least well served by existing Mac monitors.
+Separate status from investigation. **Overview** is the home screen:
+compact resource cards with a current reading and a short trend, active
+alerts, and CPU-leading apps. A card opens its resource's detailed charts.
+Missing readings stay explicit; no synthetic health score replaces them.
+
+A native sidebar groups CPU, Memory, GPU, Storage, Network and Power &
+Thermals under Resources; Processes and Timeline under Investigate; Startup
+and Recordings under Manage. Network includes Connections, and Power &
+Thermals includes Sensors. Detailed resource pages reuse the existing
+expanded lanes and their source caveats, not a second collector.
+
+**Timeline** keeps full-width cards stacked as aligned lanes. Its shared
+cursor makes "what else was happening at that moment" visible across
+resources. Hide, reorder and resize remain Timeline preferences; they do
+not remove resources from the sidebar or Overview. Switching destinations
+preserves the shared time range, range selection and app scope.
 
 ### Regions
 
 ```text
-+--------------------------------------------------------------------------------+
-| (o)(o)(o)  All Processes v   [1m|10m|1h|6h|24h]   || 1 s v    Search    [i]    |  toolbar
-+--------------------------------------------------------------------------------+
-|           14:04      14:05      14:06      14:07      14:08      14:09   * Live |  time ruler
-+--------------------------------------------------------------------------------+
-| CPU          41 %  |                                    /\                     |
-| 3.9 GHz  62 C      |  ___/\___/\/\______/\_____________/  \__/\___/\____       |
-| Xcode 12  Safari 8 |  E [== 44% 1.5 GHz]   P [===== 38% 3.9 GHz]              |
-+--------------------+-----------------------------------------------------------+
-| MEMORY   24.1 GB   |  ======================================================== |
-| pressure normal    |  app | wired | compressed | cached          [pressure band] |
-| Safari 7.5 GB      |                                                           |
-+--------------------+-----------------------------------------------------------+
-| GPU          12 %  |  __/\____/\_______________________________________/\_     |
-+--------------------+-----------------------------------------------------------+
-| POWER    8.4 W est |  battery 78 %, 4 h 12 min at this draw                    |
-+--------------------+-----------------------------------------------------------+
-| DISK   84 MB/s rd  |  reads above the line, writes below                       |
-+--------------------+-----------------------------------------------------------+
-| NETWORK 6.2 Mb/s   |  download above the line, upload below                    |
-+--------------------+-----------------------------------------------------------+
-| THERMAL  62 C      |  hottest sensor, pressure bands, fan speed                |
-+--------------------------------------------------------------------------------+
-| ^ Processes  812 processes, 3,412 threads, top: Xcode 12% CPU    Coreography 0.4% |  detail pane (collapsed)
-+--------------------------------------------------------------------------------+
++----------------------+---------------------------------------------------------+
+| Sidebar              | Overview                         Record  Range  Inspector|
++----------------------+---------------------------------------------------------+
+| Overview             | [ CPU + trend ] [ Memory + pressure ] [ GPU + trend ]    |
+|                      | [ Storage     ] [ Network           ] [ Power/Thermals ] |
+| RESOURCES            |                                                         |
+| CPU                  | Active alerts                                           |
+| Memory               | Busiest apps by CPU                         All Processes|
+| GPU                  | Ask Coreography                                         |
+| Storage              |                                                         |
+| Network              | Resource card -> expanded horizontal charts + details   |
+| Power & Thermals     |                                                         |
+|                      | Timeline -> aligned lanes, shared cursor, range reports |
+| INVESTIGATE          |                                                         |
+| Processes            |                                                         |
+| Timeline             |                                                         |
+|                      |                                                         |
+| MANAGE               |                                                         |
+| Startup              |                                                         |
+| Recordings           |                                                         |
++----------------------+---------------------------------------------------------+
 ```
 
-- **Toolbar** (Liquid Glass): scope pill (All Processes, or the selected
-  app with a clear button), range pills, pause and sampling rate, search,
-  inspector toggle.
-- **Time ruler**: shared axis labels, the cursor time, a Live chip that
-  becomes "Return to now" when you scrub back.
-- **Lanes**: one per subsystem, in a fixed, semantic default order
-  (compute, cost, pipes, environment). Hide, reorder and resize from each
-  lane's menu. Double-click expands a lane into its detail view in place;
-  the others compress to thin strips so context stays visible.
-- **Detail pane** (bottom, collapsed to a one-line summary by default):
-  tabs for Processes, Connections, Startup, Sensors and Recordings. It
-  slides up to half or three quarters of the window. The collapsed line
-  still answers "is anything running away" and reports coverage intervals
-  and restricted columns, plus an unattributed share where accounting is
-  compatible and additive.
-- **Inspector** (right, hidden by default): opens when something is
-  selected. One inspector, content follows the selection.
-
-There is no sidebar. The lanes are the navigation (P5); a sidebar would
-repeat them.
+- **Sidebar**: stable destinations, independent of hidden Timeline lanes.
+- **Toolbar** (Liquid Glass): shared scope, range, recording, display hold,
+  sampling and inspector controls. Collection remains shared by surfaces.
+- **Overview**: adaptive cards; click through to details. App scope applies
+  to the detailed charts and process rows; cards label subsystem readings.
+- **Resource page**: full-width history, expanded breakdowns and relevant
+  process, connection or sensor details. Compare in Timeline opens the
+  aligned view without clearing the investigation.
+- **Timeline**: the following lane anatomy and chart grammar, with its
+  five-pane detail picker, range reports and numeric disclosures.
+- **Inspector** (right, hidden by default): follows the selected process
+  or lane and remains available across destinations.
+- **Widgets**: small summaries, linked medium overview cards, and a large
+  overview with context. Widgets keep their sample time and stale state;
+  they do not invent live trends from independent short samples.
 
 ### Lane anatomy
 
