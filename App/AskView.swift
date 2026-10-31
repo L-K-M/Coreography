@@ -497,7 +497,7 @@ private struct BackgroundSection: View {
 
     var body: some View {
         Section("Background") {
-            Toggle("Run in the background", isOn: Binding(
+            Toggle("Open at login in the menu bar", isOn: Binding(
                 get: { mode.presence == .background },
                 set: { on in Task { await mode.set(on ? .background : .window) } }
             ))
