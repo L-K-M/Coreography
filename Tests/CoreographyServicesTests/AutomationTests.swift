@@ -92,10 +92,12 @@ final class AutomationTests: XCTestCase {
         XCTAssertNil(none)
         XCTAssertEqual(model.processFilter, "port:443")
         XCTAssertEqual(model.detailPane, .processes, "a filter shows the processes it filters")
+        XCTAssertEqual(model.section, .processes)
 
         let selected = await model.perform(.selectProcess(pid: 42))
         XCTAssertNil(selected)
         XCTAssertEqual(model.selectedProcess?.id.pid, 42)
+        XCTAssertEqual(model.section, .processes)
         let missing = await model.perform(.selectProcess(pid: 7))
         XCTAssertEqual(missing, "No observed process has PID 7")
         XCTAssertEqual(model.actionMessage, "No observed process has PID 7")

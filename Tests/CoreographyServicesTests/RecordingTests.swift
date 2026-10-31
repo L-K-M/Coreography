@@ -84,6 +84,7 @@ final class RecordingTests: XCTestCase {
 
         let opened = await model.openRecording(data, fileName: "Build log")
         XCTAssertNil(opened)
+        XCTAssertEqual(model.section, .timeline, "An opened recording reveals its charts")
         XCTAssertEqual(model.openRecording?.name, "Build log", "the file's name, which the person chose, names it")
         XCTAssertEqual(model.displayMode, .held)
         XCTAssertEqual(model.frames.first?.stamp.wallTime, start)

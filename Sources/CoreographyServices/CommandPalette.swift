@@ -11,6 +11,7 @@ public enum PaletteAction: Hashable, Sendable {
     case stopRecording
     case range(TimeRange)
     case pane(DetailPane)
+    case section(DashboardSection)
     case grouping(ProcessGrouping)
     case sort(ProcessSort)
     case filter(String)

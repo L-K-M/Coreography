@@ -128,7 +128,19 @@ public final class DashboardModel {
     @ObservationIgnored private var sampleRun: UUID?
     /// Filters kept as chips under the field.
     public private(set) var savedFilters: [String] = []
-    /// The pane under the lanes; connections are read only while shown or filtered on.
+    public private(set) var section: DashboardSection = .overview
+
+    /// Navigation changes presentation, not the shared time, scope or collection.
+    public func navigate(to section: DashboardSection) {
+        self.section = section
+        if let pane = section.detailPane { detailPane = pane }
+    }
+
+    public func showsLaneDetail(_ lane: LaneKind) -> Bool {
+        section.lanes.contains(lane) || expandedLanes.contains(lane)
+    }
+
+    /// The active detail pane; connections are read only while shown or filtered on.
     public var detailPane: DetailPane = .processes {
         didSet {
             if wantsConnections { sampleConnections() }
@@ -530,6 +542,8 @@ public final class DashboardModel {
     public private(set) var expandedLanes: Set<LaneKind> = []
 
     public func toggleDetail(_ lane: LaneKind) {
+        // Resource pages stay expanded without changing Timeline preferences.
+        guard section.lanes.isEmpty else { return }
         if expandedLanes.contains(lane) { expandedLanes.remove(lane) } else { expandedLanes.insert(lane) }
     }
 
@@ -900,6 +914,7 @@ public final class DashboardModel {
         openStoredData = storedData
         storedHistory = storedData.map { StoredHistory(reducing: $0) }
         refreshSystemMarkers()
+        navigate(to: .timeline)
         return nil
     }
 
@@ -1309,8 +1324,10 @@ public final class DashboardModel {
         switch evidence {
         case .app(let name):
             scopedApp = name
+            navigate(to: .timeline)
         case .range(let range):
             selection = range
+            navigate(to: .timeline)
         case .process(let pid):
             // A link from an answer no longer shown does nothing.
             guard case .answered(let answer) = askState else { return }
@@ -1318,6 +1335,7 @@ public final class DashboardModel {
                 actionMessage = "PID \(pid) is no longer running"
                 return
             }
+            navigate(to: .processes)
             selectedProcessRow = ProcessGroups.rowID(process)
         }
     }
@@ -1652,15 +1670,21 @@ public final class DashboardModel {
     public func perform(_ command: AutomationCommand) async -> String? {
         let failure: String?
         switch command {
-        case .show, .toggleHUD:
+        case .show:
+            navigate(to: .overview)
+            failure = nil
+        case .navigate(let section):
+            navigate(to: section)
+            failure = nil
+        case .toggleHUD:
             failure = nil
         case .filter(let text):
-            detailPane = .processes
+            navigate(to: .processes)
             processFilter = text
             failure = nil
         case .selectProcess(let pid):
             if let process = processSnapshot?.processes.first(where: { $0.id.pid == pid }) {
-                detailPane = .processes
+                navigate(to: .processes)
                 selectedProcessRow = ProcessGroups.rowID(process)
                 failure = nil
             } else {
@@ -1668,6 +1692,7 @@ public final class DashboardModel {
             }
         case .range(let range):
             timeRange = range
+            navigate(to: .timeline)
             failure = nil
         case .startRecording(let name):
             failure = sessionRecording == nil ? nil : "A session is already recording"
@@ -1805,6 +1830,7 @@ public final class DashboardModel {
             entry("Toggle HUD", .toggleHUD),
             entry("Open Settings", .openSettings)
         ]
+        entries += DashboardSection.allCases.map { entry("Go to \($0.title)", .section($0)) }
         entries += TimeRange.allCases.map { entry(CommandPalette.rangeTitle($0), .range($0)) }
         entries += DetailPane.allCases.map { entry(CommandPalette.paneTitle($0), .pane($0)) }
         entries += [
@@ -1850,11 +1876,12 @@ public final class DashboardModel {
         case .startRecording: startRecording()
         case .stopRecording: await stopRecording()
         case .range(let range): timeRange = range
-        case .pane(let pane): detailPane = pane
+        case .section(let section): navigate(to: section)
+        case .pane(let pane): navigate(to: DashboardSection(pane: pane))
         case .grouping(let grouping): processGrouping = grouping
         case .sort(let sort): processSort = sort
         case .filter(let text):
-            detailPane = .processes
+            navigate(to: .processes)
             processFilter = text
         case .clearFilter: processFilter = ""
         case .saveFilter: saveProcessFilter()

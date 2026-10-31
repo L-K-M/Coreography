@@ -12,7 +12,7 @@ private let sharingNotice = String(localized: """
 /// read-only diagnostic tools as MCP.
 struct AskPanel: View {
     @Bindable var model: DashboardModel
-    @State private var question = ""
+    @Binding var question: String
 
     var body: some View {
         DisclosureGroup("Ask Coreography") {

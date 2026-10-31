@@ -7,6 +7,7 @@ import CoreographyKit
 ///
 /// ```text
 /// coreography://show
+/// coreography://show/memory
 /// coreography://filter?q=cpu:%3E10
 /// coreography://find?port=443
 /// coreography://find?file=~/Downloads
@@ -18,6 +19,7 @@ import CoreographyKit
 /// ```
 public enum AutomationCommand: Equatable, Sendable {
     case show
+    case navigate(DashboardSection)
     case filter(String)
     case selectProcess(pid: Int32)
     case range(TimeRange)
@@ -56,6 +58,11 @@ public enum AutomationLink {
             switch path {
             case [], ["show"]:
                 return .success(.show)
+            case let destination where destination.count == 2 && destination[0] == "show":
+                guard let section = DashboardSection(rawValue: destination[1]) else {
+                    throw AutomationLinkError.invalidArgument("Unknown section \"\(destination[1])\"")
+                }
+                return .success(.navigate(section))
             case ["filter"]:
                 return .success(.filter(try text(query["q"] ?? "", name: "q")))
             case ["find"]:

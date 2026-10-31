@@ -1,6 +1,6 @@
 // Posts real pointer and key events at the CPU lane, as a person would,
-// and takes a still after each step. The chart is found through
-// Accessibility; layout estimates are the fallback, and both are logged.
+// and takes a still after each step. Chart identifiers make a missing
+// target fail rather than sending gestures to an estimated rectangle.
 import AppKit
 import ApplicationServices
 import Foundation
@@ -80,12 +80,12 @@ func frame(_ element: AXUIElement) -> CGRect? {
 }
 
 func text(_ element: AXUIElement) -> String {
-    [kAXRoleAttribute, kAXDescriptionAttribute, kAXTitleAttribute, kAXLabelValueAttribute]
+    [kAXRoleAttribute, kAXDescriptionAttribute, kAXTitleAttribute, kAXLabelValueAttribute, kAXValueAttribute]
         .compactMap { attribute(element, $0) as? String }.joined(separator: " | ")
 }
 
 /// The first element whose Accessibility text contains every fragment.
-func element(containing fragments: [String]) -> AXUIElement? {
+func element(containing fragments: [String] = [], identifier: String? = nil) -> AXUIElement? {
     guard let app = coreography() else { return nil }
     var queue: [(AXUIElement, Int)] = [(AXUIElementCreateApplication(app.processIdentifier), 0)]
     var visited = 0
@@ -93,7 +93,8 @@ func element(containing fragments: [String]) -> AXUIElement? {
         let (element, depth) = queue.removeFirst()
         visited += 1
         let label = text(element)
-        if fragments.allSatisfy({ label.localizedCaseInsensitiveContains($0) }) { return element }
+        let matchesIdentifier = identifier == nil || attribute(element, kAXIdentifierAttribute) as? String == identifier
+        if matchesIdentifier, fragments.allSatisfy({ label.localizedCaseInsensitiveContains($0) }) { return element }
         guard depth < 40, let children = attribute(element, kAXChildrenAttribute) as? [AXUIElement] else { continue }
         queue += children.map { ($0, depth + 1) }
     }
@@ -116,23 +117,7 @@ func film(_ name: String, seconds: Int) -> Process? {
 }
 
 func cpuChart() -> CGRect? {
-    guard let app = coreography() else { return nil }
-    var queue: [(AXUIElement, Int)] = [(AXUIElementCreateApplication(app.processIdentifier), 0)]
-    var candidates: [(CGRect, String)] = []
-    var visited = 0
-    while !queue.isEmpty, visited < 4000 {
-        let (element, depth) = queue.removeFirst()
-        visited += 1
-        let label = text(element)
-        if let rect = frame(element), label.localizedCaseInsensitiveContains("CPU"),
-           rect.width > 300, (50...300).contains(rect.height), rect.minY < 420 {
-            candidates.append((rect, label))
-        }
-        guard depth < 40, let children = attribute(element, kAXChildrenAttribute) as? [AXUIElement] else { continue }
-        queue += children.map { ($0, depth + 1) }
-    }
-    for (rect, label) in candidates { log("chart candidate \(rect) \(label)") }
-    return candidates.min { $0.0.minY < $1.0.minY }?.0
+    element(identifier: "cpu-chart").flatMap(frame)
 }
 
 /// The app's windows as Accessibility sees them, identifier included.
@@ -175,7 +160,7 @@ func click(_ point: CGPoint) {
 }
 
 enum Key: CGKeyCode {
-    case u = 32, returnKey = 36, escape = 53, left = 123, right = 124, down = 125, up = 126
+    case zero = 29, u = 32, returnKey = 36, escape = 53, left = 123, right = 124, down = 125, up = 126
 }
 
 func press(_ key: Key, flags: CGEventFlags = []) {
@@ -197,10 +182,47 @@ guard AXIsProcessTrusted() else {
     exit(1)
 }
 logWindows()
-let estimate = CGRect(x: 244, y: 147, width: 640, height: 104)
-let found = cpuChart()
-let chart = found ?? estimate
-log("CPU chart \(found == nil ? "estimated" : "found") at \(chart)")
+
+enum Destination: String, CaseIterable {
+    case overview, cpu, memory, gpu, storage, network, power, processes, timeline, startup, recordings
+}
+
+func waitForDestination(_ section: Destination) {
+    let deadline = Date().addingTimeInterval(10)
+    while Date() < deadline {
+        if element(identifier: "section-heading-\(section.rawValue)") != nil { return }
+        pause(0.1)
+    }
+    log("error: destination \(section.rawValue) did not appear")
+    exit(1)
+}
+
+func navigate(to section: Destination) {
+    guard let url = URL(string: "coreography://show/\(section.rawValue)"), NSWorkspace.shared.open(url) else {
+        log("error: could not open destination \(section.rawValue)")
+        exit(1)
+    }
+    waitForDestination(section)
+    log("destination \(section.rawValue) visible")
+}
+
+// Check the new destinations before exercising the existing chart gestures.
+for section in Destination.allCases { navigate(to: section) }
+navigate(to: .overview)
+shot("00-overview", of: window)
+guard let card = element(identifier: "overview-cpu"), let cardFrame = frame(card) else {
+    log("error: Overview has no CPU card")
+    exit(1)
+}
+click(CGPoint(x: cardFrame.midX, y: cardFrame.midY))
+waitForDestination(.cpu)
+shot("00-cpu-detail", of: window)
+
+guard let chart = cpuChart() else {
+    log("error: CPU chart not found on the CPU destination")
+    exit(1)
+}
+log("CPU chart found at \(chart)")
 // The plot leaves room for the axis labels: trailing values, dates below.
 let plot = CGRect(x: chart.minX + 4, y: chart.minY + 6, width: chart.width - 110, height: chart.height - 28)
 func at(_ x: Double, _ y: Double) -> CGPoint {
@@ -282,11 +304,36 @@ press(.escape)
 pause(0.4)
 shot("13-escape")
 mouse(.mouseMoved, CGPoint(x: 20, y: 700))
+
+// Leaving an open braid must not send the investigation back to live.
+press(.zero, flags: .maskCommand)
+waitForDestination(.timeline)
+navigate(to: .cpu)
+press(.u)
+// Posted keys are asynchronous; establish the hold before testing navigation.
+let holdDeadline = Date().addingTimeInterval(10)
+while element(containing: ["Held display"]) == nil, Date() < holdDeadline { pause(0.1) }
+guard element(containing: ["Held display"]) != nil else {
+    shot("14-cpu-hold-not-established", of: window)
+    log("error: the CPU key did not establish a held investigation")
+    exit(1)
+}
+shot("14-held-cpu", of: window)
+navigate(to: .memory)
+guard element(containing: ["Held display"]) != nil else {
+    log("error: leaving the CPU braid lost its held investigation")
+    exit(1)
+}
+shot("14-held-memory", of: window)
+press(.zero, flags: .maskCommand)
+waitForDestination(.timeline)
 log("braid done")
 
 // MARK: The space braid
 
-// The startup volume's rope sits in the Disk lane's header, below the fold.
+navigate(to: .storage)
+
+// The startup volume's rope sits on the Storage page; scroll it into view if needed.
 let ropeFragments = ["free", "used of"]
 /// Scrolls the lanes until the rope is in the window's middle, by Accessibility
 /// first and by posted wheel events where SwiftUI does not offer that. The
