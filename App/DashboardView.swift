@@ -14,6 +14,7 @@ struct DashboardView: View {
     /// A palette process action, confirmed once the palette has closed.
     @State private var queuedPaletteAction: ProcessActionRequest?
     @State private var markerName = ""
+    @State private var askQuestion = ""
     @State private var paletteAction: ProcessActionRequest?
     /// The CPU braid's lens (plan: the CPU lane opens into its apps).
     @State private var inspection = BraidInspection()
@@ -144,7 +145,11 @@ struct DashboardView: View {
                 .help("Hold the display while collection continues")
             }
         }
-        .onAppear { model.start() }
+        .onAppear {
+            model.start()
+            braidKeys.install(braidKey)
+        }
+        .onDisappear { braidKeys.remove() }
     }
 
     private var sidebar: some View {
@@ -236,10 +241,10 @@ struct DashboardView: View {
         switch model.section {
         case .overview:
             OverviewView(model: model)
-            AskPanel(model: model)
+            AskPanel(model: model, question: $askQuestion)
         case .timeline:
             ForEach(model.laneLayout.visible) { lanePresentation($0) }
-            AskPanel(model: model)
+            AskPanel(model: model, question: $askQuestion)
             if let report = model.rangeReport { RangePanel(model: model, report: report) }
             Picker("Detail", selection: $model.detailPane) {
                 Text("Processes").tag(DetailPane.processes)
@@ -477,6 +482,8 @@ struct DashboardView: View {
     /// and Down choose a strand, Return catches the chosen app (or the
     /// biggest), Escape folds. Escape on a closed braid clears the scope.
     private func braidKey(_ press: BraidKeyPress) -> Bool {
+        guard model.section == .cpu || (model.section == .timeline && model.laneLayout.visible.contains(.cpu))
+        else { return false }
         guard !model.paletteShown, !model.markerPromptShown, !model.annotationPromptShown, model.typingFields.isEmpty
         else { return false }
         switch (press.key, inspection.phase) {
@@ -714,7 +721,6 @@ struct DashboardView: View {
                             }
                         }
                     }
-                    .onAppear { if metric == .cpu { braidKeys.install(braidKey) } }
                     .accessibilityActions {
                         if let braid {
                             Button(inspection.isOpen ? "Close the CPU braid" : "Open the CPU braid") {
@@ -730,7 +736,6 @@ struct DashboardView: View {
                     .onDisappear {
                         guard metric == .cpu else { return }
                         inspection.reset(model: model, display: model.section == section ? .restore : .preserve)
-                        braidKeys.remove()
                     }
                     .onChange(of: braid == nil) { _, gone in if gone { inspection.reset(model: model) } }
                     // A new range or a return to live takes the inspected moment away.
