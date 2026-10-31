@@ -80,7 +80,7 @@ func frame(_ element: AXUIElement) -> CGRect? {
 }
 
 func text(_ element: AXUIElement) -> String {
-    [kAXRoleAttribute, kAXDescriptionAttribute, kAXTitleAttribute, kAXLabelValueAttribute]
+    [kAXRoleAttribute, kAXDescriptionAttribute, kAXTitleAttribute, kAXLabelValueAttribute, kAXValueAttribute]
         .compactMap { attribute(element, $0) as? String }.joined(separator: " | ")
 }
 
