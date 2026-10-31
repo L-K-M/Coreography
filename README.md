@@ -5,7 +5,7 @@
 
 A graph-first, native Mac system monitor, in early implementation.
 
-**Development version:** v<!-- version -->0.6.0<!-- /version -->
+**Development version:** v<!-- version -->0.6.1<!-- /version -->
 
 The first slice collects whole-machine CPU activity and estimated used
 memory, shows a minute of aligned graphs, and includes a numeric table
