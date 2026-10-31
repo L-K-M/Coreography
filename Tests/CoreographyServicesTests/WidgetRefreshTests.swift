@@ -6,7 +6,7 @@ import XCTest
 final class WidgetRefreshTests: XCTestCase {
     private let start = Date(timeIntervalSince1970: 1_700_000_000)
 
-    func testFirstSampleRefreshesAndForegroundSamplesCoalesceForFiveMinutes() {
+    func testFirstSampleRefreshesAndForegroundSamplesCoalesceForFiveMinutes() async {
         var requests = 0
         let widgets = WidgetRefresh { requests += 1 }
         widgets.request(at: start, activity: .foreground)
@@ -21,7 +21,7 @@ final class WidgetRefreshTests: XCTestCase {
         XCTAssertEqual(requests, 2)
     }
 
-    func testBackgroundSamplesWaitFifteenMinutesWithoutExtendingTheWait() {
+    func testBackgroundSamplesWaitFifteenMinutesWithoutExtendingTheWait() async {
         var requests = 0
         let widgets = WidgetRefresh { requests += 1 }
         widgets.request(at: start, activity: .background)
@@ -33,7 +33,7 @@ final class WidgetRefreshTests: XCTestCase {
         XCTAssertEqual(requests, 2)
     }
 
-    func testActivityChangesUseTheLastActualRequest() {
+    func testActivityChangesUseTheLastActualRequest() async {
         var requests = 0
         let widgets = WidgetRefresh { requests += 1 }
         widgets.request(at: start, activity: .background)
@@ -45,7 +45,7 @@ final class WidgetRefreshTests: XCTestCase {
         XCTAssertEqual(requests, 3)
     }
 
-    func testBackwardClockCorrectionDoesNotFreezeRefreshes() {
+    func testBackwardClockCorrectionDoesNotFreezeRefreshes() async {
         var requests = 0
         let widgets = WidgetRefresh { requests += 1 }
         widgets.request(at: start, activity: .foreground)

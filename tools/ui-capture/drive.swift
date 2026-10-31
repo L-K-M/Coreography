@@ -310,7 +310,15 @@ press(.zero, flags: .maskCommand)
 waitForDestination(.timeline)
 navigate(to: .cpu)
 press(.u)
-pause(0.5)
+// Posted keys are asynchronous; establish the hold before testing navigation.
+let holdDeadline = Date().addingTimeInterval(10)
+while element(containing: ["Held display"]) == nil, Date() < holdDeadline { pause(0.1) }
+guard element(containing: ["Held display"]) != nil else {
+    shot("14-cpu-hold-not-established", of: window)
+    log("error: the CPU key did not establish a held investigation")
+    exit(1)
+}
+shot("14-held-cpu", of: window)
 navigate(to: .memory)
 guard element(containing: ["Held display"]) != nil else {
     log("error: leaving the CPU braid lost its held investigation")
